@@ -1,0 +1,60 @@
+# Monica Peters — Dashboard & Human Gate Individual Plan
+**Role:** Dashboard & Human Gate Lead  
+**Focus:** React review dashboard, human approval workflow (proposed→suggested→active), contradiction resolution UI, credibility metrics viz, injection controls.  
+**Interview Claim:** "I designed and built the human approval dashboard that enforces quality gates and makes knowledge promotion transparent and measurable."
+
+**Sprint Schedule Note:** 10 full work days (skipping Thursday June 18). Day 1 = Friday June 19. Days 9–10 (June 27–28) reserved for project completion and presentation practice/perfection. All times EOD unless noted.
+
+## Overall Success Criteria (Shared)
+- MVP delivered with full pipeline.
+- Primary metric: ≥50% reduction in user corrections on benchmark vs. cold runs.
+- Monica owns UX clarity and human-gate usability.
+
+## High-Level Phases & Personal Deliverables
+
+### Days 1–2: Project Plan, Foundation & Design (Due: End of Day 2 — Saturday, June 20)
+- **Day 1 Deliverables:**
+  - Dashboard wireframes & tech stack decision (React + state management).
+- **Day 2 Deliverables:**
+  - Build review dashboard shell + candidate list view.
+- **Key Output:** Approved wireframes; interactive shell ready for data population; tech stack finalized with team.
+
+### Days 3–5: Parallel Core Build (Due: End of Day 5 — Tuesday, June 23)
+- **Day 3 Deliverables:**
+  - Candidate detail view + confidence score UI components.
+- **Day 4 Deliverables:**
+  - Human gate workflow UI (proposed → suggested → active states).
+- **Day 5 Deliverables:**
+  - Contradiction resolution interface + credibility metrics visualization.
+- **Key Output:** Polished dashboard UI components for reviewing, scoring, and gating knowledge candidates.
+
+### Days 6–7: Integration & Human Gate (Due: End of Day 7 — Thursday, June 25)
+- **Day 6 Deliverables:**
+  - Dashboard ↔ backend API integration + approval actions wired.
+- **Day 7 Deliverables:**
+  - Full human approval flow complete.
+  - Provenance display in UI.
+- **Key Output:** End-to-end human gate functional: users can review, resolve contradictions, promote knowledge with full audit trail visible.
+
+### Day 8: Eval Harness & Measurement (Due: End of Day 8 — Friday, June 26)
+- Dashboard polish + edge-case handling in review flow.
+- Support eval metrics visualization if needed.
+- **Key Output:** Robust, demo-ready dashboard handling real data and edge cases.
+
+### Day 9–10: Demo Polish, Documentation & Final Runs (Due: End of Day 10 — Sunday, June 28)
+- Dashboard demo-ready.
+- User flow video capture.
+- Practice Presentation contribution (Dashboard/Human Gate pillar).
+- **Key Output:** Production-quality dashboard with compelling live demo story; clear UX for quality gates.
+
+## Daily Commitments
+- Daily 15-min sync at start of each day.
+- All code reviewed by at least one other member.
+- Own UX clarity and human-gate usability end-to-end.
+
+## Cross-Team Notes
+- Pair with Matthew on integration (Days 6–7) for seamless candidate data flow and approval actions.
+- Coordinate with Dominic on eval harness metrics display and demo data prep.
+- Ensure every promoted item shows clear provenance and confidence rationale for transparency and interview storytelling.
+
+*Stay focused: Your pillar makes the "human in the loop" real and credible. Polish the review experience so promotion feels effortless and trustworthy.*
