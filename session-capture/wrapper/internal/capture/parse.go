@@ -7,30 +7,45 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/praxis/session-capture/internal/config"
 )
 
-// TranscriptPath resolves the JSONL transcript path for a session in a repo,
-// mirroring Claude Code's ~/.claude/projects/<hash>/<sid>.jsonl layout. The
-// project hash is derived from the absolute repo path. This is the same surface
-// ce-sessions reads. (The claude+ isolated-config-root resolution is dropped
-// here — praxis tails the standard ~/.claude root.)
-func TranscriptPath(repoRoot, sessionID string) (string, error) {
+// baseConfigDir resolves the Claude config root for a repo: the isolated
+// per-repo overlay root when the daemon has provisioned one (config.ConfigDir),
+// otherwise the standard ~/.claude. This keeps the transcript tailer pointed at
+// the SAME root the session was launched against — under the daemon (isolated
+// overlay) or a plain `claude` (~/.claude).
+func baseConfigDir(repoRoot string) (string, error) {
+	if base, ok := config.ConfigDir(repoRoot); ok {
+		return base, nil
+	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
 	}
-	base := filepath.Join(home, ".claude")
+	return filepath.Join(home, ".claude"), nil
+}
+
+// TranscriptPath resolves the JSONL transcript path for a session in a repo,
+// mirroring Claude Code's <config>/projects/<hash>/<sid>.jsonl layout. The
+// project hash is derived from the absolute repo path.
+func TranscriptPath(repoRoot, sessionID string) (string, error) {
+	base, err := baseConfigDir(repoRoot)
+	if err != nil {
+		return "", err
+	}
 	return filepath.Join(base, "projects", projectHash(repoRoot), sessionID+".jsonl"), nil
 }
 
-// ProjectDir resolves the ~/.claude/projects/<hash> directory for a repo, where
+// ProjectDir resolves the <config>/projects/<hash> directory for a repo, where
 // every session transcript for that repo lives.
 func ProjectDir(repoRoot string) (string, error) {
-	home, err := os.UserHomeDir()
+	base, err := baseConfigDir(repoRoot)
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(home, ".claude", "projects", projectHash(repoRoot)), nil
+	return filepath.Join(base, "projects", projectHash(repoRoot)), nil
 }
 
 // projectHash derives Claude Code's per-project directory name. Claude Code
