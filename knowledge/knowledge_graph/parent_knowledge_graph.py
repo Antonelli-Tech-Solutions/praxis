@@ -1,9 +1,9 @@
 """Abstract knowledge-graph contract.
 
 The ``KnowledgeGraph`` is the storage primitive both the ingestor and the graph
-reader depend on. The "graph" is whatever a concrete variant chooses to persist;
-for the MVP that is a single ``CLAUDE.md`` file (see
-``knowledge_graph_variants.claude_md_graph``).
+reader depend on. The "graph" is whatever a concrete variant holds; for the MVP
+that is an in-memory string (see ``knowledge_graph_variants.in_memory_graph``) —
+no file, nothing on disk. A variant owns its own initialization/provisioning.
 
 Freeze this contract: variants may change freely, callers must not.
 """
@@ -22,7 +22,7 @@ class KnowledgeGraph(ABC):
 
         ``context`` (optional, default ``None``) hints what to retrieve. A
         variant is free to ignore it and return everything — the MVP
-        ``ClaudeMdGraph`` does exactly that.
+        ``InMemoryGraph`` does exactly that.
         """
 
     @abstractmethod

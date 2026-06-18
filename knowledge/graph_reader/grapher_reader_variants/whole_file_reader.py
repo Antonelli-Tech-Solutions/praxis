@@ -17,7 +17,7 @@ class WholeFileReader(GraphReader):
     """Returns the entire knowledge graph regardless of context."""
 
     def synthesis(self, context: str | None = None) -> list[ReadRequest]:
-        return [ReadRequest(query="")]
+        return [ReadRequest(query=context or '')]
 
 
 def as_claude_tool(reader: GraphReader) -> dict[str, Any]:
