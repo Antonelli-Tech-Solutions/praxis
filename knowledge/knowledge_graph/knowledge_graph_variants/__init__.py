@@ -1,7 +1,7 @@
 """Concrete ``KnowledgeGraph`` implementations."""
 
-from knowledge.knowledge_graph.knowledge_graph_variants.claude_md_graph import (
-    ClaudeMdGraph,
+from knowledge.knowledge_graph.knowledge_graph_variants.in_memory_graph import (
+    InMemoryGraph,
 )
 
-__all__ = ["ClaudeMdGraph"]
+__all__ = ["InMemoryGraph"]

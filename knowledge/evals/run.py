@@ -6,21 +6,22 @@ grow.
 
 CLI:
 
-    uv run python -m knowledge.evals.run            # run all registered cases
-    uv run python -m knowledge.evals.run <case_id>  # run one
+    uv run python -m knowledge.evals.run                   # real Claude Code over all cases
+    uv run python -m knowledge.evals.run <case_id>         # real Claude Code, one case
+    uv run python -m knowledge.evals.run --fake <case_id>  # offline FakeRunner (no credit)
 """
 
 from __future__ import annotations
 
+import argparse
 import importlib
 import json
-import sys
-import tempfile
 from pathlib import Path
 from typing import Callable, Protocol
 
 import yaml
 
+from knowledge.evals.claude_code import ClaudeCodeJudge, ClaudeCodeRunner
 from knowledge.evals.eval_def import (
     CaseResult,
     CheckResult,
@@ -29,7 +30,7 @@ from knowledge.evals.eval_def import (
     EvalContext,
     Rubric,
 )
-from knowledge.run import build_trio
+from knowledge.wiring import build_trio
 
 HERE = Path(__file__).parent
 CASES_DIR = HERE / "cases"
@@ -67,17 +68,9 @@ class FakeRunner:
         )
 
 
-class ClaudeCodeRunner:
-    """Thin adapter to real headless Claude Code (integration path).
-
-    Placeholder for the MVP: wiring the live binary is integration-only so unit
-    tests and CI stay offline. Implement when the real reader lands.
-    """
-
-    def run(self, case: EvalCase, reader) -> EvalContext:  # pragma: no cover
-        raise NotImplementedError(
-            "ClaudeCodeRunner is the integration path; use FakeRunner offline."
-        )
+# The real Claude Code runner + judge live in knowledge.evals.claude_code
+# (imported at the top). They only touch the `claude` binary when run, so
+# importing them is free for --fake runs.
 
 
 # --------------------------------------------------------------------------- #
@@ -121,9 +114,12 @@ def grade_rubric(
 # --------------------------------------------------------------------------- #
 # M7/M8 — orchestration
 # --------------------------------------------------------------------------- #
-def _seed_knowledge(case: EvalCase, kg_path: Path, llm=None):
-    """Build a fresh trio and pre-load the case's seeded insight."""
-    graph, ingestor, reader = build_trio(kg_path, llm=llm)
+def _seed_knowledge(case: EvalCase, llm=None):
+    """Provision a fresh trio and pre-load the case's seeded insight.
+
+    The graph initializes itself (in-memory for the MVP) — no path, no file.
+    """
+    graph, ingestor, reader = build_trio(llm=llm)
     for text in case.seeded_insight.direct_to_graph:
         graph.write(text)
     for text in case.seeded_insight.via_ingestor:
@@ -138,10 +134,8 @@ def run_case(
     llm=None,
 ) -> CaseResult:
     """Run a single case end-to-end and return its graded result."""
-    with tempfile.TemporaryDirectory() as tmp:
-        kg_path = Path(tmp) / "CLAUDE.md"
-        reader = _seed_knowledge(case, kg_path, llm=llm)
-        ctx = runner.run(case, reader)
+    reader = _seed_knowledge(case, llm=llm)
+    ctx = runner.run(case, reader)
 
     checks = run_checks(case, ctx)
     rubric_score = grade_rubric(case, ctx, judge)
@@ -190,26 +184,49 @@ def write_baseline(results: list[CaseResult], path: Path = BASELINE_PATH) -> Non
 
 
 def main(argv: list[str] | None = None) -> int:
-    argv = argv if argv is not None else sys.argv[1:]
+    parser = argparse.ArgumentParser(prog="knowledge.evals.run")
+    parser.add_argument("case_ids", nargs="*", help="case ids to run (default: all)")
+    parser.add_argument(
+        "--fake",
+        action="store_true",
+        help="use the offline FakeRunner instead of real Claude Code (no subscription credit)",
+    )
+    args = parser.parse_args(argv)
+
     cases = load_cases()
-    if argv:
-        wanted = set(argv)
+    if args.case_ids:
+        wanted = set(args.case_ids)
         cases = [c for c in cases if c.id in wanted]
 
     if not cases:
         print("no cases to run")
         return 0
 
-    runner = FakeRunner()  # offline baseline: empty output, evals expected to fail
-    results = [run_case(case, runner) for case in cases]
+    judge = None
+    if args.fake:
+        runner = FakeRunner()  # offline: empty output, evals expected to fail
+        print(f"running {len(cases)} case(s) through FakeRunner (offline)...")
+    else:
+        runner = ClaudeCodeRunner()  # real Claude Code by default
+        judge = ClaudeCodeJudge()
+        print(f"running {len(cases)} case(s) through real Claude Code (subscription)...")
+
+    results = []
+    for case in cases:
+        run_result = run_case(case, runner, judge=judge)
+        results.append(run_result)
     write_baseline(results)
 
     for r in results:
         verdict = "PASS" if r.passed else "FAIL"
-        print(f"[{verdict}] {r.case_id}  checks={sum(c.passed for c in r.checks)}/{len(r.checks)}")
+        score = "" if r.rubric_score is None else f"  rubric={r.rubric_score:.2f}"
+        print(
+            f"[{verdict}] {r.case_id}  "
+            f"checks={sum(c.passed for c in r.checks)}/{len(r.checks)}{score}"
+        )
     print(f"\nwrote {len(results)} rows -> {BASELINE_PATH}")
     return 0
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    main()

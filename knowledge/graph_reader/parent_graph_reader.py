@@ -40,5 +40,9 @@ class GraphReader(ABC):
 
         Concrete and final for the MVP — runs every time.
         """
-        parts = [self.graph.read(req.query) for req in self.synthesis(context)]
+        partitioned_input = self.synthesis(context)
+        parts = []
+        for req in partitioned_input:
+            retrieved_context = self.graph.read(req.query)
+            parts.append(retrieved_context)
         return "\n".join(part for part in parts if part)

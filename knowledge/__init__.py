@@ -2,7 +2,7 @@
 
 Three core pieces, each an abstract parent with swappable variants:
 
-- ``knowledge_graph`` — the store (MVP: a CLAUDE.md file).
+- ``knowledge_graph`` — the store (MVP: an in-memory string).
 - ``injestion``      — distills raw input into the graph.
 - ``graph_reader``   — retrieves knowledge for the agent, given context.
 """
