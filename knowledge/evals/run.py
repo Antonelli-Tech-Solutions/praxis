@@ -127,15 +127,52 @@ def _seed_knowledge(case: EvalCase, llm=None):
     return reader
 
 
+def run_component(case: EvalCase, llm=None) -> EvalContext:
+    """Exercise a single component in isolation (no agent) and return its output.
+
+    Each branch provisions a fresh trio and drives only the targeted piece, so
+    the graded output reflects that component alone:
+
+    - ``knowledge_graph`` — write the seeded ``direct_to_graph`` lines, read them back.
+    - ``ingestion``       — ingest the seeded ``via_ingestor`` lines, read the graph.
+    - ``graph_reader``    — seed the graph, then retrieve via the reader (``seed_prompt`` as context).
+    """
+    graph, ingestor, reader = build_trio(llm=llm)
+
+    if case.component == "knowledge_graph":
+        for text in case.seeded_insight.direct_to_graph:
+            graph.write(text)
+        output = graph.read()
+    elif case.component == "ingestion":
+        for text in case.seeded_insight.via_ingestor:
+            ingestor.ingest(text)
+        output = graph.read()
+    elif case.component == "graph_reader":
+        for text in case.seeded_insight.direct_to_graph:
+            graph.write(text)
+        output = reader.read(case.seed_prompt)
+    else:  # pragma: no cover - guarded by the schema
+        raise ValueError(f"unknown component: {case.component!r}")
+
+    return EvalContext(case_id=case.id, output=output)
+
+
 def run_case(
     case: EvalCase,
     runner: Runner,
     judge: RubricJudge | None = None,
     llm=None,
 ) -> CaseResult:
-    """Run a single case end-to-end and return its graded result."""
-    reader = _seed_knowledge(case, llm=llm)
-    ctx = runner.run(case, reader)
+    """Run a single case end-to-end and return its graded result.
+
+    Component-scoped cases run deterministically via ``run_component`` and ignore
+    ``runner``; full-pipeline cases seed knowledge and run the agent ``runner``.
+    """
+    if case.component is not None:
+        ctx = run_component(case, llm=llm)
+    else:
+        reader = _seed_knowledge(case, llm=llm)
+        ctx = runner.run(case, reader)
 
     checks = run_checks(case, ctx)
     rubric_score = grade_rubric(case, ctx, judge)

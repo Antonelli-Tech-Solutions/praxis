@@ -8,6 +8,8 @@ what a graded run produces and what gets written to the baseline.
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, Field, model_validator
 
 
@@ -42,12 +44,23 @@ class SeededInsight(BaseModel):
     direct_to_graph: list[str] = Field(default_factory=list)  # each written to KnowledgeGraph.write()
 
 
+# Which slice of the pipeline a case exercises. None => the full agent pipeline
+# (seed knowledge -> run the agent -> grade). A component value runs *only* that
+# piece deterministically, with no agent involved.
+Component = Literal["knowledge_graph", "ingestion", "graph_reader"]
+
+
 class EvalCase(BaseModel):
-    """A single eval case — exactly these fields for the MVP."""
+    """A single eval case.
+
+    Set ``component`` to scope the case to one part of the algorithm; leave it
+    ``None`` for a full end-to-end pipeline run through the agent.
+    """
 
     id: str
-    seed_prompt: str  # instruction handed to the agent
-    target_commit: str  # desired end state / reference
+    component: Component | None = None
+    seed_prompt: str | None = None  # full-pipeline: agent instruction; reader case: context hint
+    target_commit: str | None = None  # full-pipeline: desired end state / reference
     start_commit: str | None = None  # optional; None => clean baseline
     repo: str | None = None  # where the commits live (defaults to this repo)
     seeded_insight: SeededInsight = Field(default_factory=SeededInsight)
@@ -55,9 +68,13 @@ class EvalCase(BaseModel):
     rubric: Rubric | None = None
 
     @model_validator(mode="after")
-    def _at_least_one_grader(self) -> "EvalCase":
+    def _validate(self) -> "EvalCase":
         if not self.deterministic_checks and self.rubric is None:
             raise ValueError("a case needs deterministic_checks and/or a rubric")
+        if self.component is None and (not self.seed_prompt or not self.target_commit):
+            raise ValueError(
+                "a full-pipeline case (no component) needs seed_prompt and target_commit"
+            )
         return self
 
 
