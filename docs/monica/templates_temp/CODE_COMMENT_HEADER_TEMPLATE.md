@@ -1,12 +1,12 @@
 """
 ===============================================================================
-FILE: telemetry_manager.py
-AUTHOR: MoniGarr
-CREATED: 2026-05-06
+FILE: filename.py
+AUTHOR: Monica Peters, monigarr@MoniGarr.com
+CREATED: 2026-06-18
 LICENSE: MIT
 
 PURPOSE:
-Enterprise telemetry orchestration manager.
+File purpose, this is a code comment header template.
 
 USAGE:
     telemetry = TelemetryManager()

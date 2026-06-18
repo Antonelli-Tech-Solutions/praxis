@@ -502,6 +502,8 @@ Aligned with project plan Figure 1 ("Human Approval Gate" nested under Consolida
 | Adversarial Agent | Empty states, API down, duplicate promote, race on rerun |
 | Performance Agent | Large candidate lists, Streamlit rerun cost |
 
+**Cursor agent teams:** ACR roles map to the six-role dream team blueprint in [templates_temp/DREAM_AGENT_TEAM.md](templates_temp/DREAM_AGENT_TEAM.md) (`DT-001` baseline for daily `frontend/` work).
+
 **Governance:** No autonomous promotion in production. All API mutations require authenticated human session (implementation TBD with Dominic Days 6–7).
 
 ---
@@ -901,3 +903,4 @@ The dashboard connects them through contracts — not through shared mutable int
 | [Dominic-Antonelli-Architecture-Eval-PlanDRAFT.md](../Dominic-Antonelli-Architecture-Eval-PlanDRAFT.md) | Downstream measurement |
 | [README.md](../README.md) | Repo overview and run instructions |
 | [.cursor/rules/praxis-dashboard.mdc](../../.cursor/rules/praxis-dashboard.mdc) | Editor/agent patterns |
+| [templates_temp/DREAM_AGENT_TEAM.md](templates_temp/DREAM_AGENT_TEAM.md) | ACR → Cursor agent team blueprint (`DT-001`–`DT-003`) |
