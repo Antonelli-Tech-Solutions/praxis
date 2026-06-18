@@ -91,7 +91,11 @@ their typed inputs/outputs. Concrete <strong>variants</strong> subclass the pare
 
 <h3>Core contracts (freeze these now)</h3>
 
-<p><span class="field">Knowledge graph</span> — the storage primitive both other pieces depend on. MVP variant is a <code>CLAUDE.md</code> file.</p>
+<p>Pattern across all three: the parent owns a <strong>concrete</strong> orchestration method and delegates the
+variable, model-specific step to an <strong>abstract <code>synthesis</code></strong> method that returns structured Pydantic
+objects. Variants only implement <code>synthesis</code> — the loop/persist/concatenate logic is fixed in the parent.</p>
+
+<p><span class="field">Knowledge graph</span> — the storage primitive both other pieces depend on. <code>read</code> takes an optional context hint. MVP variant is a <code>CLAUDE.md</code> file.</p>
 <pre class="snip">
 # praxis/knowledge/knowledge_graph/parent_knowledge_graph.py
 from abc import ABC, abstractmethod
@@ -100,48 +104,58 @@ class KnowledgeGraph(ABC):
     """The knowledge store. The 'graph' is whatever a variant persists."""
 
     @abstractmethod
-    def read(self) -> str:
-        """Return the full current knowledge content."""
+    def read(self, context: str | None = None) -> str:
+        """Return knowledge content. `context` (optional, default None) hints
+        what to retrieve; a variant may ignore it and return everything."""
 
     @abstractmethod
     def write(self, content: str) -> None:
-        """Replace the stored knowledge with `content`."""
+        """Persist `content` into the store."""
 
 # variant: knowledge_graph_variants/claude_md_graph.py
-#   class ClaudeMdGraph(KnowledgeGraph): def __init__(self, path: Path): ...
-#   read() returns the file text; write() overwrites it.
+#   ClaudeMdGraph(path): read(context=None) returns the file text (context ignored);
+#   write(content) integrates content into the CLAUDE.md.
 </pre>
 
-<p><span class="field">Ingestor</span> — folds an arbitrary insight string into the graph. MVP variant = hardcoded update prompt + one Claude call.</p>
+<p><span class="field">Ingestor</span> — <code>ingest</code> is concrete; the abstract <code>synthesis</code> turns raw input into a list of <code>Insight</code> objects, and <code>ingest</code> writes each into the graph.</p>
 <pre class="snip">
 # praxis/knowledge/injestion/parent_injestor.py
 from abc import ABC, abstractmethod
+from pydantic import BaseModel
 from praxis.knowledge.knowledge_graph.parent_knowledge_graph import KnowledgeGraph
 
+class Insight(BaseModel):
+    raw_text: str                      # single field for now
+
 class Ingestor(ABC):
-    """Distills an insight into the knowledge graph."""
+    """Distills raw input into the knowledge graph."""
 
     def __init__(self, graph: KnowledgeGraph) -> None:
         self.graph = graph
 
     @abstractmethod
-    def ingest(self, insight: str) -> str:
-        """Fold `insight` into the graph, persist it via self.graph.write(),
-        and return the new graph content."""
+    def synthesis(self, raw_input: str) -> list[Insight]:
+        """Transform raw input into structured insights. (variant-defined)"""
+
+    def ingest(self, raw_input: str) -> str:        # concrete — runs every time
+        for insight in self.synthesis(raw_input):
+            self.graph.write(insight.raw_text)
+        return self.graph.read()
 
 # variant: injestor_variants/prompt_injestor.py
-#   class PromptIngestor(Ingestor):
-#       def __init__(self, graph, llm): ...
-#       ingest(insight): new = llm(UPDATE_PROMPT, self.graph.read(), insight)
-#                        self.graph.write(new); return new
-#   UPDATE_PROMPT is a single hardcoded constant for MVP.
+#   PromptIngestor(graph, llm): synthesis() uses the hardcoded prompt + LLM to
+#   split raw_input into Insight objects; inherited ingest() loops graph.write.
 </pre>
 
-<p><span class="field">Graph reader</span> — retrieves knowledge for the agent, given current context. Signature takes <code>context</code> now even though the MVP variant ignores it and returns everything.</p>
+<p><span class="field">Graph reader</span> — <code>read</code> is concrete; the abstract <code>synthesis</code> turns arbitrary context into a list of <code>ReadRequest</code> objects, and <code>read</code> runs each against the graph and concatenates.</p>
 <pre class="snip">
 # praxis/knowledge/graph_reader/parent_graph_reader.py
 from abc import ABC, abstractmethod
+from pydantic import BaseModel
 from praxis.knowledge.knowledge_graph.parent_knowledge_graph import KnowledgeGraph
+
+class ReadRequest(BaseModel):
+    query: str                         # structured retrieval request (expandable)
 
 class GraphReader(ABC):
     """Retrieves knowledge for the agent, given current context."""
@@ -150,28 +164,31 @@ class GraphReader(ABC):
         self.graph = graph
 
     @abstractmethod
-    def read(self, context: str | None = None) -> str:
-        """Return knowledge relevant to `context`."""
+    def synthesis(self, context: str | None = None) -> list[ReadRequest]:
+        """Turn arbitrary context into structured read requests. (variant-defined)"""
+
+    def read(self, context: str | None = None) -> str:   # concrete — runs every time
+        parts = [self.graph.read(req.query) for req in self.synthesis(context)]
+        return "\n".join(parts)
 
 # variant: grapher_reader_variants/whole_file_reader.py
-#   class WholeFileReader(GraphReader):
-#       def read(self, context=None) -> str: return self.graph.read()  # context ignored
-#   A thin adapter registers read() as a Claude tool; the method stays pure.
+#   WholeFileReader: synthesis() returns a single whole-graph ReadRequest, so
+#   read() returns the full graph. A thin adapter registers read() as a Claude tool.
 </pre>
 
 <div class="unit">
 <h3>M1. <code>KnowledgeGraph</code> parent + <code>ClaudeMdGraph</code> variant <span class="pill">product</span></h3>
-<p><span class="field">MVP done when:</span> <code>ClaudeMdGraph(path).read()/.write()</code> round-trips a <code>CLAUDE.md</code> file. The "graph" is just the file text — no structure, no index.</p>
+<p><span class="field">MVP done when:</span> <code>ClaudeMdGraph(path).read(context=None)/.write()</code> round-trips a <code>CLAUDE.md</code> file; the MVP variant ignores <code>context</code> and returns the whole file. The "graph" is just the file text — no structure, no index.</p>
 </div>
 
 <div class="unit">
 <h3>M2. <code>Ingestor</code> parent + <code>PromptIngestor</code> variant <span class="pill">product</span></h3>
-<p><span class="field">MVP done when:</span> <code>PromptIngestor(graph, llm).ingest("some insight")</code> feeds the hardcoded <code>UPDATE_PROMPT</code> + current graph + insight to Claude, writes the result back, and returns the new content.</p>
+<p><span class="field">MVP done when:</span> the parent's concrete <code>ingest(raw_input)</code> calls the variant's <code>synthesis()</code> to split raw input into <code>Insight</code> objects, then loops <code>self.graph.write()</code> over them. <code>PromptIngestor.synthesis</code> uses the hardcoded prompt + LLM; <code>Insight</code> carries a single <code>raw_text</code> field for now.</p>
 </div>
 
 <div class="unit">
 <h3>M3. <code>GraphReader</code> parent + <code>WholeFileReader</code> variant <span class="pill">product</span></h3>
-<p><span class="field">MVP done when:</span> <code>WholeFileReader(graph).read()</code> returns the full graph, and a thin adapter exposes it as a registered Claude tool the agent under eval can call.</p>
+<p><span class="field">MVP done when:</span> the parent's concrete <code>read(context)</code> calls the variant's <code>synthesis()</code> to produce <code>ReadRequest</code> objects, runs each via <code>self.graph.read()</code>, and concatenates. <code>WholeFileReader.synthesis</code> returns a single whole-graph request; a thin adapter exposes <code>read()</code> as a registered Claude tool.</p>
 </div>
 
 <h2>Part 2 — Eval harness</h2>
@@ -186,6 +203,7 @@ class GraphReader(ABC):
     <tr><td class="k">target_commit</td><td>The git commit representing the desired end state — the reference the checks/rubric are authored against.</td></tr>
     <tr><td class="k">start_commit <span class="pill">optional</span></td><td>The commit the agent starts from. Optional — absent means start from an empty/clean baseline.</td></tr>
     <tr><td class="k">seed_prompt</td><td>The instruction handed to the agent (e.g. "build this feature").</td></tr>
+    <tr><td class="k">seeded_insight</td><td>Knowledge pre-loaded before the run — a list of strings fed through the <code>Ingestor</code>, plus a list written directly to the <code>KnowledgeGraph</code>.</td></tr>
   </tbody>
 </table>
 
@@ -211,12 +229,18 @@ class Rubric(BaseModel):
     id: str
     items: list[RubricItem]
 
+class SeededInsight(BaseModel):
+    """Knowledge pre-loaded before the run."""
+    via_ingestor: list[str] = Field(default_factory=list)     # each fed to Ingestor.ingest()
+    direct_to_graph: list[str] = Field(default_factory=list)  # each written straight to KnowledgeGraph.write()
+
 class EvalCase(BaseModel):
     id: str
     seed_prompt: str                          # instruction handed to the agent
     target_commit: str                        # desired end state / reference
     start_commit: str | None = None           # optional; None => clean baseline
     repo: str | None = None                   # where the commits live (defaults to this repo)
+    seeded_insight: SeededInsight = Field(default_factory=SeededInsight)
     deterministic_checks: list[DeterministicCheckRef] = Field(default_factory=list)
     rubric: Rubric | None = None
 
