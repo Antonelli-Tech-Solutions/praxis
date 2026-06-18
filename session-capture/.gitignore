@@ -1,0 +1,17 @@
+# Node / CDK
+node_modules/
+infra/cdk.out/
+infra/*.js
+infra/*.d.ts
+!infra/jest.config.js
+*.tsbuildinfo
+
+# Go
+/wrapper/claude-capture
+/wrapper/claude-capture.exe
+*.test
+
+# Env / local
+.env
+.env.local
+*.log
