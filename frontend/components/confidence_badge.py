@@ -4,15 +4,16 @@ from __future__ import annotations
 
 import streamlit as st
 
-from models.candidate import Candidate, candidate_state_color
+from models.candidate import Candidate, CandidateState, candidate_state_color
 
 
-def render_state_badge(state_value: str) -> None:
-    """Color-coded lifecycle badge (proposed / suggested / active / decayed)."""
+def render_state_badge(state_label: str, state: CandidateState | None = None) -> None:
+    """Color-coded lifecycle badge (proposed / suggested / active / decayed / unknown)."""
     from models.candidate import CandidateState
 
-    color = candidate_state_color(CandidateState(state_value))
-    st.markdown(f":{color}[**{state_value.upper()}**]")
+    enum_state = state if state is not None else CandidateState(state_label)
+    color = candidate_state_color(enum_state)
+    st.markdown(f":{color}[**{state_label.upper()}**]")
 
 
 def render_confidence_progress(confidence: float) -> None:

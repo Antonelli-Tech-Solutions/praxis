@@ -5,7 +5,8 @@ alwaysApply: true
 
 # PRAXIS Dashboard & Human Gate UI Guidelines (Monica's Pillar)
 
-Architecture source of truth: `docs/CONFIDENTIAL_PRAXIS_Project_Plan.html`.
+Architecture source of truth: `docs/PRAXIS_Project_Plan.html`.  
+Pillar docs: `docs/monica/` (architecture, plan, as-built wireframes).
 
 ## Component Structure
 - Human gate states: proposed → suggested → active with clear visual transitions and provenance display on every item.

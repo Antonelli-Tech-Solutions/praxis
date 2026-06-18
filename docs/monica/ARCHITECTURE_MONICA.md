@@ -18,9 +18,8 @@ Version:            0.1.0 (Day 2 shell — MVP in progress)
 Status:             Active development — shell complete, integration pending Days 6–7
 Classification:     Internal — capstone sprint
 Created:            2026-06-18
-Last Updated:       2026-06-18 (modular frontend extraction)
-Source of Truth:    docs/CONFIDENTIAL_PRAXIS_Project_Plan.docx
-                    (HTML mirror: docs/CONFIDENTIAL_PRAXIS_Project_Plan.html)
+Last Updated:       2026-06-18 (docs/monica relocation + forward-compatible contract)
+Source of Truth:    docs/PRAXIS_Project_Plan.html
 License:            TBD — Gauntlet AI capstone (2026)
 ============================================================================
 
@@ -50,7 +49,7 @@ The dashboard is implemented as a **modular Python + Streamlit** application und
 
 The UI consumes candidate data from Matthew's pipeline via a **contract-first API boundary** (Days 6–7) and surfaces audit-friendly actions that Dominic's eval harness can measure. It deploys anywhere a Python web process can run — Monica's target is **Render.com**; teammates retain full sovereignty over their own hosting and frontend choices.
 
-System-wide context and end-to-end loop: [CONFIDENTIAL_PRAXIS_Project_Plan.html](CONFIDENTIAL_PRAXIS_Project_Plan.html) and [README.md](../README.md).
+System-wide context and end-to-end loop: [PRAXIS_Project_Plan.html](../PRAXIS_Project_Plan.html) and [README.md](../README.md).
 
 ---
 
@@ -114,6 +113,8 @@ PRAXIS's human gate is a **research review instrument**, not a marketing site. R
 **What Streamlit is not chosen for:** pixel-perfect brand UI, native mobile apps, or replacing a production SaaS shell. Those are valid reasons for a future React app — and this architecture **allows** that without undoing Monica's work.
 
 **Interview framing:** *"I chose Streamlit because the human gate is a data-review surface — scored candidates, provenance, and confidence metrics — and Streamlit let me ship credible research visuals fast while keeping integration contract-first so the backend stays UI-agnostic."*
+
+Pillar docs live under `docs/monica/` (canonical home for Monica's documentation).
 
 ---
 
@@ -260,9 +261,9 @@ Within `frontend/`:
 
 | Artifact | Purpose |
 |----------|---------|
-| `docs/ARCHITECTURE_MONICA.md` | Pillar architecture (this document) |
-| `docs/monica-wireframes.md` | Screen specs and candidate contract draft |
-| `docs/Monica-Peters-Dashboard-Plan.md` | Sprint deliverables and timeline |
+| `docs/monica/ARCHITECTURE_MONICA.md` | Pillar architecture (this document) |
+| `docs/monica/monica-wireframes.md` | As-built screen spec and candidate contract |
+| `docs/monica/Monica-Peters-Dashboard-Plan.md` | Sprint deliverables and timeline |
 | `.cursor/rules/praxis-dashboard.mdc` | Agent/editor guidance for dashboard patterns |
 
 Team-wide architecture lives in the confidential project plan and Dominic's eval/integration docs — not duplicated here.
@@ -369,7 +370,7 @@ A new contributor should be able to:
 
 **Modular presentation layer** with **adapter-based data access**:
 
-- **UI layer** — Streamlit pages, tabs, components (`frontend/app.py` → future `frontend/components/`)
+- **UI layer** — Streamlit pages, tabs, components (`frontend/app.py` → `frontend/components/`)
 - **Application layer** — State transitions, filtering, session management
 - **Service layer** — `DataProvider` interface; `MockDataProvider` (now), `ApiDataProvider` (Days 6–7)
 - **Integration boundary** — REST (preferred) or GraphQL per team agreement — dashboard is a **client only**
@@ -439,9 +440,9 @@ Delivered as of modular extraction (2026-06-18):
 | `frontend/components/eval_metrics_embed.py` | ✅ Stub | Placeholder chart; Dominic API Day 8 |
 | `frontend/mock_data.py` | ✅ | Contract-shaped fixture dicts |
 | `frontend/.streamlit/config.toml` | ✅ | Theme defaults |
-| `docs/ARCHITECTURE_MONICA.md` | ✅ | Pillar architecture + coexistence guarantees |
+| `docs/monica/ARCHITECTURE_MONICA.md` | ✅ | Pillar architecture + coexistence guarantees |
 
-Key commit: `feat(dashboard): add Streamlit human-gate MVP and expand project README`.
+Key commit: `feat(dashboard): modular Streamlit human-gate UI and pillar architecture docs`.
 
 **Lifecycle logic today (session-local demo):**
 
@@ -591,14 +592,15 @@ praxis/
 │   ├── app.py
 │   ├── mock_data.py
 │   ├── requirements.txt
-│   ├── components/        ← planned
-│   ├── services/          ← planned
-│   └── models/            ← planned
+│   ├── components/        ← implemented
+│   ├── services/          ← implemented
+│   └── models/            ← implemented
 ├── frontend-react/        ← optional future React UI (separate package.json, same API)
 ├── docs/
-│   ├── ARCHITECTURE_MONICA.md
-│   ├── monica-wireframes.md
-│   └── Monica-Peters-Dashboard-Plan.md
+│   └── monica/            ← Monica pillar docs (this file, plan, as-built wireframes)
+│       ├── ARCHITECTURE_MONICA.md
+│       ├── monica-wireframes.md
+│       └── Monica-Peters-Dashboard-Plan.md
 ├── pipeline/              ← Matthew — do not modify without coordination
 ├── eval/                  ← Dominic — do not modify without coordination
 └── pyproject.toml         ← shared deps — coordinate changes affecting all pillars
@@ -617,7 +619,7 @@ praxis/
 
 ## File Header Pattern (Python modules in `frontend/`)
 
-New production modules should use the project header template from `docs/templates_temp/CODE_COMMENT_HEADER_TEMPLATE.md`. Example for planned API client:
+New production modules should use the project header template from `docs/monica/templates_temp/CODE_COMMENT_HEADER_TEMPLATE.md`. Example for API client:
 
 ```python
 """
@@ -713,7 +715,7 @@ Mock mode activates automatically when no API URL is configured.
 
 ## Contract-First Integration (Matthew ↔ Monica)
 
-The dashboard and pipeline integrate **only** through agreed JSON shapes. Draft contract (pending Matthew review — see [monica-wireframes.md](monica-wireframes.md)):
+The dashboard and pipeline integrate **only** through agreed JSON shapes. Draft contract (Matthew may extend — Monica's `Candidate.from_mapping` preserves unknown fields in `extra`). See [monica-wireframes.md](monica-wireframes.md) for the as-built contract table.
 
 ### Candidate (read model)
 
@@ -728,6 +730,9 @@ The dashboard and pipeline integrate **only** through agreed JSON shapes. Draft 
 | `provenance` | string | ✅ | `logs/<file>.jsonl:<line>` |
 | `createdAt` | ISO 8601 | ✅ | Creation timestamp |
 | `contradictions` | array | ⬜ Day 5 | IDs or embedded rival candidates |
+| *extension keys* | any | optional | Preserved in `Candidate.extra`; shown in detail view |
+
+**Forward compatibility:** `from_mapping` accepts camelCase and snake_case aliases for provenance and timestamps, tolerates unknown `state` values (displayed as-is), and never drops undeclared API fields.
 
 ### Approval mutations (write model)
 
@@ -816,13 +821,13 @@ frontend/
 
 # 19. Sprint Alignment (Monica deliverables)
 
-From [CONFIDENTIAL_PRAXIS_Project_Plan.html](CONFIDENTIAL_PRAXIS_Project_Plan.html) and [Monica-Peters-Dashboard-Plan.md](Monica-Peters-Dashboard-Plan.md):
+From [PRAXIS_Project_Plan.html](../PRAXIS_Project_Plan.html) and [Monica-Peters-Dashboard-Plan.md](Monica-Peters-Dashboard-Plan.md):
 
 | Day | Deliverable | Status |
 |-----|-------------|--------|
 | 1 | Wireframes, Streamlit stack decision | ✅ Done |
 | 2 | Dashboard shell + candidate list | ✅ Done |
-| 3 | Candidate detail + confidence UI | 🟡 In progress — detail expander + breakdown stub shipped |
+| 3 | Candidate detail + confidence UI | 🟡 Partial — detail expander + breakdown stub shipped; pipeline breakdown Day 5 |
 | 4 | Human gate workflow UI polish | 🔲 |
 | 5 | Contradiction resolution + credibility viz | 🔲 |
 | 6 | API integration + approval actions | 🔲 |
@@ -889,11 +894,10 @@ The dashboard connects them through contracts — not through shared mutable int
 
 | Document | Relationship |
 |----------|--------------|
-| [CONFIDENTIAL_PRAXIS_Project_Plan.docx](CONFIDENTIAL_PRAXIS_Project_Plan.docx) | Team source of truth |
-| [CONFIDENTIAL_PRAXIS_Project_Plan.html](CONFIDENTIAL_PRAXIS_Project_Plan.html) | HTML mirror + architecture diagram |
+| [PRAXIS_Project_Plan.html](../PRAXIS_Project_Plan.html) | HTML mirror + architecture diagram |
 | [Monica-Peters-Dashboard-Plan.md](Monica-Peters-Dashboard-Plan.md) | Sprint plan |
-| [monica-wireframes.md](monica-wireframes.md) | UX specs |
-| [Matthew-Daw-ML-Pipeline-PlanDRAFT.md](Matthew-Daw-ML-Pipeline-PlanDRAFT.md) | Upstream data producer |
-| [Dominic-Antonelli-Architecture-Eval-PlanDRAFT.md](Dominic-Antonelli-Architecture-Eval-PlanDRAFT.md) | Downstream measurement |
+| [monica-wireframes.md](monica-wireframes.md) | As-built UX spec |
+| [Matthew-Daw-ML-Pipeline-PlanDRAFT.md](../Matthew-Daw-ML-Pipeline-PlanDRAFT.md) | Upstream data producer |
+| [Dominic-Antonelli-Architecture-Eval-PlanDRAFT.md](../Dominic-Antonelli-Architecture-Eval-PlanDRAFT.md) | Downstream measurement |
 | [README.md](../README.md) | Repo overview and run instructions |
-| [.cursor/rules/praxis-dashboard.mdc](../.cursor/rules/praxis-dashboard.mdc) | Editor/agent patterns |
+| [.cursor/rules/praxis-dashboard.mdc](../../.cursor/rules/praxis-dashboard.mdc) | Editor/agent patterns |

@@ -30,7 +30,7 @@ flowchart LR
   Eval --> Gate
 ```
 
-Architecture source of truth: [docs/CONFIDENTIAL_PRAXIS_Project_Plan.html](docs/CONFIDENTIAL_PRAXIS_Project_Plan.html).
+Architecture source of truth: [docs/PRAXIS_Project_Plan.html](docs/PRAXIS_Project_Plan.html).
 
 ## Problem
 
@@ -101,12 +101,12 @@ Sprint **Day 1 = Wednesday, June 16, 2026** (Thursday June 18 skipped). See the 
 | Document | Description |
 |----------|-------------|
 | [docs/proposal-praxis.md](docs/proposal-praxis.md) | Capstone proposal — problem, direction, technical approach, risks (historical) |
-| [docs/CONFIDENTIAL_PRAXIS_Project_Plan.html](docs/CONFIDENTIAL_PRAXIS_Project_Plan.html) | **Source of truth** — team plan, architecture overview, 9-day schedule |
+| [docs/PRAXIS_Project_Plan.html](docs/PRAXIS_Project_Plan.html) | **Source of truth** — team plan, architecture overview, 9-day schedule |
 | [docs/Matthew-Daw-ML-Pipeline-PlanDRAFT.md](docs/Matthew-Daw-ML-Pipeline-PlanDRAFT.md) | ML pipeline pillar plan |
-| [docs/Monica-Peters-Dashboard-Plan.md](docs/Monica-Peters-Dashboard-Plan.md) | Dashboard & human-gate pillar plan |
-| [docs/ARCHITECTURE_MONICA.md](docs/ARCHITECTURE_MONICA.md) | **Monica's pillar architecture** — Streamlit stack, API-first boundaries, React coexistence |
+| [docs/monica/Monica-Peters-Dashboard-Plan.md](docs/monica/Monica-Peters-Dashboard-Plan.md) | Dashboard & human-gate pillar plan |
+| [docs/monica/ARCHITECTURE_MONICA.md](docs/monica/ARCHITECTURE_MONICA.md) | **Monica's pillar architecture** — Streamlit stack, API-first boundaries, React coexistence |
 | [docs/Dominic-Antonelli-Architecture-Eval-PlanDRAFT.md](docs/Dominic-Antonelli-Architecture-Eval-PlanDRAFT.md) | Architecture, eval & integration pillar plan |
-| [docs/monica-wireframes.md](docs/monica-wireframes.md) | Dashboard wireframes and UX notes |
+| [docs/monica/monica-wireframes.md](docs/monica/monica-wireframes.md) | Dashboard as-built spec and UX notes |
 | [docs/PRD.pdf](docs/PRD.pdf) | Product requirements document |
 | [docs/proposal-praxis.pdf](docs/proposal-praxis.pdf) | Proposal (PDF export) |
 
@@ -122,7 +122,8 @@ The sprint is actively scaffolding the codebase. Expected layout as pillars land
 
 ```text
 praxis/
-├── docs/                  # Plans, proposal, PRD, ARCHITECTURE_MONICA.md
+├── docs/                  # Plans, proposal, PRD
+│   └── monica/            # Monica pillar — architecture, plan, as-built wireframes
 ├── .cursor/rules/         # Team Cursor rules
 ├── frontend/              # Streamlit human-gate UI (Monica)
 │   ├── app.py             # Entry — provider wiring only

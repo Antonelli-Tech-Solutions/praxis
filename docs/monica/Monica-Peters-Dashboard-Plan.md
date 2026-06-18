@@ -1,4 +1,7 @@
 # Monica Peters — Dashboard & Human Gate Individual Plan
+
+Pillar documentation: [ARCHITECTURE_MONICA.md](ARCHITECTURE_MONICA.md) · [monica-wireframes.md](monica-wireframes.md) (as-built spec).
+
 **Role:** Dashboard & Human Gate Lead  
 **Focus:** Streamlit human-gate dashboard (`frontend/`), human approval workflow (proposed→suggested→active), contradiction resolution UI, credibility metrics viz, injection controls. React deferred — custom UI design out of sprint scope.  
 **Interview Claim:** "I designed and built the human approval dashboard that enforces quality gates and makes knowledge promotion transparent and measurable."

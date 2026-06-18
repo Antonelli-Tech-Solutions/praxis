@@ -27,7 +27,7 @@ def filter_candidates(
             if q in c.title.casefold() or q in c.content.casefold()
         ]
     if state_filter != "All":
-        filtered = [c for c in filtered if c.state.value == state_filter]
+        filtered = [c for c in filtered if c.display_state == state_filter]
     return filtered
 
 
@@ -36,7 +36,7 @@ def _candidates_to_display_frame(candidates: list[Candidate]) -> pd.DataFrame:
         [
             {
                 "title": c.title,
-                "state": c.state.value,
+                "state": c.display_state,
                 "confidence": c.confidence,
                 "provenance": c.provenance,
                 "createdAt": c.created_at,
@@ -128,7 +128,7 @@ def render_card_view(
         with col:
             with st.container(border=True):
                 st.subheader(candidate.title)
-                render_state_badge(candidate.state.value)
+                render_state_badge(candidate.display_state, candidate.state)
                 render_confidence_progress(candidate.confidence)
                 st.caption(f"**Source:** `{candidate.provenance}`")
                 st.write(candidate.content)

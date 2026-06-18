@@ -1,7 +1,7 @@
 """Mock knowledge candidates for the PRAXIS human-gate dashboard.
 
-Rows cand_6–cand_17 simulate pipeline distillation from Claude Code JSONL
-sessions while contributing to nushell/nushell — not live GitHub API data.
+Provenance uses canonical form ``logs/<file>.jsonl:<line>``. Rows cand_6–cand_17
+simulate pipeline distillation from Claude Code JSONL sessions on nushell/nushell.
 """
 
 import pandas as pd
@@ -16,7 +16,7 @@ def get_mock_candidate_dicts() -> list[dict]:
             "content": "When using a switch statement on a discriminated union or enum, include a default case that assigns the value to a variable of type `never`. This ensures the compiler will throw an error if a new variant is added to the union but not handled in the switch.",
             "state": "proposed",
             "confidence": 0.85,
-            "provenance": "logs/session_20260615.jsonl",
+            "provenance": "logs/session_20260615.jsonl:88",
             "createdAt": "2026-06-15T14:30:00Z"
         },
         {
@@ -25,7 +25,7 @@ def get_mock_candidate_dicts() -> list[dict]:
             "content": "Always return a cleanup function from useEffect when subscribing to external events or setting up intervals. This prevents memory leaks and unexpected behavior when components unmount.",
             "state": "suggested",
             "confidence": 0.92,
-            "provenance": "logs/session_20260614.jsonl",
+            "provenance": "logs/session_20260614.jsonl:214",
             "createdAt": "2026-06-14T09:15:00Z"
         },
         {
@@ -34,7 +34,7 @@ def get_mock_candidate_dicts() -> list[dict]:
             "content": "Set an explicit `expire_in` value for all GitLab CI artifacts to prevent storage bloat. A good default is '1 week' for temporary build artifacts.",
             "state": "active",
             "confidence": 0.98,
-            "provenance": "logs/session_20260610.jsonl",
+            "provenance": "logs/session_20260610.jsonl:52",
             "createdAt": "2026-06-10T11:45:00Z"
         },
         {
@@ -43,7 +43,7 @@ def get_mock_candidate_dicts() -> list[dict]:
             "content": "Use `Dict[str, Any]` instead of `dict` when typing dictionaries with string keys and mixed value types to provide better IDE support and static analysis.",
             "state": "proposed",
             "confidence": 0.75,
-            "provenance": "logs/session_20260616.jsonl",
+            "provenance": "logs/session_20260616.jsonl:167",
             "createdAt": "2026-06-16T16:20:00Z"
         },
         {
@@ -52,7 +52,7 @@ def get_mock_candidate_dicts() -> list[dict]:
             "content": "Use `st.session_state` to persist variables across Streamlit app reruns. This is essential for maintaining user input or application state between interactions.",
             "state": "suggested",
             "confidence": 0.88,
-            "provenance": "logs/session_20260617.jsonl",
+            "provenance": "logs/session_20260617.jsonl:33",
             "createdAt": "2026-06-17T10:05:00Z"
         },
         # --- nushell/nushell session-derived candidates (mock) ---

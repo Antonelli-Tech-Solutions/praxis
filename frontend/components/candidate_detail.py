@@ -34,7 +34,7 @@ def render_candidate_detail(
         candidate = id_to_candidate[detail_id]
 
         st.subheader(candidate.title)
-        st.markdown(f"**State:** `{candidate.state.value}`")
+        st.markdown(f"**State:** `{candidate.display_state}`")
         st.markdown(f"**Provenance:** `{candidate.provenance}`")
         st.markdown("**Content**")
         st.write(candidate.content)
@@ -47,6 +47,10 @@ def render_candidate_detail(
             f"Created {candidate.created_at} · Source log line linked above. "
             "Full JSONL audit wiring lands Days 6–7 with Matthew's API."
         )
+
+        if candidate.extra:
+            with st.expander("Additional pipeline fields"):
+                st.json(candidate.extra)
 
         if candidate.contradiction_ids:
             render_contradiction_panel(candidate, id_to_candidate)

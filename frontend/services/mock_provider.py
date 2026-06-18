@@ -51,6 +51,8 @@ class MockDataProvider:
             created_at=candidate.created_at,
             confidence_breakdown=candidate.confidence_breakdown,
             contradiction_ids=list(candidate.contradiction_ids),
+            state_label=next_state.value,
+            extra=dict(candidate.extra),
         )
         self._candidates[candidate_id] = updated
         return updated
