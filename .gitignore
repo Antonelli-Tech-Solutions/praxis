@@ -2,11 +2,3 @@
 
 # Microsoft Office lock/temp files
 ~$*
-
-# Generated eval baselines
-praxis/knowledge/evals/results/*.jsonl
-
-# Python
-__pycache__/
-*.pyc
-.pytest_cache/
