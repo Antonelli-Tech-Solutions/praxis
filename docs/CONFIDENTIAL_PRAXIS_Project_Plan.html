@@ -30,7 +30,16 @@
   .confidential { font-size:.72em; letter-spacing:.18em; text-transform:uppercase;
     color:#c9211e; border:1px solid #c9211e; display:inline-block; padding:4px 10px;
     border-radius:3px; margin-bottom:24px; font-weight:700; }
-  @media print { body { background:#fff; } .page { box-shadow:none; max-width:none; } }
+  @media print {
+    @page { size: A4 portrait; margin: 14mm; }
+    html, body { background:#fff; }
+    * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .page { box-shadow:none; max-width:none; width:100%; margin:0; padding:0; min-height:0; }
+    h1, h2, h3, h4 { break-after: avoid; page-break-after: avoid; }
+    table, tr, td { break-inside: avoid; page-break-inside: avoid; }
+    figure.praxis-diagram { break-inside: avoid; page-break-inside: avoid; }
+    ul, li { break-inside: avoid; page-break-inside: avoid; }
+  }
 </style>
 </head>
 <body>
