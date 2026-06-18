@@ -1,0 +1,41 @@
+# Real end-to-end eval: does injected knowledge steer real Claude Code?
+#
+# We seed the in-memory knowledge graph with a preference for iambic pentameter
+# (injected into Claude Code via the system prompt), then ask it to write a poem
+# inside a sealed workdir it can't reach outside of. A deterministic meter check
+# + a Claude Code quality judge grade the result. Run with the real runner:
+#
+#   uv run python -m knowledge.evals.run --real iambic_poem
+id: iambic_poem
+seed_prompt: |
+  Write an original 8-line poem about the sea. Save it to a file named
+  poem.txt in the current directory, with one line of verse per line and no
+  title, commentary, or surrounding text.
+target_commit: "0000000000000000000000000000000000000000"  # placeholder reference
+start_commit: null
+repo: null
+
+seeded_insight:
+  direct_to_graph:
+    - "Poetry style: always write poems in strict iambic pentameter — ten syllables per line, alternating unstressed/stressed feet."
+
+deterministic_checks:
+  - name: iambic_pentameter
+    ref: "knowledge.evals.deterministic_checks.poetry:is_iambic_pentameter"
+    params:
+      min_lines: 6
+      target_syllables: 10
+      tolerance: 1
+
+rubric:
+  id: poem_quality_v1
+  items:
+    - id: on_topic
+      criterion: "The poem is clearly about the sea."
+      weight: 1.0
+    - id: imagery
+      criterion: "The poem uses vivid, non-cliched imagery."
+      weight: 1.0
+    - id: coherence
+      criterion: "The poem reads as a coherent whole, not disjointed lines."
+      weight: 1.0
