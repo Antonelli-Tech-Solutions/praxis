@@ -72,7 +72,7 @@ Lifecycle states: `proposed → suggested → active` (plus `decayed` and unreco
 
 ## Data contract (forward-compatible)
 
-`frontend/models/candidate.py` — `Candidate.from_mapping()` is the integration surface. **Matthew handshake:** use this section + `api_client.py` endpoint list for Days 6–7 integration.
+`frontend/models/candidate.py` — `Candidate.from_mapping()` is the integration surface. **Canonical contract:** [candidate-api-v1.md](../integration/candidate-api-v1.md).
 
 ### Required for display (defaults if absent)
 
@@ -97,15 +97,17 @@ Lifecycle states: `proposed → suggested → active` (plus `decayed` and unreco
 
 **Versioning:** HTTP client sends `X-Praxis-Contract: 1`. Matthew/Dominic may extend the schema; Monica's pillar must not break on unknown fields.
 
-### Mutations (implemented in `api_client.py`)
+### Mutations (canonical v1 — `docs/integration/candidate-api-v1.md`)
 
 | Action | Endpoint | Body |
 |--------|----------|------|
-| Promote | `POST /candidates/{id}/promote` | `{}` → updated candidate |
-| Reject | `POST /candidates/{id}/reject` | `{ reason? }` |
-| Resolve contradiction | `POST /contradictions/{id}/resolve` | `{ resolution, keepId }` → kept candidate |
+| Promote | `POST /candidates/{id}/promote` | `{ "targetState": "suggested" \| "active" }` → updated candidate |
+| Reject | `POST /candidates/{id}/reject` | `{ "reason"?: string }` |
+| Resolve contradiction | `POST /contradictions/{id}/resolve` | `{ "resolution": "keep_a" \| "keep_b", "keepId": string }` → kept candidate |
 
-409 responses surface as user-visible conflict messages (refresh + retry).
+Contradiction id: `{primaryId}__{rivalId}`. UI maps "Keep this candidate" → `keep_a`, rival → `keep_b` in `contract_v1.py`.
+
+409 responses surface as user-visible conflict messages (refresh + retry). Promote retries with `{}` if server rejects explicit `targetState`.
 
 ## Design notes
 
@@ -116,6 +118,4 @@ Lifecycle states: `proposed → suggested → active` (plus `decayed` and unreco
 
 ## Remaining (Days 9–10)
 
-| Day | Item |
-|-----|------|
-| 9–10 | Live demo rehearsal, user-flow video capture, final a11y pass with screen reader |
+See [DAYS_9_10_REMAINING.md](DAYS_9_10_REMAINING.md) — demo rehearsal checklist, user-flow video, screen-reader pass.

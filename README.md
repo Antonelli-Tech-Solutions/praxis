@@ -107,6 +107,9 @@ Sprint **Day 1 = Wednesday, June 16, 2026** (Thursday June 18 skipped). See the 
 | [docs/monica/ARCHITECTURE_MONICA.md](docs/monica/ARCHITECTURE_MONICA.md) | **Monica's pillar architecture** — Streamlit stack, API-first boundaries, React coexistence |
 | [docs/Dominic-Antonelli-Architecture-Eval-PlanDRAFT.md](docs/Dominic-Antonelli-Architecture-Eval-PlanDRAFT.md) | Architecture, eval & integration pillar plan |
 | [docs/monica/monica-wireframes.md](docs/monica/monica-wireframes.md) | Dashboard as-built spec and UX notes |
+| [docs/integration/candidate-api-v1.md](docs/integration/candidate-api-v1.md) | **Matthew ↔ Monica** candidate REST contract + fixtures |
+| [docs/integration/eval-metrics-v1.md](docs/integration/eval-metrics-v1.md) | **Dominic ↔ Monica** eval metrics JSON contract |
+| [docs/integration/wire-up.md](docs/integration/wire-up.md) | Self-serve dashboard wire-up (no pairing) |
 | [docs/PRD.pdf](docs/PRD.pdf) | Product requirements document |
 | [docs/proposal-praxis.pdf](docs/proposal-praxis.pdf) | Proposal (PDF export) |
 
@@ -123,13 +126,15 @@ The sprint is actively scaffolding the codebase. Expected layout as pillars land
 ```text
 praxis/
 ├── docs/                  # Plans, proposal, PRD
-│   └── monica/            # Monica pillar — architecture, plan, as-built wireframes
+│   ├── monica/            # Monica pillar — architecture, plan, as-built wireframes
+│   └── integration/       # Async API contracts + JSON fixtures (Matthew, Dominic)
 ├── .cursor/rules/         # Team Cursor rules
 ├── frontend/              # Streamlit human-gate UI (Monica)
 │   ├── app.py             # Entry — provider wiring only
 │   ├── components/        # UI modules (list, detail, badges, …)
 │   ├── models/            # Candidate types (API contract surface)
-│   ├── services/          # DataProvider, mock + API clients
+│   ├── services/          # DataProvider, mock + API clients, contract_v1
+│   ├── tests/             # Contract fixture tests
 │   └── mock_data.py       # Local fixtures — no backend required
 ├── frontend-react/        # Optional future React UI (same API, sibling dir)
 ├── pipeline/              # Python: ingest, detect, distill, score, KG (Matthew)
@@ -147,6 +152,16 @@ python -m venv venv
 ```
 
 Or install dependencies directly: `.\venv\Scripts\pip install streamlit pandas`
+
+### Contract tests (offline)
+
+```powershell
+cd frontend
+$env:PYTHONPATH = "."
+.\venv\Scripts\pytest tests/ -q
+```
+
+See [docs/integration/wire-up.md](docs/integration/wire-up.md) for live API wire-up.
 
 ## Contributing
 
