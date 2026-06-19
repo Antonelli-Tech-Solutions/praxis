@@ -227,13 +227,53 @@ def write_baseline(results: list[CaseResult], path: Path = BASELINE_PATH) -> Non
             f.write(json.dumps(result.model_dump()) + "\n")
 
 
+def load_env() -> None:
+    """Load .env (OPENROUTER_API_KEY etc.) if python-dotenv is installed."""
+    try:
+        from dotenv import load_dotenv
+    except ImportError:
+        return
+    load_dotenv()
+
+
+# Human-readable label per backend, for run banners.
+_BACKEND_LABEL = {
+    "claude": "real Claude Code (subscription)",
+    "fake": "FakeRunner (offline, no credit)",
+    "openrouter": "OpenRouter (cheap single-shot LLM)",
+}
+
+
+def select_runner(kind: str):
+    """Return ``(runner, judge)`` for a backend kind.
+
+    - ``claude``     — real headless Claude Code + Claude Code judge (default, full fidelity).
+    - ``fake``       — offline FakeRunner, no judge (deterministic checks only).
+    - ``openrouter`` — cheap single-shot OpenRouter runner + judge (loads .env).
+    """
+    if kind == "fake":
+        return FakeRunner(), None
+    if kind == "openrouter":
+        load_env()
+        from knowledge.evals.openrouter import OpenRouterJudge, OpenRouterRunner
+
+        return OpenRouterRunner(), OpenRouterJudge()
+    return ClaudeCodeRunner(), ClaudeCodeJudge()
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="knowledge.evals.run")
     parser.add_argument("case_ids", nargs="*", help="case ids to run (default: all)")
-    parser.add_argument(
+    backend = parser.add_mutually_exclusive_group()
+    backend.add_argument(
         "--fake",
         action="store_true",
-        help="use the offline FakeRunner instead of real Claude Code (no subscription credit)",
+        help="offline FakeRunner instead of real Claude Code (no credit)",
+    )
+    backend.add_argument(
+        "--openrouter",
+        action="store_true",
+        help="cheap single-shot OpenRouter LLM backend (needs OPENROUTER_API_KEY in .env)",
     )
     args = parser.parse_args(argv)
 
@@ -246,14 +286,9 @@ def main(argv: list[str] | None = None) -> int:
         print("no cases to run")
         return 0
 
-    judge = None
-    if args.fake:
-        runner = FakeRunner()  # offline: empty output, evals expected to fail
-        print(f"running {len(cases)} case(s) through FakeRunner (offline)...")
-    else:
-        runner = ClaudeCodeRunner()  # real Claude Code by default
-        judge = ClaudeCodeJudge()
-        print(f"running {len(cases)} case(s) through real Claude Code (subscription)...")
+    kind = "openrouter" if args.openrouter else "fake" if args.fake else "claude"
+    runner, judge = select_runner(kind)
+    print(f"running {len(cases)} case(s) through {_BACKEND_LABEL[kind]}...")
 
     results = []
     for case in cases:
