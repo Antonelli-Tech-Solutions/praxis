@@ -1,11 +1,10 @@
 services:
   - type: web
     name: praxis-react-human-gate
-    repo: https://github.com/monigarr/praxis/tree/main
+    repo: https://github.com/monigarr/praxis
     branch: monica/dashboard-human-gate
     rootDir: frontend-react
     runtime: static
-    plan: starter
     buildCommand: npm ci && npm run build
     staticPublishPath: ./dist
     autoDeployTrigger: commit
