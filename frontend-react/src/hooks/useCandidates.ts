@@ -1,10 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { getDataProvider } from "../api/mockProvider";
+import { resolveDataProvider } from "../api/providerFactory";
 import type { DataProvider } from "../api/dataProvider";
+import type { DataSourceConfig } from "../config/dataSource";
 import type { Candidate } from "../types/candidate";
 
-export function useCandidates() {
-  const provider = useMemo<DataProvider>(() => getDataProvider(), []);
+export function useCandidates(config: DataSourceConfig) {
+  const provider = useMemo<DataProvider>(
+    () => resolveDataProvider(config),
+    [config],
+  );
   const [candidates, setCandidates] = useState<Candidate[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -27,6 +31,10 @@ export function useCandidates() {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  useEffect(() => {
+    setLastAction(null);
+  }, [config]);
 
   const promote = useCallback(
     async (id: string) => {

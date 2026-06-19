@@ -53,8 +53,13 @@ async function parseJsonResponse(response: Response): Promise<unknown> {
 export function createApiDataProvider(
   baseUrl: string,
   token?: string,
+  evalMetricsUrl?: string,
 ): DataProvider {
   const root = baseUrl.replace(/\/$/, "");
+  const metricsUrl =
+    evalMetricsUrl?.trim() ||
+    import.meta.env.VITE_PRAXIS_EVAL_METRICS_URL?.trim() ||
+    `${root}/metrics`;
 
   async function request(
     method: string,
@@ -149,23 +154,15 @@ export function createApiDataProvider(
     },
 
     async getEvalMetrics() {
-      const url = import.meta.env.VITE_PRAXIS_EVAL_METRICS_URL?.trim();
-      if (!url) {
-        return {
-          source: "placeholder",
-          correctionRate: [1.0, 0.72, 0.48, 0.35],
-        };
-      }
-
       try {
-        const response = await fetch(url, {
+        const response = await fetch(metricsUrl, {
           headers: contractHeaders(token),
         });
         if (!response.ok) {
           throw new Error(response.statusText);
         }
         const payload = (await response.json()) as Record<string, unknown>;
-        return normalizeEvalMetrics(payload, url);
+        return normalizeEvalMetrics(payload, metricsUrl);
       } catch {
         return {
           source: "placeholder",

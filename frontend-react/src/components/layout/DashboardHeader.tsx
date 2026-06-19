@@ -1,12 +1,25 @@
+import { DataSourceControl } from "../ui/DataSourceControl";
 import { EnvironmentBadge } from "../ui/EnvironmentBadge";
 import { GitLabRepoLink } from "../ui/GitLabRepoLink";
+import type { DataSourceConfig, DataSourceMode } from "../../config/dataSource";
 
 interface DashboardHeaderProps {
-  apiUrl?: string;
+  mode: DataSourceMode;
+  label: string;
+  detail?: string;
+  config: DataSourceConfig;
+  onDataSourceLoad: (presetId: string, customApiBaseUrl?: string) => void;
   onRefresh: () => void;
 }
 
-export function DashboardHeader({ apiUrl, onRefresh }: DashboardHeaderProps) {
+export function DashboardHeader({
+  mode,
+  label,
+  detail,
+  config,
+  onDataSourceLoad,
+  onRefresh,
+}: DashboardHeaderProps) {
   return (
     <header className="dashboard-header">
       <div className="dashboard-header__brand">
@@ -20,7 +33,8 @@ export function DashboardHeader({ apiUrl, onRefresh }: DashboardHeaderProps) {
         </p>
       </div>
       <div className="dashboard-header__meta">
-        <EnvironmentBadge apiUrl={apiUrl} />
+        <EnvironmentBadge mode={mode} label={label} detail={detail} />
+        <DataSourceControl config={config} onLoad={onDataSourceLoad} />
         <div className="dashboard-header__actions">
           <button type="button" className="btn primary" onClick={onRefresh}>
             Refresh data

@@ -129,6 +129,11 @@ class VectorGraph(SearchableGraph):
     def most_similar(self, text: str, k: int = 5) -> list[SearchHit]:
         return self.search(text, top_k=k)
 
+    @property
+    def facts(self) -> list[Fact]:
+        """Stored facts (read-only view for export/adapters)."""
+        return list(self._facts)
+
     # --- internals ----------------------------------------------------------
     def _add(self, decision: WriteDecision) -> None:
         self._facts.append(

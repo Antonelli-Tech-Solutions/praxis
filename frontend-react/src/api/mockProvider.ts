@@ -1,4 +1,3 @@
-import { createApiDataProvider } from "./apiClient";
 import { candidateFromMapping, parseCandidateList } from "./candidateModel";
 import { buildPromoteBody, buildResolveBody } from "./contract";
 import type { DataProvider } from "./dataProvider";
@@ -12,7 +11,44 @@ const PLACEHOLDER_METRICS: EvalMetrics = {
   correctionsAfter: 5,
 };
 
-export function createMockDataProviderWithRows(rows: RawCandidate[]): DataProvider {
+function fetchEvalMetrics(
+  url: string | undefined,
+  token: string | undefined,
+): Promise<EvalMetrics> {
+  if (!url) {
+    return Promise.resolve(PLACEHOLDER_METRICS);
+  }
+  return fetch(url, {
+    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+  })
+    .then(async (response) => {
+      if (!response.ok) {
+        throw new Error(response.statusText);
+      }
+      const payload = (await response.json()) as Record<string, unknown>;
+      return {
+        source: url,
+        correctionRate:
+          (payload.correction_rate as number[]) ??
+          (payload.correctionRate as number[]) ??
+          PLACEHOLDER_METRICS.correctionRate,
+        sessions: payload.sessions as string[] | undefined,
+        correctionsBefore:
+          (payload.corrections_before as number | undefined) ??
+          (payload.correctionsBefore as number | undefined),
+        correctionsAfter:
+          (payload.corrections_after as number | undefined) ??
+          (payload.correctionsAfter as number | undefined),
+      };
+    })
+    .catch(() => PLACEHOLDER_METRICS);
+}
+
+export function createMockDataProviderWithRows(
+  rows: RawCandidate[],
+  evalMetricsUrl?: string,
+  apiToken?: string,
+): DataProvider {
   let candidates = rows.map(candidateFromMapping);
 
   return {
@@ -108,19 +144,26 @@ export function createMockDataProviderWithRows(rows: RawCandidate[]): DataProvid
     },
 
     async getEvalMetrics() {
-      return PLACEHOLDER_METRICS;
+      return fetchEvalMetrics(evalMetricsUrl, apiToken);
     },
   };
 }
 
-export function createMockDataProvider(): DataProvider {
+export function createMockDataProvider(
+  evalMetricsUrl?: string,
+  apiToken?: string,
+): DataProvider {
   let delegate: DataProvider | null = null;
 
   async function load(): Promise<DataProvider> {
     if (!delegate) {
       const response = await fetch("/mock-candidates.json");
       const payload = await response.json();
-      delegate = createMockDataProviderWithRows(parseCandidateList(payload));
+      delegate = createMockDataProviderWithRows(
+        parseCandidateList(payload),
+        evalMetricsUrl,
+        apiToken,
+      );
     }
     return delegate;
   }
@@ -151,41 +194,7 @@ export function createMockDataProvider(): DataProvider {
     },
 
     async getEvalMetrics() {
-      const url = import.meta.env.VITE_PRAXIS_EVAL_METRICS_URL?.trim();
-      if (url) {
-        try {
-          const response = await fetch(url);
-          if (response.ok) {
-            const payload = (await response.json()) as Record<string, unknown>;
-            return {
-              source: url,
-              correctionRate:
-                (payload.correction_rate as number[]) ??
-                (payload.correctionRate as number[]) ??
-                PLACEHOLDER_METRICS.correctionRate,
-              sessions: payload.sessions as string[] | undefined,
-              correctionsBefore:
-                (payload.corrections_before as number | undefined) ??
-                (payload.correctionsBefore as number | undefined),
-              correctionsAfter:
-                (payload.corrections_after as number | undefined) ??
-                (payload.correctionsAfter as number | undefined),
-            };
-          }
-        } catch {
-          /* fall through to placeholder */
-        }
-      }
-      return PLACEHOLDER_METRICS;
+      return fetchEvalMetrics(evalMetricsUrl, apiToken);
     },
   };
-}
-
-export function getDataProvider(): DataProvider {
-  const baseUrl = import.meta.env.VITE_PRAXIS_API_BASE_URL?.trim();
-  if (baseUrl) {
-    const token = import.meta.env.VITE_PRAXIS_API_TOKEN?.trim();
-    return createApiDataProvider(baseUrl, token || undefined);
-  }
-  return createMockDataProvider();
 }

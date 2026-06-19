@@ -35,7 +35,7 @@ A six-role council (mapped from [Agent Council Review (ACR)](../ARCHITECTURE_MON
 - Preparing Days 6–7 integration MRs against Matthew's candidate API
 - Day 8–10 polish: accessibility, edge cases, eval metrics embed, demo Act 2 script
 
-**Out of scope for this team:** `knowledge/` distillation, `knowledge/evals/` harness computation, DynamoDB/KG storage, GitHub hook implementation (Dominic), React `frontend-react/` unless explicitly chartered.
+**Out of scope for this team:** `knowledge/` distillation, `knowledge/evals/` harness computation, PostgreSQL/KG storage (Matthew), GitHub hook implementation (Dominic), React `frontend-react/` unless explicitly chartered.
 
 #### Agent Roles
 

@@ -13,12 +13,14 @@ import { ContentSplit } from "./components/layout/ContentSplit";
 import { DashboardHeader } from "./components/layout/DashboardHeader";
 import { FilterBar } from "./components/layout/FilterBar";
 import { LoadingSkeleton } from "./components/ui/LoadingSkeleton";
+import { useDataSource } from "./hooks/useDataSource";
 import { filterCandidates, useCandidates } from "./hooks/useCandidates";
 import "./index.css";
 
 type ViewTab = "table" | "cards" | "contradictions";
 
 export default function App() {
+  const { config, mode, label, detail, applyConfig } = useDataSource();
   const {
     provider,
     candidates,
@@ -30,7 +32,7 @@ export default function App() {
     promote,
     reject,
     resolveContradiction,
-  } = useCandidates();
+  } = useCandidates(config);
 
   const [searchQuery, setSearchQuery] = useState("");
   const [stateFilter, setStateFilter] = useState("All");
@@ -66,7 +68,15 @@ export default function App() {
     }
   }, [lastAction, clearLastAction]);
 
-  const apiUrl = import.meta.env.VITE_PRAXIS_API_BASE_URL?.trim();
+  useEffect(() => {
+    setSelectedId(null);
+    setActionError(null);
+  }, [config]);
+
+  function handleDataSourceLoad(presetId: string, customApiBaseUrl?: string) {
+    setActionError(null);
+    applyConfig(presetId, customApiBaseUrl);
+  }
 
   async function handlePromote(id: string) {
     setActionError(null);
@@ -131,7 +141,11 @@ export default function App() {
   return (
     <AppShell>
       <DashboardHeader
-        apiUrl={apiUrl || undefined}
+        mode={mode}
+        label={label}
+        detail={detail}
+        config={config}
+        onDataSourceLoad={handleDataSourceLoad}
         onRefresh={() => void refresh()}
       />
 
@@ -140,8 +154,9 @@ export default function App() {
       {actionError ? <div className="error-banner">{actionError}</div> : null}
       {error ? (
         <div className="error-banner">
-          Backend unavailable — could not load candidates. ({error}) Unset{" "}
-          <code>VITE_PRAXIS_API_BASE_URL</code> to use mock fixtures locally.
+          Backend unavailable — could not load candidates. ({error}) Use the data
+          source control above to switch to <strong>Mock fixtures</strong> or verify
+          the live API URL and CORS settings.
         </div>
       ) : null}
 
@@ -182,9 +197,8 @@ export default function App() {
       <EvalMetricsEmbed provider={provider} />
 
       <footer className="page-footer">
-        React Knowledge Graph Dashboard · Integrates with Matthew&apos;s API via{" "}
-        <code>VITE_PRAXIS_API_BASE_URL</code> · Does not import pipeline code directly ·
-        Streamlit reference client in <code>frontend/</code>
+        React Knowledge Graph Dashboard · Data source: {mode === "live" ? "Live API" : "Mock fixtures"} ·
+        candidate-api-v1 contract · Streamlit reference client in <code>frontend/</code>
       </footer>
     </AppShell>
   );

@@ -60,6 +60,7 @@ Pillar documentation: [ARCHITECTURE_MONICA.md](ARCHITECTURE_MONICA.md) · [monic
 
 ## Cross-Team Notes
 - Pair with Matthew on integration (Days 6–7) for seamless candidate data flow and approval actions.
+- Matthew owns **PostgreSQL** setup for the candidate API and Knowledge Graph persistence (Days 6–7). Monica's UIs integrate via [candidate-api-v1.md](../integration/candidate-api-v1.md) only — no database coupling in `frontend/` or `frontend-react/`.
 - Coordinate with Dominic on eval harness metrics display and demo data prep.
 - Ensure every promoted item shows clear provenance and confidence rationale for transparency and interview storytelling.
 

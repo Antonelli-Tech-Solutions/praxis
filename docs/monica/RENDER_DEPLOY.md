@@ -112,9 +112,29 @@ Open the preview URL; confirm mock candidates load and Act 2 flows work (filter 
 
 ### Smoke test on Render URL
 
-- Banner shows mock mode (no live API URL)
-- 17 candidates visible
-- Promote/reject/contradiction actions update UI (mock provider — no backend needed)
+- Banner shows **Live API** with deployed `praxis-candidate-api` URL (when blueprint includes both services)
+- Pipeline-seeded candidates visible (5+ rows from distillation export)
+- Promote/reject/contradiction actions mutate persisted store on the API service
+- Eval metrics embed loads from `{API_URL}/metrics`
+
+### Live integration blueprint
+
+[`frontend-react/render.yaml`](../../frontend-react/render.yaml) declares **two** services:
+
+| Service | Type | Purpose |
+|---------|------|---------|
+| `praxis-candidate-api` | Python web | FastAPI candidate + metrics API (`knowledge/serve`) |
+| `praxis-react-human-gate` | Static | Vite SPA wired via `fromService` → `VITE_PRAXIS_API_BASE_URL` |
+
+API-only deploy: use [`knowledge/serve/render.yaml`](../../knowledge/serve/render.yaml).
+
+**CORS:** The API allows `localhost` dev origins and `*.onrender.com` by default. Override with `PRAXIS_CORS_ORIGINS` or `PRAXIS_CORS_ORIGIN_REGEX` on the API service.
+
+**Build note:** Static site uses `npm run build:render`, which sets `VITE_PRAXIS_EVAL_METRICS_URL` to `{API_URL}/metrics` when unset.
+
+### Mock-only fallback
+
+Leave `VITE_PRAXIS_API_BASE_URL` unset (or deploy static site without the API service) for portfolio mock demo.
 
 ### Files
 

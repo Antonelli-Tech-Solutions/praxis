@@ -9,6 +9,9 @@ Run: uv run python -m knowledge.serve   (serves on http://localhost:8000)
 
 from __future__ import annotations
 
+import json
+import os
+from pathlib import Path
 from typing import Any
 
 from fastapi import Body, FastAPI, HTTPException
@@ -17,18 +20,38 @@ from fastapi.middleware.cors import CORSMiddleware
 from knowledge.serve import contradiction_adapter
 from knowledge.serve.store import CandidateStore, PromotionError, contradiction_ids
 
+METRICS_FIXTURE = (
+    Path(__file__).resolve().parents[2] / "docs" / "integration" / "fixtures" / "eval-metrics.json"
+)
+_DEFAULT_CORS_REGEX = (
+    r"(http://(localhost|127\.0\.0\.1):\d+|https://[\w-]+\.onrender\.com)"
+)
+
+
+def _cors_origin_regex() -> str:
+    custom = os.getenv("PRAXIS_CORS_ORIGIN_REGEX", "").strip()
+    return custom or _DEFAULT_CORS_REGEX
+
 
 def create_app(store: CandidateStore | None = None) -> FastAPI:
     store = store or CandidateStore()
     app = FastAPI(title="Praxis Candidate API", version="1")
 
-    # The dashboard dev server runs on a different localhost port.
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origin_regex=r"http://(localhost|127\.0\.0\.1):\d+",
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
+    explicit_origins = [
+        origin.strip()
+        for origin in os.getenv("PRAXIS_CORS_ORIGINS", "").split(",")
+        if origin.strip()
+    ]
+    cors_kwargs: dict[str, Any] = {
+        "allow_methods": ["*"],
+        "allow_headers": ["*"],
+    }
+    if explicit_origins:
+        cors_kwargs["allow_origins"] = explicit_origins
+    else:
+        cors_kwargs["allow_origin_regex"] = _cors_origin_regex()
+
+    app.add_middleware(CORSMiddleware, **cors_kwargs)
 
     @app.get("/health")
     def health() -> dict[str, Any]:
@@ -89,6 +112,13 @@ def create_app(store: CandidateStore | None = None) -> FastAPI:
                     c["contradiction_ids"] = sorted(links)
         store._persist()
         return {"detected_pairs": len(pairs)}
+
+    @app.get("/metrics")
+    def eval_metrics() -> dict[str, Any]:
+        """Eval metrics contract v1 — fixture until Dominic's harness endpoint ships."""
+        if not METRICS_FIXTURE.exists():
+            raise HTTPException(status_code=503, detail="metrics fixture unavailable")
+        return json.loads(METRICS_FIXTURE.read_text(encoding="utf-8"))
 
     return app
 

@@ -5,7 +5,7 @@
 **Source of truth:** [PRAXIS_Project_Plan.html](../plans/PRAXIS_Project_Plan.html) (architecture diagram + 9-day schedule), [proposal-praxis.md](../plans/proposal-praxis.md), [AUDIT.md](../../AUDIT.md)  
 **Live demo:** **Monday, June 29, 2026** — 10-minute Gauntlet capstone presentation  
 **Demo calendar:** **Internal** freeze/practice **Thu–Fri Jun 26–27** (Sprint Days 9–10) · **Public** Gauntlet showcase **Mon Jun 29** — see [Scrum Master freeze gates](#demo-freeze--three-practice-runs-before-jun-29) below  
-**Sprint snapshot:** Monica pillar mock-complete through Day 8 (Streamlit + React); P0 eval cases `quirky_*` + poison good/bad landed with tests; Matthew live API still critical path for Acts 2–3 on staging
+**Sprint snapshot:** Monica pillar mock-complete through Day 8 (Streamlit + React); P0 eval cases `quirky_*` + poison good/bad landed with tests; Matthew live API + **PostgreSQL** still critical path for Acts 2–3 on staging
 
 ---
 
@@ -285,14 +285,17 @@ knowledge/tests/test_injestor.py
 | Planned artifact | Repo file(s) | Status | Notes |
 |------------------|--------------|--------|-------|
 | Pipeline orchestration | — | ❌ | `knowledge/run.py` smoke only |
-| Knowledge graph stub | `in_memory_graph.py` | ⚠️ | In-memory string |
+| **PostgreSQL setup** | — | ❌ **P0** | Matthew — schema, migrations, `DATABASE_URL`; backs candidate list + promote mutations |
+| Knowledge graph stub | `in_memory_graph.py` | ⚠️ | In-memory string → **PostgreSQL persistence target** |
 | **Candidate REST API** | — | ❌ **P0** | [candidate-api-v1.md](../integration/candidate-api-v1.md) |
 | Server endpoints | — | ❌ | Client: `api_client.py`, `contract_v1.py` |
 | Fixtures | `docs/integration/fixtures/*.json` | ✅ | 7 client tests |
 
 **Minimum Day 6 server (Matthew):**
 
+- [ ] PostgreSQL provisioned (local Docker or hosted); connection via env (e.g. `DATABASE_URL`)
 - [ ] FastAPI (or equivalent) serving contract v1
+- [ ] Promote/reject/resolve persist to PostgreSQL; API reads reflect updated state
 - [ ] Promote mutates store; returns updated `Candidate`
 - [ ] `X-Praxis-Contract: 1` enforced
 - [ ] Smoke: `PRAXIS_API_BASE_URL=http://localhost:8000 streamlit run app.py`

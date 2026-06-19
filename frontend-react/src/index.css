@@ -710,6 +710,16 @@ code,
   border-color: var(--accent-dark);
 }
 
+.btn.secondary {
+  background: #f1f5f9;
+  border-color: var(--line);
+  color: var(--ink);
+}
+
+.btn.secondary:hover:not(:disabled) {
+  background: #e2e8f0;
+}
+
 .btn.danger,
 .btn.danger-outline {
   border-color: var(--danger);
@@ -751,23 +761,103 @@ code,
   display: inline-flex;
   align-items: center;
   gap: var(--space-1);
-  padding: 0.25rem 0.65rem;
+  padding: 0.35rem 0.85rem;
   border-radius: 999px;
-  font-size: 0.78rem;
-  font-weight: 600;
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
   border: 1px solid var(--line);
+}
+
+.env-badge-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.2rem;
+  text-align: right;
+}
+
+.env-badge-detail {
+  font-size: 0.78rem;
+  color: var(--muted);
+  max-width: 22rem;
+}
+
+.env-badge-detail code {
+  font-size: 0.75rem;
+  max-width: 14rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: inline-block;
+  vertical-align: bottom;
 }
 
 .env-badge--mock {
   background: #fffbeb;
-  border-color: #fde68a;
+  border-color: #f59e0b;
   color: #92400e;
 }
 
 .env-badge--live {
-  background: #eff6ff;
-  border-color: #bfdbfe;
-  color: #1e40af;
+  background: #ecfdf5;
+  border-color: #34d399;
+  color: #065f46;
+}
+
+.data-source-control {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 260px;
+  max-width: 360px;
+}
+
+.data-source-control__label {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.data-source-control__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.data-source-control__select {
+  flex: 1 1 160px;
+  min-width: 0;
+  padding: 0.45rem 0.6rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  font-size: 0.88rem;
+  background: var(--surface);
+  color: var(--ink);
+}
+
+.data-source-control__input {
+  width: 100%;
+  padding: 0.45rem 0.6rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  font-size: 0.88rem;
+  background: var(--surface);
+  color: var(--ink);
+}
+
+.data-source-control__load {
+  flex: 0 0 auto;
+}
+
+.data-source-control__hint {
+  font-size: 0.75rem;
+  color: var(--muted);
+  line-height: 1.4;
+  margin: 0;
 }
 
 .env-badge code {

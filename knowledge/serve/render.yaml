@@ -1,0 +1,24 @@
+services:
+  - type: web
+    name: praxis-candidate-api
+    repo: https://labs.gauntletai.com/monicapeters/praxis.git
+    branch: monica/dashboard-human-gate
+    runtime: python
+    plan: free
+    buildCommand: pip install . && python scripts/export-pipeline-candidates.py
+    startCommand: uvicorn knowledge.serve.app:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    autoDeployTrigger: commit
+    buildFilter:
+      paths:
+        - knowledge/serve/**
+        - knowledge/knowledge_graph/**
+        - knowledge/injestion/**
+        - knowledge/llm/**
+        - pyproject.toml
+        - docs/integration/fixtures/eval-metrics.json
+    envVars:
+      - key: PRAXIS_API_HOST
+        value: 0.0.0.0
+      - key: PYTHON_VERSION
+        value: "3.12"

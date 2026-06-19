@@ -2,7 +2,9 @@
 
 Self-serve validation when Matthew's candidate API and Dominic's eval metrics are available. No pairing call required — follow [wire-up.md](../integration/wire-up.md).
 
-**Status:** Both clients ready on `monica/dashboard-human-gate`. Server endpoints not in repo yet (2026-06-19). Use mock path for demo until smoke below passes.
+Live smoke assumes Matthew's API is backed by **PostgreSQL** (Matthew owns `DATABASE_URL` and schema); dashboard env vars remain API-only (`PRAXIS_API_BASE_URL`, not a DB connection string).
+
+**Status:** Live candidate API at `knowledge/serve` (pipeline-seeded store + `/metrics` stub). React and Streamlit clients ready on `monica/dashboard-human-gate`. Deploy via [`frontend-react/render.yaml`](../../frontend-react/render.yaml) (API + static site) or API-only [`knowledge/serve/render.yaml`](../../knowledge/serve/render.yaml).
 
 **Primary demo client:** React (`frontend-react/`) — static Render deploy, custom branding, a11y labels.  
 **Reference client:** Streamlit (`frontend/`) — Python contract tests and Matthew wire-up parity.
@@ -84,7 +86,7 @@ Create `frontend-react/.env.local`:
 VITE_PRAXIS_API_BASE_URL=http://localhost:8000
 VITE_PRAXIS_API_TOKEN=
 VITE_PRAXIS_CONTRACT_VERSION=1
-VITE_PRAXIS_EVAL_METRICS_URL=http://localhost:9000/metrics
+VITE_PRAXIS_EVAL_METRICS_URL=http://localhost:8000/metrics
 ```
 
 ```powershell
@@ -145,7 +147,7 @@ Same pass criteria as §3; use sidebar **Refresh data** after mutations.
 
 ```powershell
 # frontend-react/.env.local
-# VITE_PRAXIS_EVAL_METRICS_URL=http://localhost:9000/metrics
+# VITE_PRAXIS_EVAL_METRICS_URL=http://localhost:8000/metrics
 cd frontend-react
 npm run dev
 ```
