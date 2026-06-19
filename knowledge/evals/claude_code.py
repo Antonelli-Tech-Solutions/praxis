@@ -138,9 +138,12 @@ class ClaudeCodeRunner:
 
         with tempfile.TemporaryDirectory(prefix="praxis-box-") as box:
             workdir = Path(box)
-            # Mount any fixtures/ the case ships as the box's start state
-            # (empty for the toy case; future code cases check out here too).
+            # Mount the case's start state into the box. Two conventions are
+            # supported: a fixtures/ subdir (mount_fixtures) and a whole fixture/
+            # dir recorded on case.fixture_path (Monica's cases).
             mount_fixtures(case, workdir)
+            if getattr(case, "fixture_path", None):
+                shutil.copytree(case.fixture_path, workdir, dirs_exist_ok=True)
             args = ["-p", case.seed_prompt, "--output-format", "json"]
             if knowledge.strip():
                 args += ["--append-system-prompt", knowledge]

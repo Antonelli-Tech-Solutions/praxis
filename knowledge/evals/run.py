@@ -202,7 +202,12 @@ def load_case(case_dir: Path) -> EvalCase:
     """
     data = yaml.safe_load((case_dir / "case.yaml").read_text(encoding="utf-8"))
     case = EvalCase.model_validate(data)
-    return case.model_copy(update={"source_dir": str(case_dir)})
+    updates: dict = {"source_dir": str(case_dir)}
+    # A sibling ``fixture/`` dir (Monica's convention) is copied into the box wholesale.
+    fixture = case_dir / "fixture"
+    if fixture.is_dir():
+        updates["fixture_path"] = str(fixture.resolve())
+    return case.model_copy(update=updates)
 
 
 def load_cases(cases_dir: Path = CASES_DIR) -> list[EvalCase]:
