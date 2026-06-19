@@ -56,10 +56,11 @@ Vite SPA served from Render's CDN — no server process, no cold-start sleep on 
 |-------|-------|
 | **Blueprint path** | `frontend-react/render.yaml` |
 | **Git branch** | `monica/dashboard-human-gate` (set in blueprint — not `main`) |
+| **Git repo** | `https://github.com/monigarr/praxis` (repo root only — no `/tree/main`) |
 | **Root directory** | `frontend-react` |
 | **Build command** | `npm ci && npm run build` |
 | **Publish directory** | `./dist` |
-| **Instance plan** | `starter` (static site; Pro workspace billing is separate from service plan) |
+| **Instance plan** | Omit — static sites do not use `starter`/`free` web-service plans |
 | **Auto deploy** | On commit to `monica/dashboard-human-gate` |
 | **First deploy env** | **None required** (mock mode) |
 
@@ -72,7 +73,14 @@ Vite SPA served from Render's CDN — no server process, no cold-start sleep on 
 5. Leave `VITE_PRAXIS_API_BASE_URL` unset for portfolio mock demo
 6. Deploy and note the `*.onrender.com` URL
 
-**Pro workspace note:** Account Pro billing unlocks workspace features (e.g. preview environments, team access). This static site uses the `starter` service plan in the blueprint — appropriate for a Vite CDN deploy. Do not set `plan: free` if you want Render's default production static-site tier.
+**Pro workspace note:** Account Pro billing unlocks workspace features (e.g. preview environments, team access). Static sites are CDN-hosted and do **not** take a `plan: starter` field — omit `plan` in the blueprint (Render's static-site example in the [blueprint spec](https://render.com/docs/blueprint-spec) has none).
+
+**Common blueprint validation errors:**
+
+| Error | Fix |
+|-------|-----|
+| `branch … could not be found` | Use repo root URL (`https://github.com/monigarr/praxis`), not a GitHub UI path like `…/tree/main`. Confirm the branch is pushed to that remote. |
+| `no such plan starter for service type web` | Remove `plan` from static-site services (`runtime: static`). |
 
 ### Environment variables
 
