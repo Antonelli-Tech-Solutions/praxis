@@ -41,7 +41,7 @@ Rehearse Act 2 per [`../monica/DEMO_SCRIPT.md`](../monica/DEMO_SCRIPT.md):
 $env:PRAXIS_API_BASE_URL = "http://localhost:8000"
 $env:PRAXIS_API_TOKEN = ""   # optional
 $env:PYTHONPATH = "frontend"
-uv run pytest frontend/tests/test_contract_fixtures.py -v
+uv run pytest frontend/tests/test_contract_fixtures.py frontend/tests/test_live_api_smoke.py -v
 cd frontend
 .\venv\Scripts\streamlit run app.py
 ```

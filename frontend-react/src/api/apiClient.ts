@@ -42,6 +42,17 @@ function extractCandidateId(path: string): string | undefined {
   return segment ? decodeURIComponent(segment) : undefined;
 }
 
+function isPromoteConflict(error: ApiClientError): boolean {
+  return (
+    error.statusCode === 400 &&
+    error.message.toLowerCase().includes("cannot promote")
+  );
+}
+
+function toPromoteConflict(error: ApiClientError, candidateId: string): ApiConflictError {
+  return new ApiConflictError(error.message, candidateId);
+}
+
 async function parseJsonResponse(response: Response): Promise<unknown> {
   const raw = await response.text();
   if (!raw.trim()) {
@@ -125,12 +136,25 @@ export function createApiDataProvider(
         const payload = await request("POST", path, buildPromoteBody(current.state));
         return candidateFromMapping(payload as Record<string, unknown>);
       } catch (error) {
+        if (error instanceof ApiClientError && isPromoteConflict(error)) {
+          throw toPromoteConflict(error, id);
+        }
         if (
           error instanceof ApiClientError &&
           (error.statusCode === 400 || error.statusCode === 422)
         ) {
-          const payload = await request("POST", path, buildPromoteBodyImplicit());
-          return candidateFromMapping(payload as Record<string, unknown>);
+          try {
+            const payload = await request("POST", path, buildPromoteBodyImplicit());
+            return candidateFromMapping(payload as Record<string, unknown>);
+          } catch (retryError) {
+            if (
+              retryError instanceof ApiClientError &&
+              isPromoteConflict(retryError)
+            ) {
+              throw toPromoteConflict(retryError, id);
+            }
+            throw retryError;
+          }
         }
         throw error;
       }
@@ -163,10 +187,16 @@ export function createApiDataProvider(
         }
         const payload = (await response.json()) as Record<string, unknown>;
         return normalizeEvalMetrics(payload, metricsUrl);
-      } catch {
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : "Eval metrics unavailable";
         return {
           source: "placeholder",
           correctionRate: [1.0, 0.72, 0.48, 0.35],
+          sessions: ["cold", "run_1", "run_2", "run_3"],
+          correctionsBefore: 12,
+          correctionsAfter: 5,
+          fetchError: message,
         };
       }
     },

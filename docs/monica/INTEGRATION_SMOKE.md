@@ -4,7 +4,7 @@ Self-serve validation when Matthew's candidate API and Dominic's eval metrics ar
 
 Live smoke assumes Matthew's API is backed by **PostgreSQL** (Matthew owns `DATABASE_URL` and schema); dashboard env vars remain API-only (`PRAXIS_API_BASE_URL`, not a DB connection string).
 
-**Status:** Live candidate API at `knowledge/serve` (pipeline-seeded store + `/metrics` stub). React and Streamlit clients ready on `monica/dashboard-human-gate`. Deploy via [`frontend-react/render.yaml`](../../frontend-react/render.yaml) (API + static site) or API-only [`knowledge/serve/render.yaml`](../../knowledge/serve/render.yaml).
+**Status:** Live candidate API at `knowledge/serve` (mock-seeded store + `/metrics` stub). React and Streamlit clients aligned on Matthew API v1 (reject → decayed, promote 400 conflict UX). **Local smoke (2026-06-19):** `test_live_api_smoke.py` list ✅ against `127.0.0.1:8000`; promote/reject/resolve skipped when store has no spare proposed/contradiction rows. Render dual-service checklist in §8 — tick after deploy.
 
 **Primary demo client:** React (`frontend-react/`) — static Render deploy, custom branding, a11y labels.  
 **Reference client:** Streamlit (`frontend/`) — Python contract tests and Matthew wire-up parity.
@@ -43,7 +43,10 @@ npm test
 
 ```powershell
 python scripts/export-mock-candidates.py
+uv run pytest frontend/tests/test_mock_data_contract.py -q
 ```
+
+Re-exports [`frontend-react/public/mock-candidates.json`](../../frontend-react/public/mock-candidates.json) — Matthew's API seeds from this file when Postgres/JSON store is empty.
 
 ---
 
@@ -177,6 +180,44 @@ npm run build
 ```
 
 All green = code path ready for timed Act 2 rehearsal.
+
+---
+
+## 8. Render dual-service smoke (live API + React static)
+
+Blueprint: [`frontend-react/render.yaml`](../../frontend-react/render.yaml) — `praxis-candidate-api` + `praxis-react-human-gate` with `VITE_PRAXIS_API_BASE_URL` wired via `fromService`.
+
+**Local parity check** (before or after Render deploy):
+
+```powershell
+# Terminal 1 — Matthew API
+uvicorn knowledge.serve.app:app --host 127.0.0.1 --port 8000
+
+# Terminal 2 — automated client smoke
+$env:PRAXIS_API_BASE_URL = "http://127.0.0.1:8000"
+$env:PYTHONPATH = "frontend"
+uv run pytest frontend/tests/test_live_api_smoke.py -v
+
+# Terminal 3 — React against local API
+cd frontend-react
+# .env.local: VITE_PRAXIS_API_BASE_URL=http://127.0.0.1:8000
+npm run dev
+```
+
+**Render pass criteria** (tick when verified on deployed URLs):
+
+- [ ] React shows live API badge (not mock fixtures banner)
+- [ ] `GET /candidates` loads seeded mock rows with provenance
+- [ ] Promote persists after browser refresh
+- [ ] Reject sets **decayed** (row remains, badge updates)
+- [ ] Resolve **cand_9** ↔ **cand_16** decays rival
+- [ ] Eval embed loads from `{API_URL}/metrics` (Matthew fixture until Dominic ships)
+
+**Screenshot checklist** (add to `docs/monica/screenshots/` when capturing on Render):
+
+- [ ] Live API mode banner with Render API URL
+- [ ] Post-promote refresh showing updated state
+- [ ] Eval metrics from `/metrics` endpoint
 
 ---
 

@@ -227,7 +227,7 @@ knowledge/tests/test_injestor.py
 | State machine | `frontend/models/candidate.py` | ✅ | `next_promotion_state()` |
 | Promote UI + confirmation | `frontend/components/candidate_list.py` | ✅ | Low-confidence warning (<50%); confirm dialogs |
 | Mock promote flow | `frontend/services/mock_provider.py` | ✅ | Audit trail appended |
-| Live promote via API | `frontend/services/api_client.py` | ⚠️ Client only | No server |
+| Live promote via API | `frontend/services/api_client.py` | ✅ Client | Server at `knowledge/serve`; smoke when `PRAXIS_API_BASE_URL` set |
 | List filter by state | `frontend/components/candidate_list.py` | ✅ | |
 | Contract tests | `frontend/tests/test_mock_gate_workflow.py` | ✅ | 4 tests |
 | Eval: `quirky_config_load_order` | `cases/quirky_config_load_order/` | ✅ | Aligns with `cand_9` ↔ `cand_16` |
@@ -262,7 +262,7 @@ knowledge/tests/test_injestor.py
 | Planned artifact | Repo file(s) | Status | Notes |
 |------------------|--------------|--------|-------|
 | Side-by-side contradiction panel | `frontend/components/contradiction_panel.py` | ✅ | |
-| Resolve via provider | `mock_provider.py`, `api_client.py` | ⚠️ | Mock ✅; no server |
+| Resolve via provider | `mock_provider.py`, `api_client.py` | ✅ | Mock + Matthew server (`knowledge/serve`) |
 | Credibility metrics viz | `confidence_badge.py`, list columns | ✅ | |
 | Reject with reason | `mock_provider.py`, detail UI | ✅ | |
 
@@ -287,8 +287,8 @@ knowledge/tests/test_injestor.py
 | Pipeline orchestration | — | ❌ | `knowledge/run.py` smoke only |
 | **PostgreSQL setup** | — | ❌ **P0** | Matthew — schema, migrations, `DATABASE_URL`; backs candidate list + promote mutations |
 | Knowledge graph stub | `in_memory_graph.py` | ⚠️ | In-memory string → **PostgreSQL persistence target** |
-| **Candidate REST API** | — | ❌ **P0** | [candidate-api-v1.md](../integration/candidate-api-v1.md) |
-| Server endpoints | — | ❌ | Client: `api_client.py`, `contract_v1.py` |
+| **Candidate REST API** | [`knowledge/serve/app.py`](../../knowledge/serve/app.py) | ✅ **P0 shipped** | FastAPI contract v1; JSON store + Postgres via `PRAXIS_DB_URL` |
+| Server endpoints | `knowledge/serve/tests/test_server.py` | ✅ | Offline TestClient; live smoke: `frontend/tests/test_live_api_smoke.py` |
 | Fixtures | `docs/integration/fixtures/*.json` | ✅ | 7 client tests |
 
 **Minimum Day 6 server (Matthew):**
@@ -307,7 +307,7 @@ knowledge/tests/test_injestor.py
 | Provider factory | `frontend/services/data_provider.py` | ✅ | |
 | API client | `frontend/services/api_client.py` | ✅ | |
 | Wire-up doc | `docs/integration/wire-up.md` | ✅ | |
-| Live integration smoke | — | ❌ | Blocked on Matthew |
+| Live integration smoke | — | ⚠️ | [`INTEGRATION_SMOKE.md`](INTEGRATION_SMOKE.md) + `test_live_api_smoke.py` when API up |
 | Render deploy | `frontend/render.yaml` | ✅ | Mock portfolio |
 | **Monica: integration smoke doc** | [INTEGRATION_SMOKE.md](INTEGRATION_SMOKE.md) | ✅ | Screenshots when API live |
 
@@ -339,7 +339,7 @@ knowledge/tests/test_injestor.py
 |------------------|--------------|--------|-------|
 | Full promote chain on mock | `test_mock_gate_workflow.py` | ✅ | |
 | Provenance on every row | list + detail | ✅ | |
-| Full flow on live API | — | ❌ | Day 6 dependency |
+| Full flow on live API | — | ⚠️ | Run `test_live_api_smoke.py` + INTEGRATION_SMOKE §3 |
 
 #### Dominic — Demo data prep
 
@@ -395,7 +395,7 @@ knowledge/tests/test_injestor.py
 
 ### P0 — Blocks live demo
 
-- [ ] **Matthew:** Candidate REST API per [candidate-api-v1.md](../integration/candidate-api-v1.md)
+- [ ] **Matthew:** Candidate REST API per [candidate-api-v1.md](../integration/candidate-api-v1.md) — **shipped** (`knowledge/serve`); promote → graph write still open
 - [ ] **Matthew:** Promote → `KnowledgeGraph.write`
 - [ ] **Matthew:** Minimal JSONL → `Candidate` with provenance
 - [ ] **Dominic:** Cold vs injected paired run + correction counts
@@ -420,8 +420,8 @@ knowledge/tests/test_injestor.py
 
 | Contract | Client | Server | Tests |
 |----------|--------|--------|-------|
-| Candidate API v1 | ✅ `api_client.py` | ❌ | ✅ 7 |
-| Eval metrics v1 | ✅ `eval_metrics_embed.py` | ❌ | ✅ fixture |
+| Candidate API v1 | ✅ `api_client.py`, `frontend-react/src/api/apiClient.ts` | ✅ `knowledge/serve/app.py` | ✅ offline + optional live smoke |
+| Eval metrics v1 | ✅ `eval_metrics_embed.py`, `EvalMetricsEmbed.tsx` | ⚠️ `/metrics` fixture on Matthew API | ✅ fixture |
 | Wire-up | ✅ `wire-up.md` | — | — |
 
 ---

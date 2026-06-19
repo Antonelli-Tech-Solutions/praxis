@@ -12,7 +12,7 @@ This document is the **async integration handshake**. Matthew implements the ser
 
 ## Base URL
 
-Set `PRAXIS_API_BASE_URL` on the dashboard (e.g. `https://api.example.com` or `http://localhost:8000`). Optional `PRAXIS_API_TOKEN` for Bearer auth.
+Set `PRAXIS_API_BASE_URL` on Streamlit (e.g. `https://api.example.com` or `http://localhost:8000`). React uses build-time `VITE_PRAXIS_API_BASE_URL` (same URL). Optional Bearer token: `PRAXIS_API_TOKEN` / `VITE_PRAXIS_API_TOKEN`.
 
 ---
 
@@ -60,7 +60,7 @@ See [`fixtures/candidates-list.json`](fixtures/candidates-list.json).
 | `auditTrail` | array | no | `{ action, timestamp, provenance, actor, note? }` |
 | *other keys* | any | no | Preserved in dashboard `Candidate.extra` |
 
-Client parser: `frontend/models/candidate.py` → `Candidate.from_mapping()`.
+Client parser: `frontend/models/candidate.py` → `Candidate.from_mapping()` (Streamlit); `frontend-react/src/api/candidateModel.ts` → `candidateFromMapping()` (React).
 
 ---
 
@@ -88,7 +88,7 @@ The dashboard computes `targetState` from the current candidate state (`proposed
 
 **Response:** updated Candidate object.
 
-**409:** State conflict (e.g. stale promote). Dashboard shows message; user refreshes and retries.
+**409 / stale promote:** Contract documents **409** for state conflict. Matthew's server (`knowledge/serve`) returns **400** with `cannot promote` for invalid/stale promote; clients map that to the same refresh-and-retry UX as 409.
 
 ### `POST /candidates/{id}/reject`
 
@@ -98,7 +98,7 @@ The dashboard computes `targetState` from the current candidate state (`proposed
 { "reason": "optional human note" }
 ```
 
-**Response:** empty body or updated candidate (client ignores body).
+**Response:** empty body or updated candidate. Reject sets `state: "decayed"` (Matthew's store); clients refresh the list to show the decayed badge.
 
 ### `POST /contradictions/{id}/resolve`
 
@@ -136,18 +136,23 @@ See [`fixtures/resolve-request.json`](fixtures/resolve-request.json).
 | Keep rival | `resolution: keep_b`, `keepId` = rival id |
 | Defer | No API call (UI-only) |
 
-Implementation: `frontend/services/contract_v1.py`, `frontend/services/api_client.py`.
+Implementation:
+
+- Streamlit: `frontend/services/contract_v1.py`, `frontend/services/api_client.py`
+- React: `frontend-react/src/api/contract.ts`, `frontend-react/src/api/apiClient.ts`
+- Server: `knowledge/serve/app.py` (Matthew)
 
 ---
 
 ## Self-serve validation (no meeting)
 
 ```powershell
-cd frontend
-$env:PYTHONPATH = "."
-..\frontend\venv\Scripts\pytest tests/test_contract_fixtures.py -q
+$env:PYTHONPATH = "frontend"
+uv run pytest frontend/tests/test_contract_fixtures.py frontend/tests/test_mock_gate_workflow.py -q
 $env:PRAXIS_API_BASE_URL = "http://localhost:8000"
-..\frontend\venv\Scripts\pytest tests/test_contract_fixtures.py -q  # when server up
+uv run pytest frontend/tests/test_live_api_smoke.py -q   # when Matthew's server is up
+cd frontend-react
+npm test
 ```
 
 See also [`wire-up.md`](wire-up.md).

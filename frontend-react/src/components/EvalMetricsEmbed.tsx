@@ -45,6 +45,12 @@ export function EvalMetricsEmbed({ provider }: EvalMetricsEmbedProps) {
       </button>
       {open ? (
         <div className="eval-body">
+          {metrics?.fetchError ? (
+            <p className="eval-warning" role="alert">
+              Eval metrics unavailable ({metrics.fetchError}) — showing placeholder
+              curve.
+            </p>
+          ) : null}
           <p className="muted">
             {metrics?.source === "placeholder"
               ? "Placeholder curve — set VITE_PRAXIS_EVAL_METRICS_URL to Dominic's eval metrics endpoint when available."

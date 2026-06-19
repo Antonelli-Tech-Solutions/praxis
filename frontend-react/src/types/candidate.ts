@@ -43,6 +43,8 @@ export interface EvalMetrics {
   correctionsBefore?: number;
   correctionsAfter?: number;
   source: string;
+  /** Set when a configured metrics URL failed and placeholder data is shown. */
+  fetchError?: string;
 }
 
 export interface ApiConflictError extends Error {

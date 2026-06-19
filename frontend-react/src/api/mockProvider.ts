@@ -11,12 +11,18 @@ const PLACEHOLDER_METRICS: EvalMetrics = {
   correctionsAfter: 5,
 };
 
+function placeholderMetrics(fetchError?: string): EvalMetrics {
+  return fetchError
+    ? { ...PLACEHOLDER_METRICS, fetchError }
+    : PLACEHOLDER_METRICS;
+}
+
 function fetchEvalMetrics(
   url: string | undefined,
   token: string | undefined,
 ): Promise<EvalMetrics> {
   if (!url) {
-    return Promise.resolve(PLACEHOLDER_METRICS);
+    return Promise.resolve(placeholderMetrics());
   }
   return fetch(url, {
     headers: token ? { Authorization: `Bearer ${token}` } : undefined,
@@ -41,7 +47,11 @@ function fetchEvalMetrics(
           (payload.correctionsAfter as number | undefined),
       };
     })
-    .catch(() => PLACEHOLDER_METRICS);
+    .catch((error: unknown) =>
+      placeholderMetrics(
+        error instanceof Error ? error.message : "Eval metrics unavailable",
+      ),
+    );
 }
 
 export function createMockDataProviderWithRows(

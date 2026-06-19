@@ -54,9 +54,15 @@ class MockDataProvider:
         return updated
 
     def reject(self, candidate_id: str, reason: str | None = None) -> None:
-        if candidate_id not in self._candidates:
-            raise KeyError(f"Unknown candidate id: {candidate_id!r}")
-        del self._candidates[candidate_id]
+        candidate = self._require_candidate(candidate_id)
+        audit = _append_audit(
+            candidate,
+            action="rejected",
+            actor="human-gate",
+            note=reason or "",
+        )
+        updated = _clone_candidate(candidate, state=CandidateState.DECAYED, extra=audit)
+        self._candidates[candidate_id] = updated
 
     def resolve_contradiction(
         self,
@@ -71,8 +77,23 @@ class MockDataProvider:
         primary_id, rival_id = _parse_contradiction_pair(contradiction_id, keep_id)
         keeper = self._require_candidate(keep_id)
         loser_id = rival_id if keep_id == primary_id else primary_id
-        if loser_id in self._candidates:
-            self.reject(loser_id, reason=f"contradiction_resolved:{contradiction_id}")
+        loser = self._candidates.get(loser_id)
+        if loser is not None:
+            loser_audit = _append_audit(
+                loser,
+                action="superseded",
+                actor="human-gate",
+                note=f"lost contradiction to {keep_id}",
+            )
+            cleared_loser_ids = [
+                cid for cid in loser.contradiction_ids if cid != keep_id
+            ]
+            self._candidates[loser_id] = _clone_candidate(
+                loser,
+                state=CandidateState.DECAYED,
+                contradiction_ids=cleared_loser_ids,
+                extra=loser_audit,
+            )
 
         cleared_ids = [cid for cid in keeper.contradiction_ids if cid != loser_id]
         audit = _append_audit(
