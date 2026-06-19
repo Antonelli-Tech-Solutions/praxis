@@ -46,3 +46,33 @@ def test_empty_write_is_noop():
     g = VectorGraph()
     g.write("   ")
     assert g.read() == ""
+
+
+def test_contradictions_exporter_surfaces_flagged_pairs():
+    from knowledge.knowledge_graph.write_policy.write_step_variants import ConflictFlagger
+    from knowledge.llm.llm_variants.fake_llm import FakeLlm
+
+    # Conflict-only policy with a yes-saying judge and no similarity gate, so the
+    # second (contradictory) write is reliably flagged against the first.
+    policy = [ConflictFlagger(llm=FakeLlm(default="yes"), similarity_floor=-1.0)]
+    g = VectorGraph(policy=policy)
+    g.write("Use tabs for indentation")
+    g.write("Use spaces for indentation")
+
+    pairs = g.contradictions()
+    assert len(pairs) == 1
+    assert pairs[0].flagged.text == "Use spaces for indentation"
+    assert pairs[0].conflicting.text == "Use tabs for indentation"
+
+
+def test_conflict_detection_is_best_effort_when_llm_unavailable():
+    from knowledge.knowledge_graph.write_policy.write_step_variants import ConflictFlagger
+
+    class _BoomLlm:
+        def complete(self, messages, **_):
+            raise RuntimeError("no API key")
+
+    g = VectorGraph(policy=[ConflictFlagger(llm=_BoomLlm(), similarity_floor=-1.0)])
+    g.write("a fact")
+    g.write("another fact")  # must not raise despite the failing LLM
+    assert g.contradictions() == []  # error swallowed -> nothing flagged
