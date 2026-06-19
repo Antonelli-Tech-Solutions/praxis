@@ -4,6 +4,7 @@
 
 [![Python](https://img.shields.io/badge/python-3.12+-blue.svg)](pyproject.toml)
 [![Streamlit](https://img.shields.io/badge/dashboard-Streamlit-FF4B4B.svg)](frontend/app.py)
+[![React](https://img.shields.io/badge/dashboard-React-61DAFB.svg)](frontend-react/README.md)
 [![Go](https://img.shields.io/badge/session--capture-Go-00ADD8.svg)](session-capture/README.md)
 [![Contract](https://img.shields.io/badge/API-contract_v1-4CAF50.svg)](docs/integration/candidate-api-v1.md)
 
@@ -83,7 +84,8 @@ Point-in-time snapshot as of **2026-06-18** (Sprint Day 2). See [AUDIT.md](AUDIT
 
 | Area | Path | Owner | Status |
 |------|------|-------|--------|
-| Human-gate dashboard | `frontend/` | Monica Peters | **Demo-ready** — Streamlit UI, mock fixtures, contract v1 API client, Render deploy blueprint |
+| Human-gate dashboard (Streamlit) | `frontend/` | Monica Peters | **Demo-ready** — mock fixtures, contract v1 API client, Render deploy blueprint |
+| Knowledge Graph dashboard (React) | `frontend-react/` | Monica Peters (client) / Matthew Daw (server) | **Demo-ready (mock)** — Vite + TypeScript UI targeting same candidate-api-v1; Matthew validates his REST server without Streamlit |
 | Knowledge substrate | `knowledge/` | Matthew Daw | **Foundation** — in-memory graph, prompt ingestor, whole-file reader, wiring factory |
 | Eval harness | `knowledge/evals/` | Dominic Antonelli | **Partial** — YAML case registry, deterministic checks, real Claude Code runner + offline FakeRunner |
 | Session capture | `session-capture/` | Dominic Antonelli | **Working** — Go `claude+` PTY daemon, JSONL tailer, DynamoDB writer |
@@ -129,7 +131,7 @@ Three Gauntlet AI Fellows, each owning one end-to-end pillar for a 9–10 day fo
 | Lead | Pillar | Focus |
 |------|--------|-------|
 | **Matthew Daw** | ML & Knowledge Pipeline | Ingestion, learning-moment detection, LLM distillation, consolidation/dedup/scoring, knowledge graph, provenance |
-| **Monica Peters** | Dashboard & Human Gate | Streamlit Knowledge Graph / human-gate dashboard, approval workflow, contradiction resolution UI, credibility metrics |
+| **Monica Peters** | Dashboard & Human Gate | Streamlit + React human-gate dashboards, approval workflow, contradiction resolution UI, credibility metrics |
 | **Dominic Antonelli** | Architecture, Eval & Integration | System design, eval harness, VCS-agnostic replay automation, session capture wrapper, deployment, compounding-curve proof |
 
 Daily 15-minute syncs; all code reviewed by at least one other member before merge.
@@ -178,6 +180,10 @@ praxis/
 │   ├── tests/                 # Contract fixture + mock workflow tests
 │   ├── mock_data.py           # Local fixtures — no backend required
 │   └── render.yaml            # Render.com deploy blueprint
+├── frontend-react/            # React Knowledge Graph dashboard (Monica — Matthew API client)
+│   ├── src/                   # Vite + TypeScript — same contract v1 as Streamlit
+│   ├── public/mock-candidates.json
+│   └── README.md              # Matthew self-serve wire-up (VITE_* env vars)
 ├── knowledge/                 # Knowledge substrate + eval harness (Matthew & Dominic)
 │   ├── knowledge_graph/       # KnowledgeGraph ABC + InMemoryGraph
 │   ├── injestion/             # Ingestor ABC + PromptIngestor
@@ -205,7 +211,7 @@ praxis/
 | Python | ≥ 3.12 | Dashboard, knowledge package, eval harness |
 | [uv](https://docs.astral.sh/uv/) | latest (recommended) | Dependency install and script runner |
 | Go | ≥ 1.22 | Building `session-capture/wrapper` |
-| Node.js | ≥ 20 | AWS CDK deploy (`infra/`) |
+| Node.js | ≥ 20 | React dashboard (`frontend-react/`), AWS CDK deploy (`infra/`) |
 | AWS CLI | configured | DynamoDB session capture (optional — wrapper runs without it) |
 
 ---
@@ -238,6 +244,16 @@ uv run streamlit run app.py
 Mock mode loads fixtures from `mock_data.py` — no backend required. See [docs/integration/wire-up.md](docs/integration/wire-up.md) for live API and eval-metrics wiring.
 
 **Render deploy (portfolio demo):** [docs/monica/RENDER_DEPLOY.md](docs/monica/RENDER_DEPLOY.md)
+
+### 2b. Run the React dashboard (Matthew API client)
+
+```powershell
+cd frontend-react
+npm install
+npm run dev
+```
+
+Mock mode loads `public/mock-candidates.json` — no backend required. Set `VITE_PRAXIS_API_BASE_URL` in `.env.local` for Matthew's live server. See [frontend-react/README.md](frontend-react/README.md) and [docs/integration/wire-up.md](docs/integration/wire-up.md).
 
 ### 3. Run the eval harness
 
@@ -285,7 +301,11 @@ Full wrapper docs: [session-capture/README.md](session-capture/README.md)
 | `PRAXIS_API_BASE_URL` | No | Dashboard | Candidate REST API base URL; unset → mock fixtures |
 | `PRAXIS_API_TOKEN` | No | Dashboard | Bearer token for API auth |
 | `PRAXIS_CONTRACT_VERSION` | No | Dashboard | API contract version header (default `1`) |
-| `PRAXIS_EVAL_METRICS_URL` | No | Dashboard | GET endpoint returning eval metrics JSON for compounding-curve embed |
+| `PRAXIS_EVAL_METRICS_URL` | No | Streamlit dashboard | GET endpoint returning eval metrics JSON for compounding-curve embed |
+| `VITE_PRAXIS_API_BASE_URL` | No | React dashboard | Same as `PRAXIS_API_BASE_URL`; unset → mock fixtures |
+| `VITE_PRAXIS_API_TOKEN` | No | React dashboard | Bearer token for API auth |
+| `VITE_PRAXIS_EVAL_METRICS_URL` | No | React dashboard | Eval metrics JSON URL for compounding-curve embed |
+| `VITE_PRAXIS_CONTRACT_VERSION` | No | React dashboard | API contract version header (default `1`) |
 | `PRAXIS_EVAL_REAL` | No | Eval harness | Set to `0` for offline FakeRunner; default runs real Claude Code |
 | `SESSION_TABLE` | No | Session capture | DynamoDB table name for transcript streaming |
 | `AWS_REGION` | No | Session capture | AWS region for DynamoDB writer |
@@ -323,7 +343,8 @@ Contract fixtures are canonical in [docs/integration/fixtures/](docs/integration
 | [docs/proposal-praxis.md](docs/proposal-praxis.md) | Capstone proposal — problem, direction, risks (historical) |
 | [docs/integration/candidate-api-v1.md](docs/integration/candidate-api-v1.md) | **Matthew ↔ Monica** candidate REST contract + fixtures |
 | [docs/integration/eval-metrics-v1.md](docs/integration/eval-metrics-v1.md) | **Dominic ↔ Monica** eval metrics JSON contract |
-| [docs/integration/wire-up.md](docs/integration/wire-up.md) | Self-serve dashboard wire-up (no pairing) |
+| [docs/integration/wire-up.md](docs/integration/wire-up.md) | Self-serve Streamlit + React wire-up (no pairing) |
+| [frontend-react/README.md](frontend-react/README.md) | React Knowledge Graph dashboard — Matthew API validation |
 | [docs/monica/ARCHITECTURE_MONICA.md](docs/monica/ARCHITECTURE_MONICA.md) | Dashboard pillar architecture — Streamlit stack, API boundaries |
 | [docs/monica/monica-wireframes.md](docs/monica/monica-wireframes.md) | Dashboard as-built spec and UX notes |
 | [docs/monica/DEMO_SCRIPT.md](docs/monica/DEMO_SCRIPT.md) | Three-act live demo script |

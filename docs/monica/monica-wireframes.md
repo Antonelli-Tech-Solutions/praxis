@@ -4,7 +4,7 @@
 **Branch:** `monica/dashboard-human-gate`  
 **Created:** 2026-06-17  
 **Last updated:** 2026-06-18  
-**Status:** As-built through Day 8 (mock-complete; live API when Matthew publishes endpoints).
+**Status:** As-built through Day 2 — Streamlit mock-complete; React client shipped (`frontend-react/`); live API when Matthew publishes endpoints.
 
 Architecture source of truth: [PRAXIS_Project_Plan.html](../PRAXIS_Project_Plan.html).
 
@@ -108,6 +108,22 @@ Lifecycle states: `proposed → suggested → active` (plus `decayed` and unreco
 Contradiction id: `{primaryId}__{rivalId}`. UI maps "Keep this candidate" → `keep_a`, rival → `keep_b` in `contract_v1.py`.
 
 409 responses surface as user-visible conflict messages (refresh + retry). Promote retries with `{}` if server rejects explicit `targetState`.
+
+## React client (`frontend-react/`) — shipped 2026-06-18
+
+Parallel **Vite + React + TypeScript** app for Matthew's API validation. Same contract, same mock fixtures (`public/mock-candidates.json` exported from `mock_data.py`), same Act 2 demo steps.
+
+| Element | Implementation |
+|---------|----------------|
+| Entry | `src/App.tsx` — sidebar refresh, filters, table/card tabs |
+| API | `src/api/apiClient.ts` + `mockProvider.ts` — contract v1 headers, promote 400/422 retry |
+| List | `CandidateTable.tsx`, `CandidateCards.tsx` |
+| Detail | `CandidateDetail.tsx` + `ConfidenceBreakdown.tsx` |
+| Contradictions | `ContradictionPanel.tsx` — keep primary / keep rival / defer |
+| Eval embed | `EvalMetricsEmbed.tsx` — `VITE_PRAXIS_EVAL_METRICS_URL` or placeholder |
+| Env vars | `VITE_PRAXIS_API_BASE_URL`, `VITE_PRAXIS_API_TOKEN`, `VITE_PRAXIS_CONTRACT_VERSION` |
+
+Matthew runs `npm run dev` in `frontend-react/`; Monica's Streamlit path unchanged in `frontend/`.
 
 ## Design notes
 

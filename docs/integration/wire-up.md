@@ -59,6 +59,24 @@ Expand **Eval metrics — compounding curve** and confirm live chart + before/af
 
 No `PRAXIS_API_BASE_URL` in Render env vars. See [`../monica/RENDER_DEPLOY.md`](../monica/RENDER_DEPLOY.md).
 
+## 6. React dashboard (Matthew — no Streamlit required)
+
+```powershell
+cd frontend-react
+npm install
+npm run dev
+```
+
+Rehearse the same Act 2 steps at http://localhost:5173. For Matthew's live server:
+
+```powershell
+# .env.local
+# VITE_PRAXIS_API_BASE_URL=http://localhost:8000
+npm run dev
+```
+
+Build for static deploy: `npm run build` → `dist/`. Full guide: [`../../frontend-react/README.md`](../../frontend-react/README.md).
+
 ## Troubleshooting
 
 | Symptom | Check |

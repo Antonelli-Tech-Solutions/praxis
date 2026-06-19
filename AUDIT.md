@@ -1,8 +1,8 @@
 # PRAXIS Repository Audit
 
-**Audit date:** 2026-06-18  
+**Audit date:** 2026-06-18 (EOD refresh for `frontend-react/`)  
 **Branch:** `monica/dashboard-human-gate`  
-**Sync:** `origin/main` merged — already up to date  
+**Sync:** up to date with `origin/monica/dashboard-human-gate`  
 **Auditor scope:** Full-repo health, docs/code alignment, integration readiness, test posture  
 **Source of truth:** [docs/PRAXIS_Project_Plan.html](docs/PRAXIS_Project_Plan.html), [README.md](README.md)
 
@@ -14,7 +14,7 @@ PRAXIS is a three-pillar capstone sprint building a self-improving knowledge loo
 
 | Pillar | Owner | Location | Maturity |
 |--------|-------|----------|----------|
-| Dashboard & Human Gate | Monica Peters | `frontend/` | **High** — feature-complete on mock data; API client ready |
+| Dashboard & Human Gate | Monica Peters | `frontend/`, `frontend-react/` | **High** — Streamlit demo-ready on mock; React client shipped for Matthew API validation |
 | ML & Knowledge Pipeline | Matthew Daw | `knowledge/` (+ planned `pipeline/`) | **Early** — in-memory KG, ingestor skeleton; no REST API yet |
 | Architecture, Eval & Integration | Dominic Antonelli | `knowledge/evals/`, `session-capture/`, `infra/` | **Partial** — eval harness skeleton + session capture Go wrapper |
 
@@ -59,7 +59,7 @@ praxis/
 | Path | Status | Notes |
 |------|--------|-------|
 | `frontend/` | ✅ Present | 17 Python modules; Streamlit app, components, services, tests |
-| `frontend-react/` | ⚠️ Empty | Reserved; no scaffold |
+| `frontend-react/` | ✅ Present | Vite + React + TS; contract v1 client; mock + live API modes; `npm run build` passes |
 | `pipeline/` | ❌ Missing | Matthew's distillation/API work lives under `knowledge/` today |
 | `eval/` | ❌ Missing | Eval harness under `knowledge/evals/`; not top-level `eval/` |
 | `knowledge/` | ✅ Present | KG, ingestion, graph reader, eval harness (29 `.py` files) |
@@ -101,6 +101,26 @@ praxis/
 - Live API never exercised in CI (no server in repo).
 - `pyproject.toml` does not add `frontend` to `pythonpath` — root `pytest` collection fails (see Test posture).
 - Accessibility pass and user-flow video remain manual (see `docs/monica/DAYS_9_10_REMAINING.md`).
+
+---
+
+### 1b. Knowledge Graph Dashboard (`frontend-react/`) — Monica (Matthew API client)
+
+**Status:** Demo-ready on mock; contract v1 client implemented; `npm run build` passes.
+
+| Area | Finding |
+|------|---------|
+| Stack | Vite 8 + React 19 + TypeScript — separate `package.json`, no Python deps |
+| Contract | Mirrors `frontend/services/contract_v1.py` — promote retry on 400/422, 409 handling |
+| Mock data | `public/mock-candidates.json` — 17 rows exported from `frontend/mock_data.py` |
+| Features | Table + card views, detail, confidence breakdown, contradictions, eval embed |
+| Env | `VITE_PRAXIS_API_BASE_URL`, `VITE_PRAXIS_EVAL_METRICS_URL`, token + contract version |
+| Docs | `frontend-react/README.md` — Matthew self-serve wire-up |
+
+**Gaps:**
+
+- No automated tests yet (TypeScript `tsc -b` only).
+- Live API not exercised in CI (same blocker as Streamlit — no server in repo).
 
 ---
 
@@ -274,7 +294,7 @@ Or document that all contributors must run frontend tests from `frontend/` with 
 
 8. Rename `knowledge/injestion/` → `ingestion/` when Matthew agrees (breaking import change).
 9. Add `.gitignore` entries for `frontend/venv/`, `.venv/`, `node_modules/`.
-10. Scaffold or remove empty `frontend-react/` to avoid confusion.
+10. ~~Scaffold or remove empty `frontend-react/` to avoid confusion.~~ **Done (2026-06-18)** — React dashboard shipped; see `frontend-react/README.md`.
 11. Add HTTP-level tests for `ApiDataProvider` with a stub server.
 
 ---

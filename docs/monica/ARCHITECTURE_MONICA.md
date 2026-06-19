@@ -14,11 +14,11 @@ Pillar Owner:       Monica Peters (monigarr@monigarr.com)
 Co-Leads:           Matthew Daw (ML Pipeline), Dominic Antonelli (Eval & Integration)
 Organization:       Gauntlet AI for America
 Branch:             monica/dashboard-human-gate
-Version:            0.2.0 (Days 1–8 complete on mock; API client ready for Matthew)
-Status:             Active development — UI feature-complete on mock; awaiting live API
+Version:            0.2.1 (Days 1–8 Streamlit complete; React client shipped for Matthew)
+Status:             Active development — dual UI clients on mock; awaiting Matthew's live API
 Classification:     Internal — capstone sprint
 Created:            2026-06-18
-Last Updated:       2026-06-18 (Day 3–8 deliverables + ApiDataProvider)
+Last Updated:       2026-06-18 (frontend-react Knowledge Graph dashboard)
 Source of Truth:    docs/PRAXIS_Project_Plan.html
 License:            TBD — Gauntlet AI capstone (2026)
 ============================================================================
@@ -311,7 +311,7 @@ A new contributor should be able to:
 | Eval harness, cold vs injected runs, compounding curve computation | Dominic | Measurement spine |
 | GitHub hook / PR automation on promotion | Dominic | Integration layer |
 | Team-wide CI/CD, repo deployment topology | Dominic (+ shared agreement) | Each pillar deploys independently |
-| **React SPA (alternate UI)** | **Future contributor** | **Fully supported in sibling dir** (e.g. `frontend-react/`) — same API; does not replace or block `frontend/` Streamlit unless team chooses deprecation |
+| **React SPA (alternate UI)** | **Monica — shipped `frontend-react/`** | Same candidate-api-v1 contract; Matthew validates server without Streamlit; deploy to Vercel/Netlify/static host |
 
 **Non-blocking rule:** Changes under `frontend/` must not require edits to `pipeline/` or `eval/` to run. Integration is **pull-based** (dashboard calls API) or **env-configured**, never hard-coded to Matthew's AWS or Dominic's server. A React frontend, if added, follows the same rule — API-only coupling.
 

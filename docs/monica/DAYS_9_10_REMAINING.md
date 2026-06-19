@@ -5,7 +5,8 @@ Code polish for this phase is in place (reject reason, refresh, low-confidence p
 ## Demo rehearsal
 
 - [ ] Run Act 2 from [DEMO_SCRIPT.md](DEMO_SCRIPT.md) on mock Streamlit
-- [ ] Run Act 2 again with `PRAXIS_API_BASE_URL` when Matthew's API is live
+- [ ] Run Act 2 on mock React (`cd frontend-react && npm run dev`)
+- [ ] Run Act 2 again with `PRAXIS_API_BASE_URL` / `VITE_PRAXIS_API_BASE_URL` when Matthew's API is live
 - [ ] Rehearse cold-start mention if using Render free tier ([RENDER_DEPLOY.md](RENDER_DEPLOY.md))
 
 ## User-flow video

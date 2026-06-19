@@ -1,6 +1,6 @@
 # Candidate API — Contract v1
 
-**Owner (client):** Monica Peters — Dashboard & Human Gate (`frontend/`)  
+**Owner (client):** Monica Peters — Streamlit (`frontend/`) and React (`frontend-react/`)  
 **Owner (server):** Matthew Daw — ML & Knowledge Pipeline  
 **Version:** `X-Praxis-Contract: 1` (override via `PRAXIS_CONTRACT_VERSION`)
 
