@@ -1,10 +1,23 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { getDataProvider } from "../api/mockProvider";
+import { resolveDataProvider } from "../api/providerFactory";
 import type { DataProvider } from "../api/dataProvider";
+import type { DataSourceConfig } from "../config/dataSource";
 import type { Candidate } from "../types/candidate";
+import type { ParsedLogSession } from "../types/transcript";
 
-export function useCandidates() {
-  const provider = useMemo<DataProvider>(() => getDataProvider(), []);
+export interface UseCandidatesOptions {
+  config: DataSourceConfig;
+  providerOverride?: DataProvider;
+  localSession?: ParsedLogSession | null;
+}
+
+export function useCandidates(options: UseCandidatesOptions) {
+  const { config, providerOverride, localSession } = options;
+  const provider = useMemo<DataProvider>(
+    () =>
+      providerOverride ?? resolveDataProvider(config, localSession),
+    [config, localSession, providerOverride],
+  );
   const [candidates, setCandidates] = useState<Candidate[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -27,6 +40,10 @@ export function useCandidates() {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  useEffect(() => {
+    setLastAction(null);
+  }, [config]);
 
   const promote = useCallback(
     async (id: string) => {

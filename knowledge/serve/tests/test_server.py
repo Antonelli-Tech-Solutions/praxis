@@ -13,7 +13,9 @@ def _client(tmp_path):
 
 def test_health_and_list(tmp_path):
     client, store = _client(tmp_path)
-    assert client.get("/health").json()["status"] == "ok"
+    health = client.get("/health").json()
+    assert health["status"] == "ok"
+    assert health["store"] == "json"
     cands = client.get("/candidates").json()
     assert isinstance(cands, list) and len(cands) > 0
 
@@ -54,3 +56,10 @@ def test_resolve_keeps_one_and_drops_link(tmp_path):
 def test_promote_unknown_is_404(tmp_path):
     client, _ = _client(tmp_path)
     assert client.post("/candidates/nope/promote", json={}).status_code == 404
+
+
+def test_metrics_endpoint_serves_fixture(tmp_path):
+    client, _ = _client(tmp_path)
+    metrics = client.get("/metrics").json()
+    assert "correction_rate" in metrics
+    assert metrics["corrections_before"] == 12

@@ -1,11 +1,40 @@
 services:
   - type: web
+    name: praxis-candidate-api
+    repo: https://labs.gauntletai.com/monicapeters/praxis.git
+    branch: monica/dashboard-human-gate
+    runtime: python
+    plan: free
+    buildCommand: pip install . && python scripts/export-render-seed.py
+    startCommand: uvicorn knowledge.serve.app:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    autoDeployTrigger: commit
+    buildFilter:
+      paths:
+        - knowledge/serve/**
+        - knowledge/knowledge_graph/**
+        - knowledge/injestion/**
+        - knowledge/llm/**
+        - pyproject.toml
+        - frontend/mock_data.py
+        - scripts/export-render-seed.py
+        - scripts/export-mock-candidates.py
+        - docs/integration/fixtures/eval-metrics.json
+    envVars:
+      - key: PRAXIS_API_HOST
+        value: 0.0.0.0
+      - key: PYTHON_VERSION
+        value: "3.12"
+      - key: PRAXIS_DB_URL
+        sync: false
+
+  - type: web
     name: praxis-react-human-gate
-    repo: https://github.com/monigarr/praxis
+    repo: https://labs.gauntletai.com/monicapeters/praxis.git
     branch: monica/dashboard-human-gate
     rootDir: frontend-react
     runtime: static
-    buildCommand: npm ci && npm run build
+    buildCommand: npm ci && npm run build:render
     staticPublishPath: ./dist
     autoDeployTrigger: commit
     buildFilter:
@@ -17,13 +46,19 @@ services:
       - key: NODE_VERSION
         value: "20"
       - key: VITE_PRAXIS_API_BASE_URL
-        sync: false
+        fromService:
+          type: web
+          name: praxis-candidate-api
+          envVarKey: RENDER_EXTERNAL_URL
+      - key: VITE_PRAXIS_POSTGRES_API_BASE_URL
+        fromService:
+          type: web
+          name: praxis-candidate-api
+          envVarKey: RENDER_EXTERNAL_URL
       - key: VITE_PRAXIS_API_TOKEN
         sync: false
       - key: VITE_PRAXIS_CONTRACT_VERSION
         value: "1"
-      - key: VITE_PRAXIS_EVAL_METRICS_URL
-        sync: false
     routes:
       - type: rewrite
         source: /*

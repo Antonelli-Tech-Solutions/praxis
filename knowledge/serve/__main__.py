@@ -7,5 +7,6 @@ import os
 import uvicorn
 
 if __name__ == "__main__":
-    port = int(os.getenv("PRAXIS_API_PORT", "8000"))
-    uvicorn.run("knowledge.serve.app:app", host="127.0.0.1", port=port, log_level="info")
+    port = int(os.getenv("PORT", os.getenv("PRAXIS_API_PORT", "8000")))
+    host = os.getenv("PRAXIS_API_HOST", "127.0.0.1")
+    uvicorn.run("knowledge.serve.app:app", host=host, port=port, log_level="info")

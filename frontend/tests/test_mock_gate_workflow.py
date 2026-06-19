@@ -10,7 +10,7 @@ from services.mock_provider import MockDataProvider
 def test_mock_provider_lists_candidates() -> None:
     provider = get_data_provider()
     candidates = provider.list_candidates()
-    assert len(candidates) >= 17
+    assert len(candidates) >= 18
 
 
 def test_mock_promote_proposed_to_suggested() -> None:
@@ -32,11 +32,13 @@ def test_next_promotion_state_chain() -> None:
     assert next_promotion_state(CandidateState.ACTIVE) is None
 
 
-def test_mock_reject_removes_candidate() -> None:
+def test_mock_reject_decays_candidate() -> None:
     provider = MockDataProvider()
     assert provider.get_candidate("cand_3") is not None
     provider.reject("cand_3", reason="duplicate lesson")
-    assert provider.get_candidate("cand_3") is None
+    decayed = provider.get_candidate("cand_3")
+    assert decayed is not None
+    assert decayed.state is CandidateState.DECAYED
 
 
 def test_mock_promote_suggested_to_active() -> None:
@@ -61,5 +63,7 @@ def test_mock_resolve_contradiction_clears_rival() -> None:
         keep_id="cand_9",
     )
     assert "cand_16" not in updated.contradiction_ids
-    assert provider.get_candidate("cand_16") is None
+    rival = provider.get_candidate("cand_16")
+    assert rival is not None
+    assert rival.state is CandidateState.DECAYED
     assert provider.get_candidate("cand_9") is not None

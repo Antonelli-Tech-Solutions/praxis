@@ -89,7 +89,7 @@ Point-in-time snapshot as of **2026-06-18** (Sprint Day 2). See [AUDIT.md](AUDIT
 | Knowledge substrate | `knowledge/` | Matthew Daw | **Foundation** — in-memory graph, prompt ingestor, whole-file reader, wiring factory |
 | Eval harness | `knowledge/evals/` | Dominic Antonelli | **Partial** — 5 YAML cases, deterministic checks, real Claude Code runner + offline FakeRunner |
 | Session capture | `session-capture/` | Dominic Antonelli | **Working** — Go `claude+` PTY daemon, JSONL tailer, DynamoDB writer |
-| Cloud infra | `infra/` | Dominic Antonelli | **Scaffolded** — AWS CDK stack for sessions DynamoDB table |
+| Cloud infra | `infra/` | Team | **Scaffolded** — AWS CDK: DynamoDB sessions table + RDS PostgreSQL 16/pgvector KG store |
 | Candidate REST API | — | Matthew Daw | **Planned** — contract v1 documented; server not yet in-repo |
 | Eval metrics endpoint | — | Dominic Antonelli | **Planned** — contract v1 documented; dashboard embed ready |
 | CI pipeline | — | Team | **Not yet** — manual test runs only |
@@ -198,7 +198,7 @@ praxis/
 │   └── run.py                 # Debugger entry — ingest smoke + eval runner
 ├── session-capture/           # Go claude+ wrapper — PTY daemon + DynamoDB capture
 │   └── wrapper/               # cmd/claude-plus, internal/{pty,daemon,capture,store}
-├── infra/                     # AWS CDK — praxis-sessions DynamoDB table
+├── infra/                     # AWS CDK — DynamoDB sessions + RDS knowledge-graph DB
 ├── run.py                     # Repo-root shim → knowledge/run.py
 ├── pyproject.toml             # Python 3.12+ deps (uv/pip)
 ├── uv.lock                    # Locked Python dependencies
@@ -280,10 +280,11 @@ Registered cases live in `knowledge/evals/cases/`. Results append to `knowledge/
 ### 4. Build session capture (optional)
 
 ```powershell
-# Deploy DynamoDB table
+# Deploy CDK stacks (DynamoDB sessions + optional RDS knowledge-graph DB)
 cd infra
 npm install
 npm run deploy
+# Knowledge-graph RDS setup: docs/monica/RDS_KG_DEPLOY.md
 
 # Build claude+ wrapper
 cd ..\session-capture\wrapper
@@ -312,10 +313,17 @@ Full wrapper docs: [session-capture/README.md](session-capture/README.md)
 | `VITE_PRAXIS_EVAL_METRICS_URL` | No | React dashboard | Eval metrics JSON URL for compounding-curve embed |
 | `VITE_PRAXIS_CONTRACT_VERSION` | No | React dashboard | API contract version header (default `1`) |
 | `PRAXIS_EVAL_REAL` | No | Eval harness | Set to `0` for offline FakeRunner; default runs real Claude Code |
+| `PRAXIS_DB_URL` | No | Candidate API | Postgres DSN; when set, API uses `PostgresCandidateStore` instead of JSON file |
+| `PRAXIS_DB_SECRET` | No | Candidate API | AWS Secrets Manager secret name (default `praxis/knowledge-graph/db`) |
+| `PRAXIS_ORG_ID` | No | Candidate API | Multi-tenant org scope (default `default`) |
+| `PRAXIS_USER_ID` | No | Candidate API | Multi-tenant user scope (default `default`) |
+| `PRAXIS_SHARED` | No | Candidate API | Org-shared graph visibility (`true`/`false`) |
 | `SESSION_TABLE` | No | Session capture | DynamoDB table name for transcript streaming |
-| `AWS_REGION` | No | Session capture | AWS region for DynamoDB writer |
+| `AWS_REGION` | No | Session capture, Candidate API | AWS region (DynamoDB writer; Secrets Manager for RDS creds) |
 
 Secrets are **environment-only** — never commit tokens or credentials.
+
+RDS + pgvector deploy and Postgres-backed candidate API: [docs/monica/RDS_KG_DEPLOY.md](docs/monica/RDS_KG_DEPLOY.md).
 
 ---
 
@@ -348,6 +356,8 @@ Contract fixtures are canonical in [docs/integration/fixtures/](docs/integration
 | [docs/integration/candidate-api-v1.md](docs/integration/candidate-api-v1.md) | **Matthew ↔ Monica** candidate REST contract + fixtures |
 | [docs/integration/eval-metrics-v1.md](docs/integration/eval-metrics-v1.md) | **Dominic ↔ Monica** eval metrics JSON contract |
 | [docs/integration/wire-up.md](docs/integration/wire-up.md) | Self-serve Streamlit + React wire-up (no pairing) |
+| [docs/monica/RDS_KG_DEPLOY.md](docs/monica/RDS_KG_DEPLOY.md) | RDS PostgreSQL 16 + pgvector — AWS CLI, Secrets Manager, Postgres candidate store |
+| [infra/README.md](infra/README.md) | AWS CDK stacks overview |
 | [frontend-react/README.md](frontend-react/README.md) | React Knowledge Graph dashboard — Matthew API validation |
 | [docs/monica/ARCHITECTURE_MONICA.md](docs/monica/ARCHITECTURE_MONICA.md) | Dashboard pillar architecture — Streamlit stack, API boundaries |
 | [docs/monica/monica-wireframes.md](docs/monica/monica-wireframes.md) | Dashboard as-built spec and UX notes |

@@ -18,7 +18,7 @@ Version:            0.2.1 (Days 1–8 Streamlit complete; React client shipped f
 Status:             Active development — dual UI clients on mock; awaiting Matthew's live API
 Classification:     Internal — capstone sprint
 Created:            2026-06-18
-Last Updated:       2026-06-19 (plans path fix + as-built alignment with branch)
+Last Updated:       2026-06-19 (Matthew PostgreSQL persistence; plans path fix + as-built alignment)
 Source of Truth:    docs/plans/PRAXIS_Project_Plan.html
 License:            TBD — Gauntlet AI capstone (2026)
 ============================================================================
@@ -181,7 +181,7 @@ Coexistence timeline (all valid):
   Future B:   frontend-react/ only ──API──► knowledge/   (Streamlit archived by team choice)
 ```
 
-**None of these futures require Monica to rewrite pipeline code or block Matthew's AWS/Dominic's eval work.**
+**None of these futures require Monica to rewrite pipeline code or block Matthew's PostgreSQL pipeline or Dominic's eval work.**
 
 ---
 
@@ -252,7 +252,7 @@ Within `frontend/`:
 - **Observability** — User-visible toasts and error states; structured logging hook points for Dominic's eval (Days 6–7).
 - **Extensibility** — `DataProvider` abstraction: swap `MockDataProvider` → `ApiDataProvider` without UI rewrites.
 - **Documentation** — [monica-wireframes.md](monica-wireframes.md), [Monica-Peters-Dashboard-Plan.md](Monica-Peters-Dashboard-Plan.md), this file.
-- **Handoff** — Any teammate runs `streamlit run app.py` with mocks; no AWS/DynamoDB/Render lock-in required.
+- **Handoff** — Any teammate runs `streamlit run app.py` with mocks; no PostgreSQL/Render lock-in required for Monica's pillar (Matthew owns DB setup).
 
 ---
 
@@ -281,7 +281,7 @@ A new contributor should be able to:
 
 1. Clone the repo, `cd frontend`, install deps, run the dashboard with mock data in under five minutes.
 2. Point `PRAXIS_API_BASE_URL` at Matthew's pipeline API when ready — no code fork required.
-3. Deploy to Render (Monica), AWS (Matthew), or local (Dominic) using only pillar-specific config — see [§16 Deployment Architecture](#16-deployment-architecture).
+3. Deploy to Render (Monica), Matthew's PostgreSQL-backed API host, or local (Dominic) using only pillar-specific config — see [§16 Deployment Architecture](#16-deployment-architecture).
 
 ---
 
@@ -311,14 +311,14 @@ A new contributor should be able to:
 | JSONL ingestion, episode segmentation | Matthew | Pipeline correctness |
 | Learning-moment detection, LLM distillation | Matthew | ML/KG engine |
 | Embeddings, HDBSCAN, clustering, decay rules | Matthew | Scoring source of truth |
-| Knowledge Graph storage (DynamoDB, vector DB, graph DB) | Matthew | Backend persistence |
+| Knowledge Graph storage (PostgreSQL — Matthew sets up schema/migrations) | Matthew | Backend persistence |
 | get-context tool, CLAUDE.md / skills generation | Matthew + Dominic | Injection substrate |
 | Eval harness, cold vs injected runs, compounding curve computation | Dominic | Measurement spine |
 | GitHub hook / PR automation on promotion | Dominic | Integration layer |
 | Team-wide CI/CD, repo deployment topology | Dominic (+ shared agreement) | Each pillar deploys independently |
 | **React SPA (alternate UI)** | **Monica — shipped `frontend-react/`** | Same candidate-api-v1 contract; Matthew validates server without Streamlit; deploy to Vercel/Netlify/static host |
 
-**Non-blocking rule:** Changes under `frontend/` must not require edits to `knowledge/` or `knowledge/evals/` to run. Integration is **pull-based** (dashboard calls API) or **env-configured**, never hard-coded to Matthew's AWS or Dominic's server. A React frontend, if added, follows the same rule — API-only coupling.
+**Non-blocking rule:** Changes under `frontend/` must not require edits to `knowledge/` or `knowledge/evals/` to run. Integration is **pull-based** (dashboard calls API) or **env-configured**, never hard-coded to Matthew's PostgreSQL host or Dominic's server. A React frontend, if added, follows the same rule — API-only coupling.
 
 ---
 
@@ -380,7 +380,7 @@ A new contributor should be able to:
 - **Service layer** — `DataProvider` interface; `MockDataProvider` (now), `ApiDataProvider` (Days 6–7)
 - **Integration boundary** — REST (preferred) or GraphQL per team agreement — dashboard is a **client only**
 
-Monica does **not** embed pipeline, eval, or storage logic. Dominic's GitHub hooks and Matthew's DynamoDB remain behind the API.
+Monica does **not** embed pipeline, eval, or storage logic. Dominic's GitHub hooks and Matthew's PostgreSQL-backed API remain behind the API boundary.
 
 ---
 
@@ -392,8 +392,8 @@ Monica does **not** embed pipeline, eval, or storage logic. Dominic's GitHub hoo
 ├──────────────────────┬──────────────────────────┬───────────────────────┤
 │  Matthew — knowledge/ │  Monica — frontend/       │  Dominic — knowledge/evals/      │
 │  ingest·distill·score│  Streamlit human gate     │  harness·hooks·metrics│
-│  KG storage          │  review·promote·resolve   │  compounding proof    │
-│  deploy: AWS (etc.)  │  deploy: Render (etc.)    │  deploy: TBD / local  │
+│  KG storage (PG)     │  review·promote·resolve   │  compounding proof    │
+│  deploy: TBD         │  deploy: Render (etc.)    │  deploy: TBD / local  │
 └──────────┬───────────┴────────────┬─────────────┴───────────┬───────────┘
            │                        │                         │
            │    REST/GraphQL API     │                         │
@@ -662,12 +662,12 @@ OPERATIONAL:
 
 ## Design Principle: Pillar-Sovereign Deployments
 
-Each teammate deploys **their pillar** independently. Monica's dashboard is a **stateless Streamlit process** that calls a configurable API base URL. It does **not** assume Matthew's AWS resources or Dominic's server layout.
+Each teammate deploys **their pillar** independently. Monica's dashboard is a **stateless Streamlit process** that calls a configurable API base URL. It does **not** assume Matthew's PostgreSQL resources or Dominic's server layout.
 
 | Person | Target (example) | Pillar artifact | Monica dependency |
 |--------|-------------------|-----------------|-------------------|
 | **Monica** | [Render.com](https://render.com) web service | `frontend/` | `PRAXIS_API_BASE_URL` → Matthew's API when integrated |
-| **Matthew** | AWS (DynamoDB, Lambda, etc.) | `knowledge/` + API | Exposes candidate REST endpoints |
+| **Matthew** | PostgreSQL + API server (`knowledge/`) | `knowledge/` + API | Exposes candidate REST endpoints |
 | **Dominic** | Local / TBD | `knowledge/evals/` + hooks | Consumes promotion events; optional metrics iframe/embed |
 
 ---
@@ -716,7 +716,7 @@ Mock mode activates automatically when no API URL is configured.
 ## CI/CD Philosophy (pillar)
 
 - Dashboard lint/typecheck via shared GitLab CI when added — must pass before MR merge.
-- Monica's Render deploy is **decoupled** from Matthew's AWS pipeline and Dominic's eval runner.
+- Monica's Render deploy is **decoupled** from Matthew's PostgreSQL-backed pipeline and Dominic's eval runner.
 - No single shared deploy gate that blocks one pillar waiting on another.
 
 ---
@@ -780,6 +780,16 @@ UI components depend on `DataProvider`, not on pandas or HTTP directly. **`front
 
 ---
 
+## Backend persistence (Matthew — PostgreSQL)
+
+Matthew owns PostgreSQL setup for the repo's Knowledge Graph and candidate API persistence:
+
+- **`PRAXIS_DB_URL`** (or **`PRAXIS_DB_SECRET`** → AWS Secrets Manager), schema bootstrap (`python -m knowledge.serve.db`), and promote/reject/resolve persistence live in `knowledge/` (Matthew's pillar). Full runbook: [RDS_KG_DEPLOY.md](RDS_KG_DEPLOY.md).
+- Monica's `ApiDataProvider` and the React client consume REST only — **no DB env vars in `frontend/` or `frontend-react/`**.
+- Vector or embedding stores may use separate backends later; relational KG/candidate state lives in PostgreSQL (RDS 16 + pgvector).
+
+---
+
 ## Non-Blocking Integration Checklist
 
 Before merging integration MRs:
@@ -827,11 +837,11 @@ frontend/
 |--------|------|------------|
 | `models/` | Typed API contract (`Candidate`, states, promotion helpers) | Import Streamlit, HTTP, `knowledge/`, `knowledge/evals/` |
 | `services/` | Data access (`DataProvider`, mock + API clients) | Render UI or embed pipeline logic |
-| `components/` | Streamlit presentation only | Call DynamoDB, GitHub, or eval scripts directly |
+| `components/` | Streamlit presentation only | Call PostgreSQL, GitHub, or eval scripts directly |
 | `app.py` | Provider singleton in `st.session_state`, page shell | Business logic beyond wiring |
 | `mock_data.py` | Dev/demo fixtures | Be required in production when API URL is set |
 
-**Teammate impact:** Matthew implements the server behind `ApiDataProvider` endpoints in `knowledge/` on his AWS stack. Dominic reads promotion events from that API / hooks in `knowledge/evals/` — not from Streamlit session state. A React developer adds `frontend-react/` and calls the same endpoints without modifying any file above.
+**Teammate impact:** Matthew implements the server behind `ApiDataProvider` endpoints in `knowledge/` on his PostgreSQL-backed stack. Dominic reads promotion events from that API / hooks in `knowledge/evals/` — not from Streamlit session state. A React developer adds `frontend-react/` and calls the same endpoints without modifying any file above.
 
 **Extraction status:** Complete (2026-06-19). Streamlit + React clients share contract v1; live E2E awaits Matthew's API server.
 
@@ -895,7 +905,7 @@ Monica's dashboard pillar is designed according to:
 - **Streamlit for research-data review visuals** — Monica's deliberate pillar choice, not a repo-wide UI mandate
 - **API-first integration** so React-only teammates (now or later) share the same backend without forking pipeline code
 - Modular Python under `frontend/` that any contributor can run, extend, or leave untouched
-- Strict ownership boundaries so Matthew's AWS, Dominic's eval spine, and Monica's Render deploy coexist without mutual blockers
+- Strict ownership boundaries so Matthew's PostgreSQL + API, Dominic's eval spine, and Monica's Render deploy coexist without mutual blockers
 - Interview-ready transparency: every promotion is visible, evidenced, and measurable
 
 AI accelerates the UI.

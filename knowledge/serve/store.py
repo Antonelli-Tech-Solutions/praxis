@@ -15,6 +15,7 @@ from typing import Any
 
 HERE = Path(__file__).parent
 DEFAULT_STORE = HERE / "data" / "candidates.json"
+PIPELINE_SEED = HERE / "data" / "pipeline-candidates.json"
 SEED_FIXTURE = Path(__file__).resolve().parents[2] / "frontend-react" / "public" / "mock-candidates.json"
 
 _NEXT_STATE = {"proposed": "suggested", "suggested": "active"}
@@ -44,10 +45,30 @@ class PromotionError(ValueError):
 
 
 class CandidateStore:
-    def __init__(self, path: Path = DEFAULT_STORE, seed: Path = SEED_FIXTURE) -> None:
+    def __init__(
+        self,
+        path: Path = DEFAULT_STORE,
+        seed: Path | None = None,
+        *,
+        pipeline_seed: Path = PIPELINE_SEED,
+        fixture_seed: Path = SEED_FIXTURE,
+    ) -> None:
         self.path = Path(path)
-        self.seed = Path(seed)
+        self.pipeline_seed = Path(pipeline_seed)
+        self.fixture_seed = Path(fixture_seed)
+        self.seed = Path(seed) if seed is not None else self._default_seed()
         self._candidates: list[Candidate] = self._load()
+
+    def _default_seed(self) -> Path:
+        if self.pipeline_seed.exists():
+            return self.pipeline_seed
+        if self.pipeline_seed.parent.joinpath("pipeline-insights.json").exists():
+            from knowledge.serve.pipeline_adapter import export_pipeline_candidates
+
+            export_pipeline_candidates(output_path=self.pipeline_seed)
+            if self.pipeline_seed.exists():
+                return self.pipeline_seed
+        return self.fixture_seed
 
     # --- persistence -------------------------------------------------------
     def _load(self) -> list[Candidate]:

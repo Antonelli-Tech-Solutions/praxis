@@ -103,13 +103,26 @@ class ApiDataProvider:
         try:
             payload = self._request("POST", path, body=explicit_body)
         except ApiClientError as exc:
+            if _is_promote_conflict(exc):
+                raise ApiConflictError(
+                    f"Conflict: {exc}",
+                    candidate_id=candidate_id,
+                ) from exc
             if exc.status_code not in (400, 422):
                 raise
             logger.info(
                 "Promote with targetState rejected (%s); retrying with implicit body",
                 exc.status_code,
             )
-            payload = self._request("POST", path, body=build_promote_body_implicit())
+            try:
+                payload = self._request("POST", path, body=build_promote_body_implicit())
+            except ApiClientError as retry_exc:
+                if _is_promote_conflict(retry_exc):
+                    raise ApiConflictError(
+                        f"Conflict: {retry_exc}",
+                        candidate_id=candidate_id,
+                    ) from retry_exc
+                raise
 
         if not isinstance(payload, dict):
             raise ValueError("Promote response must be a candidate object")
@@ -180,3 +193,10 @@ def _extract_candidate_id(path: str) -> str | None:
     remainder = path.split(prefix, 1)[1]
     segment = remainder.split("/", 1)[0]
     return urllib.parse.unquote(segment) if segment else None
+
+
+def _is_promote_conflict(exc: ApiClientError) -> bool:
+    """Matthew's server returns 400 PromotionError for stale/invalid promote."""
+    if exc.status_code != 400:
+        return False
+    return "cannot promote" in str(exc).lower()
