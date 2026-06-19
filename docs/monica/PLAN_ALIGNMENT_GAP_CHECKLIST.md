@@ -5,7 +5,7 @@
 **Source of truth:** [PRAXIS_Project_Plan.html](../plans/PRAXIS_Project_Plan.html) (architecture diagram + 9-day schedule), [proposal-praxis.md](../plans/proposal-praxis.md), [AUDIT.md](../../AUDIT.md)  
 **Live demo:** **Monday, June 29, 2026** — 10-minute Gauntlet capstone presentation  
 **Demo calendar:** **Internal** freeze/practice **Thu–Fri Jun 26–27** (Sprint Days 9–10) · **Public** Gauntlet showcase **Mon Jun 29** — see [Scrum Master freeze gates](#demo-freeze--three-practice-runs-before-jun-29) below  
-**Sprint snapshot:** Monica pillar mock-complete through Day 8 (Streamlit + React); Matthew live API still critical path for Acts 2–3 on staging
+**Sprint snapshot:** Monica pillar mock-complete through Day 8 (Streamlit + React); P0 eval cases `quirky_*` + poison good/bad landed with tests; Matthew live API still critical path for Acts 2–3 on staging
 
 ---
 
@@ -121,8 +121,8 @@ Each new Monica case must cite which diagram node it exercises (Figure 1 in proj
 
 | Priority | Case id (proposed) | Diagram focus | Demo act |
 |----------|-------------------|---------------|----------|
-| P0 | `quirky_exhaustive_switch` | Learning moment + injection | 1 + 3 |
-| P0 | `quirky_config_load_order` | Contradiction / rival lessons | 2 |
+| P0 | `quirky_exhaustive_switch` | Learning moment + injection | 1 + 3 | ✅ landed + tests |
+| P0 | `quirky_config_load_order` | Contradiction / rival lessons | 2 | ✅ landed + tests |
 | P1 | `promote_then_rerun` | Human gate → KG → get context | 2 + 3 |
 | P1 | `decayed_lesson_ignored` | Decay rules | stretch |
 | P2 | `cross_session_rediscovery` | Learning moment detection | stretch |
@@ -184,7 +184,7 @@ Dominic owns harness pairing (cold vs injected) and metrics; Monica owns **case 
 | Provenance display | ✅ | Detail panel + list columns |
 | Audit trail display | ✅ | `candidate_detail.py` |
 | React dashboard (Matthew API client) | ✅ | `frontend-react/` — mock + contract v1 client |
-| **Eval cases for Matthew** | ⚠️ Partial | 3 Monica cases shipped; P0 backlog below |
+| **Eval cases for Matthew** | ✅ | 5 Monica namespace cases + 2 quirky P0; `test_cases.py` green |
 
 ### Dominic — Python tooling + basic injection
 
@@ -230,7 +230,7 @@ knowledge/tests/test_injestor.py
 | Live promote via API | `frontend/services/api_client.py` | ⚠️ Client only | No server |
 | List filter by state | `frontend/components/candidate_list.py` | ✅ | |
 | Contract tests | `frontend/tests/test_mock_gate_workflow.py` | ✅ | 4 tests |
-| Eval: `quirky_config_load_order` | Monica backlog | — | Align with contradiction diagram node |
+| Eval: `quirky_config_load_order` | `cases/quirky_config_load_order/` | ✅ | Aligns with `cand_9` ↔ `cand_16` |
 
 #### Dominic — Eval: scripted PR/ticket recreation
 
@@ -306,7 +306,7 @@ knowledge/tests/test_injestor.py
 | Wire-up doc | `docs/integration/wire-up.md` | ✅ | |
 | Live integration smoke | — | ❌ | Blocked on Matthew |
 | Render deploy | `frontend/render.yaml` | ✅ | Mock portfolio |
-| **Monica: integration smoke doc** | — | — | Screenshots once API live |
+| **Monica: integration smoke doc** | [INTEGRATION_SMOKE.md](INTEGRATION_SMOKE.md) | ✅ | Screenshots when API live |
 
 #### Dominic — Cold vs injected runner
 
@@ -353,7 +353,7 @@ knowledge/tests/test_injestor.py
 | Owner | Milestone | Status | Gap |
 |-------|-----------|--------|-----|
 | Matthew | Batch evals; tune thresholds | ❌ | |
-| Monica | Dashboard polish + a11y | ⚠️ | [DAYS_9_10_REMAINING.md](DAYS_9_10_REMAINING.md) |
+| Monica | Dashboard polish + a11y | ⚠️ | Code labels shipped; manual SR pass in [DAYS_9_10_REMAINING.md](DAYS_9_10_REMAINING.md) |
 | Monica | **Practice 1** facilitation | — | Wed Jun 25 |
 | Dominic | Compounding curve measurement | ❌ | Demo climax |
 | Team | Day 8 done criteria below | — | |
@@ -398,8 +398,8 @@ knowledge/tests/test_injestor.py
 - [ ] **Dominic:** Cold vs injected paired run + correction counts
 - [ ] **Dominic:** Eval metrics GET per [eval-metrics-v1.md](../integration/eval-metrics-v1.md)
 - [ ] **Dominic:** Quirky benchmark case for Acts 1 & 3 (Monica YAML + Dominic harness)
-- [ ] **Monica:** Live integration smoke doc once API exists
-- [ ] **Monica:** ≥2 architecture-aligned eval cases merged + `test_cases.py` green — **3 shipped** (`pathlib_preference`, `docstring_policy`, `poison_negative_control`); demo-quirk backlog remains
+- [x] **Monica:** Live integration smoke doc once API exists — [INTEGRATION_SMOKE.md](INTEGRATION_SMOKE.md) (screenshots pending Matthew server)
+- [x] **Monica:** ≥2 architecture-aligned eval cases merged + `test_cases.py` green — **5 Monica + 2 quirky P0** shipped
 - [ ] **Team:** 3-act demo script with fallback matrix
 
 ### P1 — Credibility boost
@@ -428,8 +428,8 @@ knowledge/tests/test_injestor.py
 | Suite | Command | Result |
 |-------|---------|--------|
 | Knowledge | `uv run pytest knowledge/ -q` | **39 passed** |
-| Frontend | `$env:PYTHONPATH="frontend"; uv run pytest frontend/tests/ -q` | **11 passed** |
-| Eval cases | `uv run pytest knowledge/evals/tests/ -q` | extend with Monica cases |
+| Frontend | `$env:PYTHONPATH="frontend"; uv run pytest frontend/tests/ -q` | **14 passed** |
+| Eval cases | `uv run pytest knowledge/evals/tests/test_cases.py -q` | **21 passed** |
 | E2E loop | — | **None** |
 
 ---
@@ -456,6 +456,7 @@ knowledge/tests/test_injestor.py
 | [PRAXIS_Project_Plan.html](../plans/PRAXIS_Project_Plan.html) | Diagram + 9-day plan |
 | [AUDIT.md](../../AUDIT.md) | Repo health snapshot |
 | [wire-up.md](../integration/wire-up.md) | API wiring |
+| [INTEGRATION_SMOKE.md](INTEGRATION_SMOKE.md) | Mock + live smoke tables |
 
 ---
 
