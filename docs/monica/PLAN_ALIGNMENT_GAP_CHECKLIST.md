@@ -285,7 +285,7 @@ knowledge/tests/test_injestor.py
 | Planned artifact | Repo file(s) | Status | Notes |
 |------------------|--------------|--------|-------|
 | Pipeline orchestration | — | ❌ | `knowledge/run.py` smoke only |
-| **PostgreSQL setup** | — | ❌ **P0** | Matthew — schema, migrations, `DATABASE_URL`; backs candidate list + promote mutations |
+| **PostgreSQL setup** | [RDS_KG_DEPLOY.md](RDS_KG_DEPLOY.md) | ❌ **P0** | Matthew — CDK RDS 16 + pgvector, bootstrap, `PRAXIS_DB_URL` or Secrets Manager; backs candidate list + promote mutations |
 | Knowledge graph stub | `in_memory_graph.py` | ⚠️ | In-memory string → **PostgreSQL persistence target** |
 | **Candidate REST API** | [`knowledge/serve/app.py`](../../knowledge/serve/app.py) | ✅ **P0 shipped** | FastAPI contract v1; JSON store + Postgres via `PRAXIS_DB_URL` |
 | Server endpoints | `knowledge/serve/tests/test_server.py` | ✅ | Offline TestClient; live smoke: `frontend/tests/test_live_api_smoke.py` |
@@ -293,7 +293,7 @@ knowledge/tests/test_injestor.py
 
 **Minimum Day 6 server (Matthew):**
 
-- [ ] PostgreSQL provisioned (local Docker or hosted); connection via env (e.g. `DATABASE_URL`)
+- [ ] PostgreSQL provisioned (CDK RDS or local Docker); connection via `PRAXIS_DB_URL` or AWS Secrets Manager — [RDS_KG_DEPLOY.md](RDS_KG_DEPLOY.md)
 - [ ] FastAPI (or equivalent) serving contract v1
 - [ ] Promote/reject/resolve persist to PostgreSQL; API reads reflect updated state
 - [ ] Promote mutates store; returns updated `Candidate`

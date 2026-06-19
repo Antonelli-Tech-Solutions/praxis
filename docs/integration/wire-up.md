@@ -61,11 +61,17 @@ Expand **Eval metrics — compounding curve** and confirm live chart + before/af
 
 No `PRAXIS_API_BASE_URL` in Render env vars. See [`../monica/RENDER_DEPLOY.md`](../monica/RENDER_DEPLOY.md).
 
-## 6. Integration smoke checklist
+## 6. Postgres-backed API setup (Matthew)
+
+Stand up RDS PostgreSQL 16 + pgvector, bootstrap schema, and configure the candidate API to use `PostgresCandidateStore` instead of the JSON file store: [`../monica/RDS_KG_DEPLOY.md`](../monica/RDS_KG_DEPLOY.md).
+
+Requires AWS CLI credentials to pull DB secrets from Secrets Manager (or set `PRAXIS_DB_URL` explicitly).
+
+## 7. Integration smoke checklist
 
 Full pass/fail tables for mock + live API + eval metrics: [`../monica/INTEGRATION_SMOKE.md`](../monica/INTEGRATION_SMOKE.md).
 
-## 7. React dashboard (Matthew — no Streamlit required)
+## 8. React dashboard (Matthew — no Streamlit required)
 
 ```powershell
 cd frontend-react

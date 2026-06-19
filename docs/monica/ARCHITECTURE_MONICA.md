@@ -784,9 +784,9 @@ UI components depend on `DataProvider`, not on pandas or HTTP directly. **`front
 
 Matthew owns PostgreSQL setup for the repo's Knowledge Graph and candidate API persistence:
 
-- **`DATABASE_URL`**, schema, migrations, and promote/reject/resolve persistence live in `knowledge/` (Matthew's pillar).
-- Monica's `ApiDataProvider` and the React client consume REST only — **no `DATABASE_URL` in `frontend/` or `frontend-react/`**.
-- Vector or embedding stores may use separate backends later; relational KG/candidate state lives in PostgreSQL.
+- **`PRAXIS_DB_URL`** (or **`PRAXIS_DB_SECRET`** → AWS Secrets Manager), schema bootstrap (`python -m knowledge.serve.db`), and promote/reject/resolve persistence live in `knowledge/` (Matthew's pillar). Full runbook: [RDS_KG_DEPLOY.md](RDS_KG_DEPLOY.md).
+- Monica's `ApiDataProvider` and the React client consume REST only — **no DB env vars in `frontend/` or `frontend-react/`**.
+- Vector or embedding stores may use separate backends later; relational KG/candidate state lives in PostgreSQL (RDS 16 + pgvector).
 
 ---
 

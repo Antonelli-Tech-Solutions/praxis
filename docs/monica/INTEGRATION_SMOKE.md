@@ -2,7 +2,7 @@
 
 Self-serve validation when Matthew's candidate API and Dominic's eval metrics are available. No pairing call required — follow [wire-up.md](../integration/wire-up.md).
 
-Live smoke assumes Matthew's API is backed by **PostgreSQL** (Matthew owns `DATABASE_URL` and schema); dashboard env vars remain API-only (`PRAXIS_API_BASE_URL`, not a DB connection string).
+Live smoke assumes Matthew's API is backed by **PostgreSQL** (Matthew owns `PRAXIS_DB_URL` / Secrets Manager and schema — see [RDS_KG_DEPLOY.md](RDS_KG_DEPLOY.md)); dashboard env vars remain API-only (`PRAXIS_API_BASE_URL`, not a DB connection string).
 
 **Status:** Live candidate API at `knowledge/serve` (mock-seeded store + `/metrics` stub). React and Streamlit clients aligned on Matthew API v1 (reject → decayed, promote 400 conflict UX). **Local smoke (2026-06-19):** `test_live_api_smoke.py` list ✅ against `127.0.0.1:8000`; promote/reject/resolve skipped when store has no spare proposed/contradiction rows. Render dual-service checklist in §8 — tick after deploy.
 

@@ -132,6 +132,15 @@ API-only deploy: use [`knowledge/serve/render.yaml`](../../knowledge/serve/rende
 
 **Build note:** Static site uses `npm run build:render`, which sets `VITE_PRAXIS_EVAL_METRICS_URL` to `{API_URL}/metrics` when unset.
 
+### Live API + Postgres (persisted candidate store)
+
+By default the Render API blueprint does not set database credentials — the API falls back to a JSON file store. For **persisted** promote/reject/resolve across restarts and hosts:
+
+1. Stand up RDS per [RDS_KG_DEPLOY.md](RDS_KG_DEPLOY.md) (CDK, AWS CLI, Secrets Manager, schema bootstrap).
+2. On the **`praxis-candidate-api`** Render service, set **`PRAXIS_DB_URL`** (copy DSN from Secrets Manager JSON).
+3. Ensure the RDS security group allows connections from Render (see runbook §2 security notes).
+4. Dashboard env vars stay API-only — `PRAXIS_API_BASE_URL` / `VITE_PRAXIS_API_BASE_URL` only.
+
 ### Mock-only fallback
 
 Leave `VITE_PRAXIS_API_BASE_URL` unset (or deploy static site without the API service) for portfolio mock demo.
