@@ -1,0 +1,74 @@
+# End-to-end ingestion eval: dump two real skills.sh skills, break them into
+# small ideas, and let the graph naturally merge the duplicated idea.
+#
+# Source skills (skills.sh -> github.com/anthropics/skills/tree/main/skills):
+#   * frontend-design        — visual/UI craft (type scale, color tokens, motion)
+#   * web-artifacts-builder   — building self-contained web artifacts (React/Tailwind/bundling)
+#
+# Both skills independently warn against shipping generic, AI-looking design.
+# That shared idea is expressed once per skill, phrased differently but carrying
+# the identical load-bearing phrase "avoid generic AI-generated design". Each
+# via_ingestor blob is split into one insight per line, so the two skills
+# contribute that idea twice.
+#
+# Substrate: vector. Insights are ingested VERBATIM (one per line), so the merge
+# must happen in the graph's write policy, not by rewriting text. The checks are
+# lexical on purpose: a real merge drops the duplicate insight while keeping the
+# other one's exact wording, so the shared phrase survives exactly once and the
+# distinct ideas stay intact.
+#
+# EXPECTED-FAIL baseline + what flips it green (measured, do not guess):
+#   * Offline FakeEmbedder collapses only EXACT duplicates, so both phrasings
+#     persist -> the shared phrase occurs twice -> occurs_at_most(n=1) FAILS.
+#   * The real signal IS there: cosine(shared A, shared B) = 0.667 vs
+#     cosine(shared, distinct) = 0.312 (text-embedding-3-small). Cleanly
+#     separable, but the current Deduper threshold is 0.95 (near-exact only),
+#     so even the real embedder will NOT merge these paraphrases today.
+#   * GREEN PATH = a semantic-merge write step calibrated to paraphrase-level
+#     similarity (~0.67) that KEEPS one verbatim insight and drops the dup.
+#   * NOT the green path: real-LLM distillation. It rewrites every line, so the
+#     shared phrase vanishes (a false "merge") AND the distinct guards break.
+#     That is why the merge belongs in the graph write policy on verbatim text.
+#
+# The two requires-all guards keep an over-eager merge honest: a distinct idea
+# unique to each skill must still survive verbatim.
+id: skills_merge_dedup
+component: ingestion
+substrate: vector
+
+seeded_insight:
+  via_ingestor:
+    # Skill A: anthropics/skills frontend-design
+    - |
+      Build accessibility as a quality floor: responsive down to mobile, with visible keyboard focus and reduced motion respected.
+      Structure HTML semantically and use numbering or labels only when they encode real information, never as decoration.
+      Establish a deliberate type scale with intentional weights, widths, and spacing so typography carries personality.
+      Set up a compact color token system of 4-6 named hex values to keep the palette consistent across the design.
+      Manage CSS selector specificity intentionally so padding and margin rules between sections do not cancel out.
+      Use animation sparingly so motion serves the subject rather than signaling automated design.
+      Write interface copy in active voice with specific action names like "Save changes" rather than "Submit".
+      Critique your own work and avoid generic AI-generated design that resembles the standard warm-cream-and-terracotta template.
+    # Skill B: anthropics/skills web-artifacts-builder
+    - |
+      Steer away from defaults like centered layouts, purple gradients, uniform rounded corners, and the Inter font to avoid generic AI-generated design.
+      Build complex artifacts with React 18 and TypeScript for type-safe components.
+      Use Tailwind CSS with shadcn/ui theming for consistent, accessible styling.
+      Configure path aliases like @/ to keep larger projects organized and maintainable.
+      Bundle the artifact into a single self-contained HTML file with all assets inlined for portability.
+      Require an index.html in the root directory so the artifact can be bundled.
+      Build without source maps in production to reduce the distributed artifact size.
+
+deterministic_checks:
+  # The shared idea must be merged to a single surviving occurrence.
+  - name: shared_idea_merged
+    ref: "knowledge.evals.deterministic_checks.text:occurs_at_most"
+    params:
+      text: "avoid generic AI-generated design"
+      n: 1
+  # Over-merge guard: a distinct idea unique to each skill must survive.
+  - name: distinct_ideas_survive
+    ref: "knowledge.evals.deterministic_checks.text:requires_all_substrings"
+    params:
+      texts:
+        - "compact color token system"
+        - "single self-contained HTML file"

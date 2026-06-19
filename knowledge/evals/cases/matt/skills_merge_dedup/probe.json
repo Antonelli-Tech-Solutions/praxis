@@ -1,0 +1,4 @@
+{
+  "good": "Build accessibility as a quality floor with responsive layouts and visible keyboard focus.\nEstablish a deliberate type scale so typography carries personality.\nSet up a compact color token system of 4-6 named hex values to keep the palette consistent.\nBundle the artifact into a single self-contained HTML file with all assets inlined for portability.\nCritique your own work and avoid generic AI-generated design. (merged from frontend-design and web-artifacts-builder)",
+  "bad": "Set up a compact color token system of 4-6 named hex values to keep the palette consistent.\nCritique your own work and avoid generic AI-generated design that resembles the standard warm-cream-and-terracotta template.\nBundle the artifact into a single self-contained HTML file with all assets inlined for portability.\nSteer away from purple gradients and the Inter font to avoid generic AI-generated design."
+}
