@@ -1,0 +1,15 @@
+# Component eval: graph_reader only. Seeds the graph, then retrieves through the
+# reader given a context hint (ignored by the MVP whole-file reader) — no agent.
+id: reader_retrieval
+component: graph_reader
+seed_prompt: "Where does the deploy script live?"  # context hint for the reader
+
+seeded_insight:
+  direct_to_graph:
+    - "The deploy script lives at scripts/deploy.sh."
+
+deterministic_checks:
+  - name: retrieves_fact
+    ref: "knowledge.evals.deterministic_checks.builds:contains_text"
+    params:
+      text: "scripts/deploy.sh"

@@ -91,6 +91,28 @@ def _extract_json(text: str) -> dict:
         raise
 
 
+def mount_fixtures(case, workdir: Path) -> int:
+    """Copy ``<case.source_dir>/fixtures/**`` into ``workdir`` (structure preserved).
+
+    Returns the number of files copied. A no-op when the case has no
+    ``source_dir`` or no ``fixtures/`` subdir.
+    """
+    if not getattr(case, "source_dir", None):
+        return 0
+    fixtures = Path(case.source_dir) / "fixtures"
+    if not fixtures.is_dir():
+        return 0
+    copied = 0
+    for src in sorted(fixtures.rglob("*")):
+        if not src.is_file():
+            continue
+        dest = workdir / src.relative_to(fixtures)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(src, dest)
+        copied += 1
+    return copied
+
+
 class ClaudeCodeRunner:
     """Run a case's seed prompt through the real headless Claude Code, boxed.
 
@@ -116,10 +138,11 @@ class ClaudeCodeRunner:
 
         with tempfile.TemporaryDirectory(prefix="praxis-box-") as box:
             workdir = Path(box)
-            # Seed the box with the start state: an inline fixture dir copied
-            # verbatim (empty for the toy case). Future code cases that set
-            # start_commit would check that out here instead.
-            if case.fixture_path:
+            # Mount the case's start state into the box. Two conventions are
+            # supported: a fixtures/ subdir (mount_fixtures) and a whole fixture/
+            # dir recorded on case.fixture_path (Monica's cases).
+            mount_fixtures(case, workdir)
+            if getattr(case, "fixture_path", None):
                 shutil.copytree(case.fixture_path, workdir, dirs_exist_ok=True)
             args = ["-p", case.seed_prompt, "--output-format", "json"]
             if knowledge.strip():

@@ -1,0 +1,19 @@
+# Component eval: knowledge_graph only. Writes the seeded lines into the graph
+# and reads them back — no ingestion, no reader, no agent. Deterministic.
+id: kg_roundtrip
+component: knowledge_graph
+
+seeded_insight:
+  direct_to_graph:
+    - "Prefer composition over inheritance."
+    - "Keep functions under 20 lines where practical."
+
+deterministic_checks:
+  - name: stores_first
+    ref: "knowledge.evals.deterministic_checks.builds:contains_text"
+    params:
+      text: "composition over inheritance"
+  - name: stores_second
+    ref: "knowledge.evals.deterministic_checks.builds:contains_text"
+    params:
+      text: "under 20 lines"

@@ -10,3 +10,6 @@ knowledge/evals/results/*.jsonl
 __pycache__/
 *.pyc
 .pytest_cache/
+
+# Secrets / local env
+.env

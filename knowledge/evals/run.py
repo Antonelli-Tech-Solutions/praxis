@@ -119,12 +119,42 @@ def _seed_knowledge(case: EvalCase, llm=None):
 
     The graph initializes itself (in-memory for the MVP) — no path, no file.
     """
-    graph, ingestor, reader = build_trio(llm=llm)
+    graph, ingestor, reader = build_trio(substrate=case.substrate, llm=llm)
     for text in case.seeded_insight.direct_to_graph:
         graph.write(text)
     for text in case.seeded_insight.via_ingestor:
         ingestor.ingest(text)
     return reader
+
+
+def run_component(case: EvalCase, llm=None) -> EvalContext:
+    """Exercise a single component in isolation (no agent) and return its output.
+
+    Each branch provisions a fresh trio and drives only the targeted piece, so
+    the graded output reflects that component alone:
+
+    - ``knowledge_graph`` — write the seeded ``direct_to_graph`` lines, read them back.
+    - ``ingestion``       — ingest the seeded ``via_ingestor`` lines, read the graph.
+    - ``graph_reader``    — seed the graph, then retrieve via the reader (``seed_prompt`` as context).
+    """
+    graph, ingestor, reader = build_trio(substrate=case.substrate, llm=llm)
+
+    if case.component == "knowledge_graph":
+        for text in case.seeded_insight.direct_to_graph:
+            graph.write(text)
+        output = graph.read()
+    elif case.component == "ingestion":
+        for text in case.seeded_insight.via_ingestor:
+            ingestor.ingest(text)
+        output = graph.read()
+    elif case.component == "graph_reader":
+        for text in case.seeded_insight.direct_to_graph:
+            graph.write(text)
+        output = reader.read(case.seed_prompt)
+    else:  # pragma: no cover - guarded by the schema
+        raise ValueError(f"unknown component: {case.component!r}")
+
+    return EvalContext(case_id=case.id, output=output)
 
 
 def run_case(
@@ -133,9 +163,16 @@ def run_case(
     judge: RubricJudge | None = None,
     llm=None,
 ) -> CaseResult:
-    """Run a single case end-to-end and return its graded result."""
-    reader = _seed_knowledge(case, llm=llm)
-    ctx = runner.run(case, reader)
+    """Run a single case end-to-end and return its graded result.
+
+    Component-scoped cases run deterministically via ``run_component`` and ignore
+    ``runner``; full-pipeline cases seed knowledge and run the agent ``runner``.
+    """
+    if case.component is not None:
+        ctx = run_component(case, llm=llm)
+    else:
+        reader = _seed_knowledge(case, llm=llm)
+        ctx = runner.run(case, reader)
 
     checks = run_checks(case, ctx)
     rubric_score = grade_rubric(case, ctx, judge)
@@ -165,22 +202,30 @@ def load_case(case_dir: Path) -> EvalCase:
     """
     data = yaml.safe_load((case_dir / "case.yaml").read_text(encoding="utf-8"))
     case = EvalCase.model_validate(data)
+    updates: dict = {"source_dir": str(case_dir)}
+    # A sibling ``fixture/`` dir (Monica's convention) is copied into the box wholesale.
     fixture = case_dir / "fixture"
     if fixture.is_dir():
-        case = case.model_copy(update={"fixture_path": str(fixture.resolve())})
-    return case
+        updates["fixture_path"] = str(fixture.resolve())
+    return case.model_copy(update=updates)
 
 
 def load_cases(cases_dir: Path = CASES_DIR) -> list[EvalCase]:
-    """Load every registered case (a dir containing ``case.yaml``)."""
+    """Load every registered case (any ``case.yaml`` under ``cases_dir``).
+
+    Searches recursively, so cases may be grouped in per-author subfolders
+    (e.g. ``cases/matt/<case-id>/case.yaml``).
+    """
     if not cases_dir.exists():
         return []
-    cases = [
-        load_case(d)
-        for d in sorted(cases_dir.iterdir())
-        if d.is_dir() and (d / "case.yaml").exists()
-    ]
-    return cases
+    return [load_case(f.parent) for f in sorted(cases_dir.rglob("case.yaml"))]
+
+
+def iter_case_dirs(cases_dir: Path = CASES_DIR) -> list[Path]:
+    """Every directory containing a ``case.yaml`` (recursive, sorted)."""
+    if not cases_dir.exists():
+        return []
+    return [f.parent for f in sorted(cases_dir.rglob("case.yaml"))]
 
 
 def write_baseline(results: list[CaseResult], path: Path = BASELINE_PATH) -> None:
@@ -191,13 +236,53 @@ def write_baseline(results: list[CaseResult], path: Path = BASELINE_PATH) -> Non
             f.write(json.dumps(result.model_dump()) + "\n")
 
 
+def load_env() -> None:
+    """Load .env (OPENROUTER_API_KEY etc.) if python-dotenv is installed."""
+    try:
+        from dotenv import load_dotenv
+    except ImportError:
+        return
+    load_dotenv()
+
+
+# Human-readable label per backend, for run banners.
+_BACKEND_LABEL = {
+    "claude": "real Claude Code (subscription)",
+    "fake": "FakeRunner (offline, no credit)",
+    "openrouter": "OpenRouter (cheap single-shot LLM)",
+}
+
+
+def select_runner(kind: str):
+    """Return ``(runner, judge)`` for a backend kind.
+
+    - ``claude``     — real headless Claude Code + Claude Code judge (default, full fidelity).
+    - ``fake``       — offline FakeRunner, no judge (deterministic checks only).
+    - ``openrouter`` — cheap single-shot OpenRouter runner + judge (loads .env).
+    """
+    if kind == "fake":
+        return FakeRunner(), None
+    if kind == "openrouter":
+        load_env()
+        from knowledge.evals.openrouter import OpenRouterJudge, OpenRouterRunner
+
+        return OpenRouterRunner(), OpenRouterJudge()
+    return ClaudeCodeRunner(), ClaudeCodeJudge()
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="knowledge.evals.run")
     parser.add_argument("case_ids", nargs="*", help="case ids to run (default: all)")
-    parser.add_argument(
+    backend = parser.add_mutually_exclusive_group()
+    backend.add_argument(
         "--fake",
         action="store_true",
-        help="use the offline FakeRunner instead of real Claude Code (no subscription credit)",
+        help="offline FakeRunner instead of real Claude Code (no credit)",
+    )
+    backend.add_argument(
+        "--openrouter",
+        action="store_true",
+        help="cheap single-shot OpenRouter LLM backend (needs OPENROUTER_API_KEY in .env)",
     )
     args = parser.parse_args(argv)
 
@@ -210,14 +295,9 @@ def main(argv: list[str] | None = None) -> int:
         print("no cases to run")
         return 0
 
-    judge = None
-    if args.fake:
-        runner = FakeRunner()  # offline: empty output, evals expected to fail
-        print(f"running {len(cases)} case(s) through FakeRunner (offline)...")
-    else:
-        runner = ClaudeCodeRunner()  # real Claude Code by default
-        judge = ClaudeCodeJudge()
-        print(f"running {len(cases)} case(s) through real Claude Code (subscription)...")
+    kind = "openrouter" if args.openrouter else "fake" if args.fake else "claude"
+    runner, judge = select_runner(kind)
+    print(f"running {len(cases)} case(s) through {_BACKEND_LABEL[kind]}...")
 
     results = []
     for case in cases:
