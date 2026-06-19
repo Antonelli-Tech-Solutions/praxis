@@ -17,7 +17,7 @@ from typing import Any
 from fastapi import Body, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
-from knowledge.serve import contradiction_adapter
+from knowledge.serve import contradiction_adapter, db
 from knowledge.serve.store import CandidateStore, PromotionError, contradiction_ids
 
 METRICS_FIXTURE = (
@@ -33,8 +33,25 @@ def _cors_origin_regex() -> str:
     return custom or _DEFAULT_CORS_REGEX
 
 
-def create_app(store: CandidateStore | None = None) -> FastAPI:
-    store = store or CandidateStore()
+def default_store() -> Any:
+    """Pick a backing store: Postgres when a DSN resolves, else the JSON file.
+
+    Tenant context comes from the environment (PRAXIS_ORG_ID / PRAXIS_USER_ID /
+    PRAXIS_SHARED) so the same server can be scoped to an org or a user.
+    """
+    if db.resolve_dsn() is not None:
+        from knowledge.serve.postgres_store import PostgresCandidateStore
+
+        return PostgresCandidateStore(
+            org_id=os.environ.get("PRAXIS_ORG_ID", "default"),
+            user_id=os.environ.get("PRAXIS_USER_ID", "default"),
+            shared=os.environ.get("PRAXIS_SHARED", "false").lower() in ("1", "true", "yes"),
+        )
+    return CandidateStore()
+
+
+def create_app(store: Any | None = None) -> FastAPI:
+    store = store if store is not None else default_store()
     app = FastAPI(title="Praxis Candidate API", version="1")
 
     explicit_origins = [
