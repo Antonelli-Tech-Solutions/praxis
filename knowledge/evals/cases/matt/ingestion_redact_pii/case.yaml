@@ -8,6 +8,7 @@
 #   the forbids_substring check fails. Documents the PII-redaction gap.
 id: ingestion_redact_pii
 component: ingestion
+substrate: vector
 seeded_insight:
   via_ingestor:
     - "Contact the on-call dev at jane.doe@example.com for deploys."

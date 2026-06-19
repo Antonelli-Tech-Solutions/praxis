@@ -5,6 +5,7 @@
 # FAILS. When dedup is added, the duplicate is collapsed and this case PASSES.
 id: ingestion_dedup
 component: ingestion
+substrate: vector
 
 seeded_insight:
   via_ingestor:

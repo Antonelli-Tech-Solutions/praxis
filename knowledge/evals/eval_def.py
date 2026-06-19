@@ -59,6 +59,7 @@ class EvalCase(BaseModel):
 
     id: str
     component: Component | None = None
+    substrate: Literal["in_memory", "vector"] = "in_memory"  # which knowledge trio to wire
     seed_prompt: str | None = None  # full-pipeline: agent instruction; reader case: context hint
     target_commit: str | None = None  # full-pipeline: desired end state / reference
     start_commit: str | None = None  # optional; None => clean baseline

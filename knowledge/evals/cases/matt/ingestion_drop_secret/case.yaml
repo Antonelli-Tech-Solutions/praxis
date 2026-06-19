@@ -8,6 +8,7 @@
 #   forbids_substring check fails. Documents the secret-scrubbing gap.
 id: ingestion_drop_secret
 component: ingestion
+substrate: vector
 seeded_insight:
   via_ingestor:
     - "Reminder: the production API key is sk-live-SECRET123, keep it handy."

@@ -12,8 +12,15 @@ from pydantic import BaseModel
 class Insight(BaseModel):
     """A single distilled unit of knowledge.
 
-    One field for now; expand as the distillation gets richer (source,
-    confidence, tags, ...).
+    ``raw_text`` is the only required field; the rest are additive metadata that
+    richer ingestion fills in (and that the store/reader use for dedup,
+    provenance, scope, and confidence). Defaults keep older callers and the
+    existing eval cases valid.
     """
 
     raw_text: str
+    source: str | None = None  # provenance: session/turn/file the insight came from
+    confidence: float = 1.0  # 0..1; raised on repeated independent observation
+    scope: str | None = None  # service / directory / "global"; supplied by the runner
+    category: str | None = None  # e.g. error_fix | constraint | pattern | api_behavior
+    observation_count: int = 1  # times this insight has been seen

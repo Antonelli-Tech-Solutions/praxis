@@ -119,7 +119,7 @@ def _seed_knowledge(case: EvalCase, llm=None):
 
     The graph initializes itself (in-memory for the MVP) — no path, no file.
     """
-    graph, ingestor, reader = build_trio(llm=llm)
+    graph, ingestor, reader = build_trio(substrate=case.substrate, llm=llm)
     for text in case.seeded_insight.direct_to_graph:
         graph.write(text)
     for text in case.seeded_insight.via_ingestor:
@@ -137,7 +137,7 @@ def run_component(case: EvalCase, llm=None) -> EvalContext:
     - ``ingestion``       — ingest the seeded ``via_ingestor`` lines, read the graph.
     - ``graph_reader``    — seed the graph, then retrieve via the reader (``seed_prompt`` as context).
     """
-    graph, ingestor, reader = build_trio(llm=llm)
+    graph, ingestor, reader = build_trio(substrate=case.substrate, llm=llm)
 
     if case.component == "knowledge_graph":
         for text in case.seeded_insight.direct_to_graph:
