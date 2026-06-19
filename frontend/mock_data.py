@@ -19,6 +19,8 @@ def get_mock_candidate_dicts() -> list[dict]:
             "confidence": 0.85,
             "provenance": "logs/session_20260615.jsonl:88",
             "createdAt": "2026-06-15T14:30:00Z",
+            "scope": "frontend/typescript",
+            "category": "pattern",
             "confidenceBreakdown": {
                 "frequency": 0.82,
                 "recency": 0.88,
@@ -50,6 +52,8 @@ def get_mock_candidate_dicts() -> list[dict]:
             "confidence": 0.92,
             "provenance": "logs/session_20260614.jsonl:214",
             "createdAt": "2026-06-14T09:15:00Z",
+            "scope": "frontend/react",
+            "category": "pattern",
             "confidenceBreakdown": {
                 "frequency": 0.91,
                 "recency": 0.93,
@@ -81,6 +85,8 @@ def get_mock_candidate_dicts() -> list[dict]:
             "confidence": 0.98,
             "provenance": "logs/session_20260610.jsonl:52",
             "createdAt": "2026-06-10T11:45:00Z",
+            "scope": "infra/ci",
+            "category": "constraint",
             "confidenceBreakdown": {
                 "frequency": 0.97,
                 "recency": 0.95,
@@ -112,6 +118,8 @@ def get_mock_candidate_dicts() -> list[dict]:
             "confidence": 0.75,
             "provenance": "logs/session_20260616.jsonl:167",
             "createdAt": "2026-06-16T16:20:00Z",
+            "scope": "backend/python",
+            "category": "pattern",
             "confidenceBreakdown": {
                 "frequency": 0.71,
                 "recency": 0.78,
@@ -143,6 +151,8 @@ def get_mock_candidate_dicts() -> list[dict]:
             "confidence": 0.88,
             "provenance": "logs/session_20260617.jsonl:33",
             "createdAt": "2026-06-17T10:05:00Z",
+            "scope": "frontend/react",
+            "category": "pattern",
             "confidenceBreakdown": {
                 "frequency": 0.86,
                 "recency": 0.90,
@@ -268,6 +278,8 @@ def get_mock_candidate_dicts() -> list[dict]:
             "confidence": 0.72,
             "provenance": "logs/nushell_contrib_20260611.jsonl:56",
             "createdAt": "2026-06-11T16:10:00Z",
+            "scope": "nushell/config",
+            "category": "api_behavior",
             "contradiction_ids": ["cand_16"],
             "confidenceBreakdown": {
                 "frequency": 0.68,
@@ -480,6 +492,8 @@ def get_mock_candidate_dicts() -> list[dict]:
             "confidence": 0.77,
             "provenance": "logs/nushell_contrib_20260610.jsonl:44",
             "createdAt": "2026-06-10T09:05:00Z",
+            "scope": "nushell/config",
+            "category": "api_behavior",
             "contradiction_ids": ["cand_9"],
             "confidenceBreakdown": {
                 "frequency": 0.74,
@@ -544,6 +558,8 @@ def get_mock_candidate_dicts() -> list[dict]:
             "confidence": 0.81,
             "provenance": "logs/session_20260616.jsonl:201",
             "createdAt": "2026-06-16T17:45:00Z",
+            "scope": "backend/python",
+            "category": "constraint",
             "confidenceBreakdown": {
                 "frequency": 0.79,
                 "recency": 0.86,
@@ -568,6 +584,89 @@ def get_mock_candidate_dicts() -> list[dict]:
             ],
         },
     ]
+
+
+def get_mock_graph_dict() -> dict:
+    """Build a graph snapshot aligned with mock candidates for React graph view fixtures."""
+    candidates = get_mock_candidate_dicts()
+    nodes: list[dict] = []
+    for row in candidates:
+        node: dict = {
+            "id": row["id"],
+            "label": row["title"],
+            "state": row["state"],
+            "confidence": row["confidence"],
+            "provenance": row["provenance"],
+        }
+        if row.get("scope"):
+            node["scope"] = row["scope"]
+        if row.get("category"):
+            node["category"] = row["category"]
+        nodes.append(node)
+
+    edges: list[dict] = []
+    seen: set[tuple[str, str, str]] = set()
+    for row in candidates:
+        for rival_id in row.get("contradiction_ids", []):
+            pair = tuple(sorted([row["id"], rival_id]))
+            key = (pair[0], pair[1], "contradiction")
+            if key in seen:
+                continue
+            seen.add(key)
+            edges.append({"src": row["id"], "dst": rival_id, "kind": "contradiction"})
+
+    support_pairs = [
+        ("cand_1", "cand_2"),
+        ("cand_2", "cand_5"),
+        ("cand_3", "cand_4"),
+    ]
+    for src_id, dst_id in support_pairs:
+        pair = tuple(sorted([src_id, dst_id]))
+        key = (pair[0], pair[1], "support")
+        if key in seen:
+            continue
+        seen.add(key)
+        edges.append({"src": src_id, "dst": dst_id, "kind": "support"})
+
+    nushell_ids = [row["id"] for row in candidates if row["id"].startswith("cand_") and int(row["id"].split("_")[1]) >= 6 and int(row["id"].split("_")[1]) <= 17]
+
+    scope_groups = [
+        {"id": "frontend", "label": "Frontend", "parentId": None, "memberIds": []},
+        {
+            "id": "react",
+            "label": "React",
+            "parentId": "frontend",
+            "memberIds": ["cand_2", "cand_5"],
+        },
+        {
+            "id": "typescript",
+            "label": "TypeScript",
+            "parentId": "frontend",
+            "memberIds": ["cand_1"],
+        },
+        {"id": "infra", "label": "Infrastructure", "parentId": None, "memberIds": []},
+        {
+            "id": "ci",
+            "label": "CI / DevOps",
+            "parentId": "infra",
+            "memberIds": ["cand_3"],
+        },
+        {"id": "backend", "label": "Backend", "parentId": None, "memberIds": []},
+        {
+            "id": "python",
+            "label": "Python",
+            "parentId": "backend",
+            "memberIds": ["cand_4", "cand_18"],
+        },
+        {
+            "id": "nushell",
+            "label": "Nushell",
+            "parentId": None,
+            "memberIds": nushell_ids,
+        },
+    ]
+
+    return {"nodes": nodes, "edges": edges, "scopeGroups": scope_groups}
 
 
 def get_mock_candidates() -> pd.DataFrame:

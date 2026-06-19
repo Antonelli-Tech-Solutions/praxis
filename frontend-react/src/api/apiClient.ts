@@ -9,6 +9,10 @@ import {
   candidateFromMapping,
   parseCandidateList,
 } from "./candidateModel";
+import {
+  deriveGraphFromCandidates,
+  parseGraphPayload,
+} from "./graphModel";
 import type { DataProvider } from "./dataProvider";
 import type { EvalMetrics } from "../types/candidate";
 
@@ -200,7 +204,55 @@ export function createApiDataProvider(
         };
       }
     },
+
+    async getGraph() {
+      try {
+        const payload = await request("GET", "/graph");
+        return parseGraphPayload(payload, "api");
+      } catch (error) {
+        if (
+          error instanceof ApiClientError &&
+          (error.statusCode === 404 || error.statusCode === 405)
+        ) {
+          const rows = await this.listCandidates();
+          return deriveGraphFromCandidates(rows);
+        }
+        if (error instanceof ApiClientError) {
+          const rows = await this.listCandidates();
+          return deriveGraphFromCandidates(rows);
+        }
+        throw error;
+      }
+    },
+
+    async getTranscript() {
+      return null;
+    },
   };
+}
+
+export async function postIngestJsonl(
+  apiBaseUrl: string,
+  files: Array<{ name: string; content: string }>,
+  token?: string,
+): Promise<void> {
+  const root = apiBaseUrl.replace(/\/$/, "");
+  const response = await fetch(`${root}/ingest/jsonl`, {
+    method: "POST",
+    headers: contractHeaders(token),
+    body: JSON.stringify({ files }),
+  });
+
+  if (!response.ok) {
+    const detail = await response.text();
+    if (response.status === 404 || response.status === 405) {
+      throw new Error("Distillation endpoint not available yet");
+    }
+    throw new ApiClientError(
+      `API POST /ingest/jsonl failed (${response.status}): ${detail || response.statusText}`,
+      response.status,
+    );
+  }
 }
 
 function normalizeEvalMetrics(

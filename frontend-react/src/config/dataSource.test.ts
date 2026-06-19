@@ -42,6 +42,22 @@ describe("dataSource config", () => {
     vi.stubEnv("VITE_PRAXIS_EVAL_METRICS_URL", "");
   });
 
+  it("builds local-logs preset config", () => {
+    const config = buildConfigFromPreset(PRESET_IDS.localLogs);
+    expect(config.mode).toBe("local-logs");
+    expect(config.presetId).toBe(PRESET_IDS.localLogs);
+    expect(config.label).toBe("Local Claude logs");
+    expect(config.apiBaseUrl).toBeUndefined();
+  });
+
+  it("persists and restores local-logs config", () => {
+    const localLogs = buildConfigFromPreset(PRESET_IDS.localLogs);
+    persistConfig(localLogs);
+    const restored = resolveInitialConfig();
+    expect(restored.mode).toBe("local-logs");
+    expect(restored.presetId).toBe(PRESET_IDS.localLogs);
+  });
+
   it("builds mock preset config", () => {
     const config = buildConfigFromPreset(PRESET_IDS.mock);
     expect(config.mode).toBe("mock");
@@ -131,5 +147,10 @@ describe("resolveDataProvider", () => {
   it("returns api provider for live config", () => {
     const provider = resolveDataProvider(buildConfigFromPreset(PRESET_IDS.local));
     expect(provider.getEvalMetrics).toBeTypeOf("function");
+  });
+
+  it("returns empty local provider for local-logs without session", () => {
+    const provider = resolveDataProvider(buildConfigFromPreset(PRESET_IDS.localLogs));
+    expect(provider.listCandidates).toBeTypeOf("function");
   });
 });

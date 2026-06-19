@@ -3,6 +3,7 @@ import { EnvironmentBadge } from "../ui/EnvironmentBadge";
 import { GitLabRepoLink } from "../ui/GitLabRepoLink";
 import type { DataSourceConfig, DataSourceMode } from "../../config/dataSource";
 import type { ApiStoreType } from "../../hooks/useApiHealth";
+import type { LocalLogFileInput } from "../../types/transcript";
 
 interface DashboardHeaderProps {
   mode: DataSourceMode;
@@ -10,7 +11,10 @@ interface DashboardHeaderProps {
   detail?: string;
   storeType?: ApiStoreType;
   config: DataSourceConfig;
+  localSession?: { files: { name: string; lineCount: number }[] } | null;
   onDataSourceLoad: (presetId: string, customApiBaseUrl?: string) => void;
+  onLoadLocalLogs?: (files: LocalLogFileInput[]) => void;
+  onClearLocalLogs?: () => void;
   onRefresh: () => void;
 }
 
@@ -20,7 +24,10 @@ export function DashboardHeader({
   detail,
   storeType,
   config,
+  localSession,
   onDataSourceLoad,
+  onLoadLocalLogs,
+  onClearLocalLogs,
   onRefresh,
 }: DashboardHeaderProps) {
   return (
@@ -45,7 +52,10 @@ export function DashboardHeader({
         <DataSourceControl
           config={config}
           storeType={storeType}
+          localSession={localSession}
           onLoad={onDataSourceLoad}
+          onLoadLocalLogs={onLoadLocalLogs}
+          onClearLocalLogs={onClearLocalLogs}
         />
         <div className="dashboard-header__actions">
           <button type="button" className="btn primary" onClick={onRefresh}>

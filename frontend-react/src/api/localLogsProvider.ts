@@ -1,15 +1,15 @@
-import { candidateFromMapping, parseCandidateList } from "./candidateModel";
+import { candidateFromMapping } from "./candidateModel";
+import { distillCandidatesFromTranscript } from "./heuristicDistiller";
 import {
   cloneGraphSnapshot,
   deriveGraphFromCandidates,
-  parseGraphPayload,
 } from "./graphModel";
+import { parseJsonlFiles } from "./jsonlParser";
 import { buildPromoteBody, buildResolveBody } from "./contract";
 import type { DataProvider } from "./dataProvider";
-import type { Candidate, EvalMetrics, RawCandidate } from "../types/candidate";
-import type {
-  KnowledgeGraphSnapshot,
-} from "../types/graph";
+import type { Candidate, EvalMetrics } from "../types/candidate";
+import type { KnowledgeGraphSnapshot } from "../types/graph";
+import type { LocalLogFileInput, ParsedLogSession } from "../types/transcript";
 
 const PLACEHOLDER_METRICS: EvalMetrics = {
   source: "placeholder",
@@ -19,47 +19,8 @@ const PLACEHOLDER_METRICS: EvalMetrics = {
   correctionsAfter: 5,
 };
 
-function placeholderMetrics(fetchError?: string): EvalMetrics {
-  return fetchError
-    ? { ...PLACEHOLDER_METRICS, fetchError }
-    : PLACEHOLDER_METRICS;
-}
-
-function fetchEvalMetrics(
-  url: string | undefined,
-  token: string | undefined,
-): Promise<EvalMetrics> {
-  if (!url) {
-    return Promise.resolve(placeholderMetrics());
-  }
-  return fetch(url, {
-    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-  })
-    .then(async (response) => {
-      if (!response.ok) {
-        throw new Error(response.statusText);
-      }
-      const payload = (await response.json()) as Record<string, unknown>;
-      return {
-        source: url,
-        correctionRate:
-          (payload.correction_rate as number[]) ??
-          (payload.correctionRate as number[]) ??
-          PLACEHOLDER_METRICS.correctionRate,
-        sessions: payload.sessions as string[] | undefined,
-        correctionsBefore:
-          (payload.corrections_before as number | undefined) ??
-          (payload.correctionsBefore as number | undefined),
-        correctionsAfter:
-          (payload.corrections_after as number | undefined) ??
-          (payload.correctionsAfter as number | undefined),
-      };
-    })
-    .catch((error: unknown) =>
-      placeholderMetrics(
-        error instanceof Error ? error.message : "Eval metrics unavailable",
-      ),
-    );
+function placeholderMetrics(): EvalMetrics {
+  return PLACEHOLDER_METRICS;
 }
 
 function syncGraphNodeState(
@@ -88,16 +49,15 @@ function removeContradictionEdges(
   );
 }
 
-export function createMockDataProviderWithRows(
-  rows: RawCandidate[],
-  graphSnapshot?: KnowledgeGraphSnapshot,
-  evalMetricsUrl?: string,
-  apiToken?: string,
-): DataProvider {
-  let candidates = rows.map(candidateFromMapping);
-  let graph = graphSnapshot
-    ? cloneGraphSnapshot({ ...graphSnapshot, source: "mock" })
-    : deriveGraphFromCandidates(candidates);
+export function buildLocalLogSession(files: LocalLogFileInput[]): ParsedLogSession {
+  return parseJsonlFiles(files);
+}
+
+export function createLocalLogsDataProvider(session: ParsedLogSession): DataProvider {
+  const rawCandidates = distillCandidatesFromTranscript(session.lines);
+  let candidates = rawCandidates.map(candidateFromMapping);
+  let graph = cloneGraphSnapshot(deriveGraphFromCandidates(candidates));
+  graph.source = "derived";
 
   return {
     async listCandidates(state) {
@@ -198,11 +158,51 @@ export function createMockDataProviderWithRows(
     },
 
     async getEvalMetrics() {
-      return fetchEvalMetrics(evalMetricsUrl, apiToken);
+      return placeholderMetrics();
     },
 
     async getGraph() {
       return cloneGraphSnapshot(graph);
+    },
+
+    async getTranscript() {
+      return session;
+    },
+  };
+}
+
+export function createEmptyLocalLogsProvider(): DataProvider {
+  return {
+    async listCandidates() {
+      return [];
+    },
+
+    async getCandidate() {
+      return null;
+    },
+
+    async promote(id) {
+      throw new Error(`Unknown candidate id: ${id}`);
+    },
+
+    async reject(id) {
+      throw new Error(`Unknown candidate id: ${id}`);
+    },
+
+    async resolveContradiction() {
+      throw new Error("No contradictions in empty local session");
+    },
+
+    async getEvalMetrics() {
+      return placeholderMetrics();
+    },
+
+    async getGraph() {
+      return {
+        nodes: [],
+        edges: [],
+        source: "derived",
+      };
     },
 
     async getTranscript() {
@@ -211,73 +211,9 @@ export function createMockDataProviderWithRows(
   };
 }
 
-export function createMockDataProvider(
-  evalMetricsUrl?: string,
-  apiToken?: string,
+export function createLocalLogsDataProviderFromFiles(
+  files: LocalLogFileInput[],
 ): DataProvider {
-  let delegate: DataProvider | null = null;
-
-  async function load(): Promise<DataProvider> {
-    if (!delegate) {
-      const [candidatesResponse, graphResponse] = await Promise.all([
-        fetch("/mock-candidates.json"),
-        fetch("/mock-graph.json"),
-      ]);
-      const candidatesPayload = await candidatesResponse.json();
-      let graphSnapshot: KnowledgeGraphSnapshot = {
-        nodes: [],
-        edges: [],
-        source: "mock",
-      };
-      if (graphResponse.ok) {
-        const graphPayload = await graphResponse.json();
-        graphSnapshot = parseGraphPayload(graphPayload, "mock");
-      }
-      delegate = createMockDataProviderWithRows(
-        parseCandidateList(candidatesPayload),
-        graphSnapshot,
-        evalMetricsUrl,
-        apiToken,
-      );
-    }
-    return delegate;
-  }
-
-  return {
-    async listCandidates(state) {
-      return (await load()).listCandidates(state);
-    },
-
-    async getCandidate(id) {
-      return (await load()).getCandidate(id);
-    },
-
-    async promote(id) {
-      return (await load()).promote(id);
-    },
-
-    async reject(id, reason) {
-      await (await load()).reject(id, reason);
-    },
-
-    async resolveContradiction(contradictionId, resolution, keepId) {
-      return (await load()).resolveContradiction(
-        contradictionId,
-        resolution,
-        keepId,
-      );
-    },
-
-    async getEvalMetrics() {
-      return fetchEvalMetrics(evalMetricsUrl, apiToken);
-    },
-
-    async getGraph() {
-      return (await load()).getGraph();
-    },
-
-    async getTranscript() {
-      return null;
-    },
-  };
+  const session = buildLocalLogSession(files);
+  return createLocalLogsDataProvider(session);
 }

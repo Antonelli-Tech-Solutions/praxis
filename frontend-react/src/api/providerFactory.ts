@@ -1,9 +1,24 @@
-import { createApiDataProvider } from "./apiClient";
-import type { DataSourceConfig } from "../config/dataSource";
-import { createMockDataProvider } from "./mockProvider";
 import type { DataProvider } from "./dataProvider";
+import type { DataSourceConfig } from "../config/dataSource";
+import type { ParsedLogSession } from "../types/transcript";
+import { createApiDataProvider } from "./apiClient";
+import {
+  createEmptyLocalLogsProvider,
+  createLocalLogsDataProvider,
+} from "./localLogsProvider";
+import { createMockDataProvider } from "./mockProvider";
 
-export function resolveDataProvider(config: DataSourceConfig): DataProvider {
+export function resolveDataProvider(
+  config: DataSourceConfig,
+  localSession?: ParsedLogSession | null,
+): DataProvider {
+  if (config.mode === "local-logs") {
+    if (localSession && localSession.lines.length > 0) {
+      return createLocalLogsDataProvider(localSession);
+    }
+    return createEmptyLocalLogsProvider();
+  }
+
   if (config.mode === "mock") {
     return createMockDataProvider(config.evalMetricsUrl, config.apiToken);
   }

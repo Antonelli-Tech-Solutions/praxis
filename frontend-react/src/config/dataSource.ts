@@ -1,4 +1,4 @@
-export type DataSourceMode = "mock" | "live";
+export type DataSourceMode = "mock" | "live" | "local-logs";
 
 export interface DataSourcePreset {
   id: string;
@@ -21,6 +21,7 @@ export const DATA_SOURCE_STORAGE_KEY = "praxis-data-source-v1";
 
 export const PRESET_IDS = {
   mock: "mock-fixtures",
+  localLogs: "local-claude-logs",
   local: "live-local",
   postgres: "live-postgres-aws",
   deployed: "live-deployed",
@@ -34,6 +35,13 @@ export const DATA_SOURCE_PRESETS: DataSourcePreset[] = [
     mode: "mock",
     helpText:
       "Local JSON fixtures synced from frontend/mock_data.py — portfolio-safe demo.",
+  },
+  {
+    id: PRESET_IDS.localLogs,
+    label: "Local Claude logs",
+    mode: "local-logs",
+    helpText:
+      "Upload .jsonl session files in the browser — heuristic candidate preview; optional API distillation when Matthew's ingest endpoint exists.",
   },
   {
     id: PRESET_IDS.local,
@@ -120,6 +128,15 @@ export function buildConfigFromPreset(
     };
   }
 
+  if (preset.mode === "local-logs") {
+    return {
+      mode: "local-logs",
+      presetId: preset.id,
+      label: preset.label,
+      apiToken: envApiToken(),
+    };
+  }
+
   let apiBaseUrl: string | undefined;
   if (preset.id === PRESET_IDS.custom) {
     apiBaseUrl = customApiBaseUrl?.trim();
@@ -160,6 +177,7 @@ function isValidStoredConfig(value: unknown): value is DataSourceConfig {
   const record = value as Record<string, unknown>;
   return (
     record.mode === "mock" ||
+    record.mode === "local-logs" ||
     (record.mode === "live" && typeof record.apiBaseUrl === "string")
   );
 }
@@ -176,6 +194,14 @@ export function resolveInitialConfig(): DataSourceConfig {
             mode: "mock",
             presetId: stored.presetId || PRESET_IDS.mock,
             label: stored.label || "Mock fixtures",
+            apiToken: envApiToken(),
+          };
+        }
+        if (stored.mode === "local-logs") {
+          return {
+            mode: "local-logs",
+            presetId: stored.presetId || PRESET_IDS.localLogs,
+            label: stored.label || "Local Claude logs",
             apiToken: envApiToken(),
           };
         }
@@ -218,9 +244,18 @@ export function persistConfig(config: DataSourceConfig): void {
   localStorage.setItem(DATA_SOURCE_STORAGE_KEY, JSON.stringify(toStore));
 }
 
-export function configDetail(config: DataSourceConfig): string | undefined {
+export function configDetail(
+  config: DataSourceConfig,
+  localSession?: { files: { name: string }[] } | null,
+): string | undefined {
   if (config.mode === "mock") {
     return "mock-candidates.json";
+  }
+  if (config.mode === "local-logs") {
+    if (localSession && localSession.files.length > 0) {
+      return localSession.files.map((file) => file.name).join(", ");
+    }
+    return "No files loaded";
   }
   return config.apiBaseUrl;
 }

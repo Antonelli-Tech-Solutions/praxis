@@ -1,4 +1,4 @@
-type ViewTab = "table" | "cards" | "contradictions";
+import type { ViewTab } from "../../types/view";
 
 interface FilterBarProps {
   searchQuery: string;
@@ -84,6 +84,15 @@ export function FilterBar({
           >
             Contradictions
             {contradictionCount > 0 ? ` (${contradictionCount})` : ""}
+          </button>
+          <button
+            type="button"
+            role="tab"
+            className={viewTab === "graph" ? "view-toggle__tab active" : "view-toggle__tab"}
+            aria-selected={viewTab === "graph"}
+            onClick={() => onViewTabChange("graph")}
+          >
+            Graph
           </button>
         </div>
       </div>

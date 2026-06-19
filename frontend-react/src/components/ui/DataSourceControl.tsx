@@ -6,22 +6,30 @@ import {
 } from "../../config/dataSource";
 import type { DataSourceConfig } from "../../config/dataSource";
 import type { ApiStoreType } from "../../hooks/useApiHealth";
+import type { LocalLogFileInput } from "../../types/transcript";
 
 interface DataSourceControlProps {
   config: DataSourceConfig;
   storeType?: ApiStoreType;
+  localSession?: { files: { name: string; lineCount: number }[] } | null;
   onLoad: (presetId: string, customApiBaseUrl?: string) => void;
+  onLoadLocalLogs?: (files: LocalLogFileInput[]) => void;
+  onClearLocalLogs?: () => void;
 }
 
 export function DataSourceControl({
   config,
   storeType,
+  localSession,
   onLoad,
+  onLoadLocalLogs,
+  onClearLocalLogs,
 }: DataSourceControlProps) {
   const [presetId, setPresetId] = useState(config.presetId);
   const [customUrl, setCustomUrl] = useState(
     config.presetId === PRESET_IDS.custom ? config.apiBaseUrl ?? "" : "",
   );
+  const [pendingFiles, setPendingFiles] = useState<FileList | null>(null);
 
   useEffect(() => {
     setPresetId(config.presetId);
@@ -33,6 +41,7 @@ export function DataSourceControl({
   const selectedPreset = DATA_SOURCE_PRESETS.find((p) => p.id === presetId);
   const deployedUrl = getDeployedApiBaseUrl();
   const deployedDisabled = presetId === PRESET_IDS.deployed && !deployedUrl;
+  const isLocalLogsPreset = presetId === PRESET_IDS.localLogs;
   const showJsonFallbackHint =
     config.mode === "live" &&
     storeType === "json" &&
@@ -43,6 +52,9 @@ export function DataSourceControl({
     if (nextId !== PRESET_IDS.custom) {
       setCustomUrl("");
     }
+    if (nextId !== PRESET_IDS.localLogs) {
+      setPendingFiles(null);
+    }
   }
 
   function handleLoad() {
@@ -52,7 +64,22 @@ export function DataSourceControl({
     );
   }
 
+  async function handleLoadLocalLogs() {
+    if (!pendingFiles || pendingFiles.length === 0 || !onLoadLocalLogs) {
+      return;
+    }
+    const inputs: LocalLogFileInput[] = [];
+    for (const file of Array.from(pendingFiles)) {
+      inputs.push({ name: file.name, content: await file.text() });
+    }
+    onLoadLocalLogs(inputs);
+    setPendingFiles(null);
+  }
+
   function helpText(): string {
+    if (isLocalLogsPreset) {
+      return selectedPreset?.helpText ?? "";
+    }
     if (deployedDisabled) {
       return "Deployed API requires VITE_PRAXIS_API_BASE_URL at build time.";
     }
@@ -103,6 +130,45 @@ export function DataSourceControl({
           onChange={(e) => setCustomUrl(e.target.value)}
           aria-label="Custom API base URL"
         />
+      ) : null}
+      {isLocalLogsPreset ? (
+        <div className="data-source-control__local-logs">
+          <input
+            type="file"
+            accept=".jsonl,application/json"
+            multiple
+            onChange={(event) => setPendingFiles(event.target.files)}
+            aria-label="Upload Claude Code JSONL session files"
+          />
+          <div className="data-source-control__row">
+            <button
+              type="button"
+              className="btn secondary"
+              onClick={() => void handleLoadLocalLogs()}
+              disabled={!pendingFiles || pendingFiles.length === 0}
+            >
+              Load logs
+            </button>
+            {localSession && localSession.files.length > 0 ? (
+              <button
+                type="button"
+                className="btn secondary"
+                onClick={onClearLocalLogs}
+              >
+                Clear
+              </button>
+            ) : null}
+          </div>
+          {localSession && localSession.files.length > 0 ? (
+            <ul className="data-source-control__file-list">
+              {localSession.files.map((file) => (
+                <li key={file.name}>
+                  <code>{file.name}</code> — {file.lineCount} transcript lines
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
       ) : null}
       <p className="data-source-control__hint" id="data-source-help">
         {helpText()}

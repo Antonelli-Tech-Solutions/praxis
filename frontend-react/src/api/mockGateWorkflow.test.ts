@@ -75,4 +75,16 @@ describe("mock gate workflow", () => {
     const keeper = await provider.getCandidate("cand_9");
     expect(keeper).not.toBeNull();
   });
+
+  it("getGraph returns contradiction edge for cand_9 and cand_16", async () => {
+    const provider = createMockDataProviderWithRows(loadMockCandidates());
+    const graph = await provider.getGraph();
+    const hasPair = graph.edges.some(
+      (edge) =>
+        edge.kind === "contradiction" &&
+        ((edge.src === "cand_9" && edge.dst === "cand_16") ||
+          (edge.src === "cand_16" && edge.dst === "cand_9")),
+    );
+    expect(hasPair).toBe(true);
+  });
 });

@@ -7,6 +7,8 @@
     "confidence": 0.85,
     "provenance": "logs/session_20260615.jsonl:88",
     "createdAt": "2026-06-15T14:30:00Z",
+    "scope": "frontend/typescript",
+    "category": "pattern",
     "confidenceBreakdown": {
       "frequency": 0.82,
       "recency": 0.88,
@@ -38,6 +40,8 @@
     "confidence": 0.92,
     "provenance": "logs/session_20260614.jsonl:214",
     "createdAt": "2026-06-14T09:15:00Z",
+    "scope": "frontend/react",
+    "category": "pattern",
     "confidenceBreakdown": {
       "frequency": 0.91,
       "recency": 0.93,
@@ -69,6 +73,8 @@
     "confidence": 0.98,
     "provenance": "logs/session_20260610.jsonl:52",
     "createdAt": "2026-06-10T11:45:00Z",
+    "scope": "infra/ci",
+    "category": "constraint",
     "confidenceBreakdown": {
       "frequency": 0.97,
       "recency": 0.95,
@@ -100,6 +106,8 @@
     "confidence": 0.75,
     "provenance": "logs/session_20260616.jsonl:167",
     "createdAt": "2026-06-16T16:20:00Z",
+    "scope": "backend/python",
+    "category": "pattern",
     "confidenceBreakdown": {
       "frequency": 0.71,
       "recency": 0.78,
@@ -131,6 +139,8 @@
     "confidence": 0.88,
     "provenance": "logs/session_20260617.jsonl:33",
     "createdAt": "2026-06-17T10:05:00Z",
+    "scope": "frontend/react",
+    "category": "pattern",
     "confidenceBreakdown": {
       "frequency": 0.86,
       "recency": 0.9,
@@ -255,6 +265,8 @@
     "confidence": 0.72,
     "provenance": "logs/nushell_contrib_20260611.jsonl:56",
     "createdAt": "2026-06-11T16:10:00Z",
+    "scope": "nushell/config",
+    "category": "api_behavior",
     "contradiction_ids": [
       "cand_16"
     ],
@@ -469,6 +481,8 @@
     "confidence": 0.77,
     "provenance": "logs/nushell_contrib_20260610.jsonl:44",
     "createdAt": "2026-06-10T09:05:00Z",
+    "scope": "nushell/config",
+    "category": "api_behavior",
     "contradiction_ids": [
       "cand_9"
     ],
@@ -535,6 +549,8 @@
     "confidence": 0.81,
     "provenance": "logs/session_20260616.jsonl:201",
     "createdAt": "2026-06-16T17:45:00Z",
+    "scope": "backend/python",
+    "category": "constraint",
     "confidenceBreakdown": {
       "frequency": 0.79,
       "recency": 0.86,

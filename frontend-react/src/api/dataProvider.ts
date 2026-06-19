@@ -1,4 +1,6 @@
 import type { Candidate, EvalMetrics } from "../types/candidate";
+import type { KnowledgeGraphSnapshot } from "../types/graph";
+import type { ParsedLogSession } from "../types/transcript";
 
 export interface DataProvider {
   listCandidates(state?: string): Promise<Candidate[]>;
@@ -11,4 +13,6 @@ export interface DataProvider {
     keepId: string,
   ): Promise<Candidate>;
   getEvalMetrics(): Promise<EvalMetrics>;
+  getGraph(): Promise<KnowledgeGraphSnapshot>;
+  getTranscript(): Promise<ParsedLogSession | null>;
 }

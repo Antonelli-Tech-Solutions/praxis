@@ -1,0 +1,241 @@
+{
+  "nodes": [
+    {
+      "id": "cand_1",
+      "label": "TypeScript Exhaustive Switch Pattern",
+      "state": "proposed",
+      "confidence": 0.85,
+      "provenance": "logs/session_20260615.jsonl:88",
+      "scope": "frontend/typescript",
+      "category": "pattern"
+    },
+    {
+      "id": "cand_2",
+      "label": "React useEffect Cleanup",
+      "state": "suggested",
+      "confidence": 0.92,
+      "provenance": "logs/session_20260614.jsonl:214",
+      "scope": "frontend/react",
+      "category": "pattern"
+    },
+    {
+      "id": "cand_3",
+      "label": "GitLab CI Artifact Expiration",
+      "state": "active",
+      "confidence": 0.98,
+      "provenance": "logs/session_20260610.jsonl:52",
+      "scope": "infra/ci",
+      "category": "constraint"
+    },
+    {
+      "id": "cand_4",
+      "label": "Python Type Hinting for Dicts",
+      "state": "proposed",
+      "confidence": 0.75,
+      "provenance": "logs/session_20260616.jsonl:167",
+      "scope": "backend/python",
+      "category": "pattern"
+    },
+    {
+      "id": "cand_5",
+      "label": "Streamlit Session State",
+      "state": "suggested",
+      "confidence": 0.88,
+      "provenance": "logs/session_20260617.jsonl:33",
+      "scope": "frontend/react",
+      "category": "pattern"
+    },
+    {
+      "id": "cand_6",
+      "label": "Nu Parser: Bitwise vs Pipeline Precedence",
+      "state": "proposed",
+      "confidence": 0.91,
+      "provenance": "logs/nushell_contrib_20260503.jsonl:142"
+    },
+    {
+      "id": "cand_7",
+      "label": "flatten Column Rename on Parent Conflicts",
+      "state": "proposed",
+      "confidence": 0.84,
+      "provenance": "logs/nushell_contrib_20260613.jsonl:89"
+    },
+    {
+      "id": "cand_8",
+      "label": "Interrupt-Safe from json Streaming",
+      "state": "suggested",
+      "confidence": 0.79,
+      "provenance": "logs/nushell_contrib_20260614.jsonl:301"
+    },
+    {
+      "id": "cand_9",
+      "label": "experimental_options Before Config Load",
+      "state": "proposed",
+      "confidence": 0.72,
+      "provenance": "logs/nushell_contrib_20260611.jsonl:56",
+      "scope": "nushell/config",
+      "category": "api_behavior"
+    },
+    {
+      "id": "cand_10",
+      "label": "ls Hidden Directory Glob Display",
+      "state": "suggested",
+      "confidence": 0.88,
+      "provenance": "logs/nushell_contrib_20260511.jsonl:178"
+    },
+    {
+      "id": "cand_11",
+      "label": "any/all Row Conditions vs Closures",
+      "state": "suggested",
+      "confidence": 0.86,
+      "provenance": "logs/nushell_contrib_20260605.jsonl:224"
+    },
+    {
+      "id": "cand_12",
+      "label": "Non-Blocking Reedline Completions",
+      "state": "decayed",
+      "confidence": 0.68,
+      "provenance": "logs/nushell_contrib_20260603.jsonl:412"
+    },
+    {
+      "id": "cand_13",
+      "label": "Decouple Plugin Protocol Version",
+      "state": "active",
+      "confidence": 0.94,
+      "provenance": "logs/nushell_contrib_20260420.jsonl:67"
+    },
+    {
+      "id": "cand_14",
+      "label": "Guard stdout/stderr on Parent Exit",
+      "state": "suggested",
+      "confidence": 0.81,
+      "provenance": "logs/nushell_contrib_20260617.jsonl:193"
+    },
+    {
+      "id": "cand_15",
+      "label": "enforce-runtime-annotations Opt-Out Change",
+      "state": "active",
+      "confidence": 0.9,
+      "provenance": "logs/nushell_contrib_20260606.jsonl:118"
+    },
+    {
+      "id": "cand_16",
+      "label": "Experimental Flags in config.nu",
+      "state": "proposed",
+      "confidence": 0.77,
+      "provenance": "logs/nushell_contrib_20260610.jsonl:44",
+      "scope": "nushell/config",
+      "category": "api_behavior"
+    },
+    {
+      "id": "cand_17",
+      "label": "Symlink Directory Completion Trailing Slash",
+      "state": "active",
+      "confidence": 0.83,
+      "provenance": "logs/nushell_contrib_20260428.jsonl:256"
+    },
+    {
+      "id": "cand_18",
+      "label": "Prefer pathlib Over os.path",
+      "state": "proposed",
+      "confidence": 0.81,
+      "provenance": "logs/session_20260616.jsonl:201",
+      "scope": "backend/python",
+      "category": "constraint"
+    }
+  ],
+  "edges": [
+    {
+      "src": "cand_9",
+      "dst": "cand_16",
+      "kind": "contradiction"
+    },
+    {
+      "src": "cand_1",
+      "dst": "cand_2",
+      "kind": "support"
+    },
+    {
+      "src": "cand_2",
+      "dst": "cand_5",
+      "kind": "support"
+    },
+    {
+      "src": "cand_3",
+      "dst": "cand_4",
+      "kind": "support"
+    }
+  ],
+  "scopeGroups": [
+    {
+      "id": "frontend",
+      "label": "Frontend",
+      "parentId": null,
+      "memberIds": []
+    },
+    {
+      "id": "react",
+      "label": "React",
+      "parentId": "frontend",
+      "memberIds": [
+        "cand_2",
+        "cand_5"
+      ]
+    },
+    {
+      "id": "typescript",
+      "label": "TypeScript",
+      "parentId": "frontend",
+      "memberIds": [
+        "cand_1"
+      ]
+    },
+    {
+      "id": "infra",
+      "label": "Infrastructure",
+      "parentId": null,
+      "memberIds": []
+    },
+    {
+      "id": "ci",
+      "label": "CI / DevOps",
+      "parentId": "infra",
+      "memberIds": [
+        "cand_3"
+      ]
+    },
+    {
+      "id": "backend",
+      "label": "Backend",
+      "parentId": null,
+      "memberIds": []
+    },
+    {
+      "id": "python",
+      "label": "Python",
+      "parentId": "backend",
+      "memberIds": [
+        "cand_4",
+        "cand_18"
+      ]
+    },
+    {
+      "id": "nushell",
+      "label": "Nushell",
+      "parentId": null,
+      "memberIds": [
+        "cand_6",
+        "cand_7",
+        "cand_8",
+        "cand_9",
+        "cand_10",
+        "cand_11",
+        "cand_12",
+        "cand_13",
+        "cand_14",
+        "cand_15",
+        "cand_16",
+        "cand_17"
+      ]
+    }
+  ]
+}

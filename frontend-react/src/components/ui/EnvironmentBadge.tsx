@@ -25,8 +25,13 @@ export function EnvironmentBadge({
   storeType,
 }: EnvironmentBadgeProps) {
   const isLive = mode === "live";
-  const badgeClass = isLive ? "env-badge env-badge--live" : "env-badge env-badge--mock";
-  const modeText = isLive ? "Live Data" : "Mock Data";
+  const isLocalLogs = mode === "local-logs";
+  const badgeClass = isLive
+    ? "env-badge env-badge--live"
+    : isLocalLogs
+      ? "env-badge env-badge--local"
+      : "env-badge env-badge--mock";
+  const modeText = isLive ? "Live Data" : isLocalLogs ? "Local logs" : "Mock Data";
   const storeLabel = isLive ? storeSuffix(storeType) : undefined;
   const titleParts = [detail, storeLabel].filter(Boolean);
 

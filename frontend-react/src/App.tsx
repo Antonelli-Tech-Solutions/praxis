@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { ApiConflictError } from "./api/apiClient";
+import { buildLocalLogSession } from "./api/localLogsProvider";
 import { CandidateCards } from "./components/CandidateCards";
 import { CandidateDetail } from "./components/CandidateDetail";
 import { CandidateTable } from "./components/CandidateTable";
@@ -7,22 +8,32 @@ import {
   ContradictionsReview,
   uniqueContradictionPairs,
 } from "./components/ContradictionsReview";
+import { GraphExplorer } from "./components/graph/GraphExplorer";
 import { EvalMetricsEmbed } from "./components/EvalMetricsEmbed";
 import { AppShell } from "./components/layout/AppShell";
 import { ContentSplit } from "./components/layout/ContentSplit";
 import { DashboardHeader } from "./components/layout/DashboardHeader";
 import { FilterBar } from "./components/layout/FilterBar";
 import { LoadingSkeleton } from "./components/ui/LoadingSkeleton";
+import { TranscriptPanel } from "./components/transcript/TranscriptPanel";
 import { useApiHealth } from "./hooks/useApiHealth";
 import { useDataSource } from "./hooks/useDataSource";
+import { useGraph } from "./hooks/useGraph";
 import { filterCandidates, useCandidates } from "./hooks/useCandidates";
+import { PRESET_IDS } from "./config/dataSource";
+import type { LocalLogFileInput } from "./types/transcript";
+import type { ViewTab } from "./types/view";
 import "./index.css";
 
-type ViewTab = "table" | "cards" | "contradictions";
-
 export default function App() {
-  const { config, mode, label, detail, applyConfig } = useDataSource();
+  const [localSession, setLocalSession] = useState<ReturnType<typeof buildLocalLogSession> | null>(
+    null,
+  );
+  const [localRawFiles, setLocalRawFiles] = useState<LocalLogFileInput[]>([]);
+  const { config, mode, label, detail, ingestApiBaseUrl, applyConfig } =
+    useDataSource(localSession);
   const [healthRefreshKey, setHealthRefreshKey] = useState(0);
+  const [graphRefreshKey, setGraphRefreshKey] = useState(0);
   const { storeType, refetch: refetchHealth } = useApiHealth(config, healthRefreshKey);
   const {
     provider,
@@ -35,7 +46,13 @@ export default function App() {
     promote,
     reject,
     resolveContradiction,
-  } = useCandidates(config);
+  } = useCandidates({ config, localSession });
+
+  const { graph, loading: graphLoading, error: graphError } = useGraph(
+    provider,
+    candidates,
+    graphRefreshKey,
+  );
 
   const [searchQuery, setSearchQuery] = useState("");
   const [stateFilter, setStateFilter] = useState("All");
@@ -43,6 +60,7 @@ export default function App() {
   const [viewTab, setViewTab] = useState<ViewTab>("table");
   const [actionError, setActionError] = useState<string | null>(null);
   const [deferMessage, setDeferMessage] = useState<string | null>(null);
+  const [infoMessage, setInfoMessage] = useState<string | null>(null);
 
   const filtered = useMemo(
     () => filterCandidates(candidates, searchQuery, stateFilter),
@@ -72,20 +90,54 @@ export default function App() {
   }, [lastAction, clearLastAction]);
 
   useEffect(() => {
+    if (infoMessage) {
+      const timer = window.setTimeout(() => setInfoMessage(null), 8000);
+      return () => window.clearTimeout(timer);
+    }
+  }, [infoMessage]);
+
+  useEffect(() => {
     setSelectedId(null);
     setActionError(null);
   }, [config]);
 
+  function bumpGraphRefresh() {
+    setGraphRefreshKey((value) => value + 1);
+  }
+
   function handleDataSourceLoad(presetId: string, customApiBaseUrl?: string) {
     setActionError(null);
+    if (presetId !== PRESET_IDS.localLogs) {
+      setLocalSession(null);
+      setLocalRawFiles([]);
+    }
     applyConfig(presetId, customApiBaseUrl);
     setHealthRefreshKey((value) => value + 1);
+    bumpGraphRefresh();
     refetchHealth();
+  }
+
+  function handleLoadLocalLogs(files: LocalLogFileInput[]) {
+    setActionError(null);
+    applyConfig(PRESET_IDS.localLogs);
+    const session = buildLocalLogSession(files);
+    setLocalSession(session);
+    setLocalRawFiles(files);
+    setHealthRefreshKey((value) => value + 1);
+    bumpGraphRefresh();
+  }
+
+  function handleClearLocalLogs() {
+    setLocalSession(null);
+    setLocalRawFiles([]);
+    setActionError(null);
+    bumpGraphRefresh();
   }
 
   function handleRefresh() {
     void refresh();
     setHealthRefreshKey((value) => value + 1);
+    bumpGraphRefresh();
     refetchHealth();
   }
 
@@ -93,6 +145,7 @@ export default function App() {
     setActionError(null);
     try {
       await promote(id);
+      bumpGraphRefresh();
     } catch (err) {
       if (err instanceof ApiConflictError) {
         setActionError("Conflict (409) — refresh and retry.");
@@ -106,6 +159,7 @@ export default function App() {
     setActionError(null);
     try {
       await reject(id, reason);
+      bumpGraphRefresh();
     } catch (err) {
       setActionError(err instanceof Error ? err.message : String(err));
     }
@@ -125,6 +179,7 @@ export default function App() {
     setActionError(null);
     try {
       await resolveContradiction(contradictionId, resolution, keepId, rivalTitle);
+      bumpGraphRefresh();
     } catch (err) {
       setActionError(err instanceof Error ? err.message : String(err));
     }
@@ -149,6 +204,14 @@ export default function App() {
       />
     );
 
+  const graphViewLoading = loading || graphLoading;
+  const footerModeLabel =
+    mode === "live"
+      ? "Live API"
+      : mode === "local-logs"
+        ? "Local Claude logs"
+        : "Mock fixtures";
+
   return (
     <AppShell>
       <DashboardHeader
@@ -157,12 +220,23 @@ export default function App() {
         detail={detail}
         storeType={storeType}
         config={config}
+        localSession={localSession}
         onDataSourceLoad={handleDataSourceLoad}
+        onLoadLocalLogs={handleLoadLocalLogs}
+        onClearLocalLogs={handleClearLocalLogs}
         onRefresh={handleRefresh}
       />
 
+      {mode === "local-logs" ? (
+        <div className="warning-banner">
+          Heuristic preview — not Matthew&apos;s distillation pipeline. Upload .jsonl
+          session files to explore transcripts and proposed candidates in the browser.
+        </div>
+      ) : null}
+
       {lastAction ? <div className="success-banner">{lastAction}</div> : null}
       {deferMessage ? <div className="info-banner">{deferMessage}</div> : null}
+      {infoMessage ? <div className="info-banner">{infoMessage}</div> : null}
       {actionError ? <div className="error-banner">{actionError}</div> : null}
       {error ? (
         <div className="error-banner">
@@ -170,6 +244,24 @@ export default function App() {
           source control above to switch to <strong>Mock fixtures</strong> or verify
           the live API URL and CORS settings.
         </div>
+      ) : null}
+      {graphError && viewTab === "graph" ? (
+        <div className="error-banner">
+          Graph snapshot unavailable ({graphError}) — showing derived fallback where possible.
+        </div>
+      ) : null}
+
+      {mode === "local-logs" && localSession && localSession.lines.length > 0 ? (
+        <TranscriptPanel
+          session={localSession}
+          candidates={candidates}
+          apiBaseUrl={ingestApiBaseUrl}
+          apiToken={config.apiToken}
+          rawFiles={localRawFiles}
+          onSelectCandidate={setSelectedId}
+          onIngestSuccess={(message) => setInfoMessage(message)}
+          onIngestError={(message) => setActionError(message)}
+        />
       ) : null}
 
       <FilterBar
@@ -183,11 +275,21 @@ export default function App() {
         onViewTabChange={setViewTab}
       />
 
-      {loading ? (
+      {graphViewLoading ? (
         <LoadingSkeleton />
       ) : viewTab === "contradictions" ? (
         <ContradictionsReview
           candidates={candidates}
+          onResolve={handleResolve}
+          onDefer={handleDefer}
+        />
+      ) : viewTab === "graph" && graph ? (
+        <GraphExplorer
+          graph={graph}
+          candidates={candidates}
+          filteredCandidates={filtered}
+          selectedId={selectedId}
+          onSelectNode={setSelectedId}
           onResolve={handleResolve}
           onDefer={handleDefer}
         />
@@ -209,7 +311,7 @@ export default function App() {
       <EvalMetricsEmbed provider={provider} />
 
       <footer className="page-footer">
-        React Knowledge Graph Dashboard · Data source: {mode === "live" ? "Live API" : "Mock fixtures"} ·
+        React Knowledge Graph Dashboard · Data source: {footerModeLabel} ·
         candidate-api-v1 contract · Streamlit reference client in <code>frontend/</code>
       </footer>
     </AppShell>

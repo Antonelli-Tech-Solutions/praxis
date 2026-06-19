@@ -3,11 +3,20 @@ import { resolveDataProvider } from "../api/providerFactory";
 import type { DataProvider } from "../api/dataProvider";
 import type { DataSourceConfig } from "../config/dataSource";
 import type { Candidate } from "../types/candidate";
+import type { ParsedLogSession } from "../types/transcript";
 
-export function useCandidates(config: DataSourceConfig) {
+export interface UseCandidatesOptions {
+  config: DataSourceConfig;
+  providerOverride?: DataProvider;
+  localSession?: ParsedLogSession | null;
+}
+
+export function useCandidates(options: UseCandidatesOptions) {
+  const { config, providerOverride, localSession } = options;
   const provider = useMemo<DataProvider>(
-    () => resolveDataProvider(config),
-    [config],
+    () =>
+      providerOverride ?? resolveDataProvider(config, localSession),
+    [config, localSession, providerOverride],
   );
   const [candidates, setCandidates] = useState<Candidate[]>([]);
   const [loading, setLoading] = useState(true);
