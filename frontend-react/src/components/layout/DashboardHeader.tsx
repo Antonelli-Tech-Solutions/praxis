@@ -1,4 +1,5 @@
 import { EnvironmentBadge } from "../ui/EnvironmentBadge";
+import { GitLabRepoLink } from "../ui/GitLabRepoLink";
 
 interface DashboardHeaderProps {
   apiUrl?: string;
@@ -10,7 +11,10 @@ export function DashboardHeader({ apiUrl, onRefresh }: DashboardHeaderProps) {
     <header className="dashboard-header">
       <div className="dashboard-header__brand">
         <p className="dashboard-header__eyebrow">PRAXIS</p>
-        <h1 className="dashboard-header__title">Candidate Review Gate</h1>
+        <div className="dashboard-header__title-row">
+          <h1 className="dashboard-header__title">Candidate Review Gate</h1>
+          <GitLabRepoLink />
+        </div>
         <p className="dashboard-header__subtitle">
           Review and promote AI-learned knowledge candidates from agent sessions.
         </p>

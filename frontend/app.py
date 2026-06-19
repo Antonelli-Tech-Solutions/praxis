@@ -57,6 +57,16 @@ def _ensure_provider() -> DataProvider:
     return st.session_state.data_provider
 
 
+_GITLAB_REPO_URL = "https://labs.gauntletai.com/monicapeters/praxis"
+_GITLAB_ICON_SVG = (
+    '<a class="gitlab-repo-link" href="{url}" target="_blank" rel="noreferrer noopener" '
+    'aria-label="View PRAXIS repository on GitLab" title="PRAXIS on GitLab">'
+    '<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false">'
+    '<path d="M23.955 9.592h-.006L20.893.497a.751.751 0 0 0-.753-.497h-3.28l-1.203 3.684H7.343L6.14.0h-3.28a.751.751 0 0 0-.753.497L.051 9.592a.75.75 0 0 0 .271.825l10.68 7.776-4.204-12.87L12 9.592l5.202 5.701-4.204 12.87 10.68-7.776a.75.75 0 0 0 .279-.805z"/>'
+    "</svg></a>"
+).format(url=_GITLAB_REPO_URL)
+
+
 def _render_header() -> None:
     api_url = os.environ.get("PRAXIS_API_BASE_URL", "").strip()
     badge_class = "env-badge env-badge--live" if api_url else "env-badge env-badge--mock"
@@ -68,7 +78,10 @@ def _render_header() -> None:
         f"""
         <div class="praxis-header">
           <div class="praxis-brand">PRAXIS</div>
-          <h1>Candidate Review Gate</h1>
+          <div class="praxis-header__title-row">
+            <h1>Candidate Review Gate</h1>
+            {_GITLAB_ICON_SVG}
+          </div>
           <p>Review and promote AI-learned knowledge candidates from agent sessions.</p>
           <p><span class="{badge_class}">{badge_text}</span></p>
         </div>
