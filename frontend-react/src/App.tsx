@@ -3,6 +3,10 @@ import { ApiConflictError } from "./api/apiClient";
 import { CandidateCards } from "./components/CandidateCards";
 import { CandidateDetail } from "./components/CandidateDetail";
 import { CandidateTable } from "./components/CandidateTable";
+import {
+  ContradictionsReview,
+  uniqueContradictionPairs,
+} from "./components/ContradictionsReview";
 import { EvalMetricsEmbed } from "./components/EvalMetricsEmbed";
 import { AppShell } from "./components/layout/AppShell";
 import { ContentSplit } from "./components/layout/ContentSplit";
@@ -12,7 +16,7 @@ import { LoadingSkeleton } from "./components/ui/LoadingSkeleton";
 import { filterCandidates, useCandidates } from "./hooks/useCandidates";
 import "./index.css";
 
-type ViewTab = "table" | "cards";
+type ViewTab = "table" | "cards" | "contradictions";
 
 export default function App() {
   const {
@@ -38,6 +42,11 @@ export default function App() {
   const filtered = useMemo(
     () => filterCandidates(candidates, searchQuery, stateFilter),
     [candidates, searchQuery, stateFilter],
+  );
+
+  const contradictionCount = useMemo(
+    () => uniqueContradictionPairs(candidates).length,
+    [candidates],
   );
 
   useEffect(() => {
@@ -141,6 +150,7 @@ export default function App() {
         stateFilter={stateFilter}
         viewTab={viewTab}
         candidateCount={filtered.length}
+        contradictionCount={contradictionCount}
         onSearchChange={setSearchQuery}
         onStateFilterChange={setStateFilter}
         onViewTabChange={setViewTab}
@@ -148,6 +158,12 @@ export default function App() {
 
       {loading ? (
         <LoadingSkeleton />
+      ) : viewTab === "contradictions" ? (
+        <ContradictionsReview
+          candidates={candidates}
+          onResolve={handleResolve}
+          onDefer={handleDefer}
+        />
       ) : (
         <ContentSplit
           list={listView}

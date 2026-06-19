@@ -32,6 +32,11 @@ class ConflictFlagger(WriteStep):
             if hit.score < self.similarity_floor:
                 break
             prompt = _PROMPT.format(existing=hit.fact.text, new=decision.text)
-            answer = self.llm.complete([ChatMessage(role="user", content=prompt)])
+            try:
+                answer = self.llm.complete([ChatMessage(role="user", content=prompt)])
+            except Exception:
+                # Detection unavailable (e.g. no API key / network) — skip the
+                # check rather than failing the write. Detection is best-effort.
+                return
             if answer.strip().lower().startswith("yes"):
                 decision.flags.append(f"contradiction:{hit.fact.id}")

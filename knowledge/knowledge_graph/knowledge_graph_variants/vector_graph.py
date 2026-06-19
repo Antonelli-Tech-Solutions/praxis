@@ -17,7 +17,7 @@ from __future__ import annotations
 import math
 import uuid
 
-from knowledge.knowledge_graph.knowledge_graph_def import Fact, SearchHit
+from knowledge.knowledge_graph.knowledge_graph_def import Contradiction, Fact, SearchHit
 from knowledge.knowledge_graph.parent_searchable_graph import SearchableGraph
 from knowledge.knowledge_graph.write_policy.parent_write_step import WriteStep
 from knowledge.knowledge_graph.write_policy.write_policy_def import WriteDecision
@@ -27,7 +27,9 @@ from knowledge.knowledge_graph.write_policy.write_step_variants import (
     Redactor,
 )
 from knowledge.llm.embedder_variants.fake_embedder import FakeEmbedder
+from knowledge.llm.llm_variants.openrouter_llm import OpenRouterLlm
 from knowledge.llm.parent_embedder import Embedder
+from knowledge.llm.parent_llm import Llm
 
 
 def _cosine(a: list[float], b: list[float]) -> float:
@@ -37,9 +39,14 @@ def _cosine(a: list[float], b: list[float]) -> float:
     return dot / (na * nb)
 
 
-def default_write_policy(llm=None) -> list[WriteStep]:
-    """The baseline pipeline: redact, then dedup, then (optional) conflict-flag."""
-    return [Redactor(), Deduper(), ConflictFlagger(llm=llm)]
+def default_write_policy(llm: Llm | None = None) -> list[WriteStep]:
+    """The baseline pipeline: redact, then dedup, then conflict-flag.
+
+    ``llm`` powers the contradiction check; defaults to OpenRouter. Detection is
+    best-effort — ``ConflictFlagger`` skips silently if the LLM is unavailable
+    (e.g. no API key offline), so this is safe to leave on by default.
+    """
+    return [Redactor(), Deduper(), ConflictFlagger(llm=llm or OpenRouterLlm())]
 
 
 class VectorGraph(SearchableGraph):
@@ -100,6 +107,23 @@ class VectorGraph(SearchableGraph):
         ]
         hits.sort(key=lambda h: h.score, reverse=True)
         return hits[:top_k]
+
+    # --- contradiction review surface --------------------------------------
+    def contradictions(self) -> list[Contradiction]:
+        """Facts the write-policy flagged as contradicting an existing fact.
+
+        This is the elevation surface: pairs ready to hand to a reviewer (e.g.
+        the dashboard's Contradictions tab) for keep/reject resolution.
+        """
+        by_id = {f.id: f for f in self._facts}
+        pairs: list[Contradiction] = []
+        for fact in self._facts:
+            for flag in fact.flags:
+                if flag.startswith("contradiction:"):
+                    other = by_id.get(flag.split(":", 1)[1])
+                    if other is not None:
+                        pairs.append(Contradiction(flagged=fact, conflicting=other))
+        return pairs
 
     # --- StoreView (used by write steps) -----------------------------------
     def most_similar(self, text: str, k: int = 5) -> list[SearchHit]:

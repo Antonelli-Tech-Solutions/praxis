@@ -1,10 +1,11 @@
-type ViewTab = "table" | "cards";
+type ViewTab = "table" | "cards" | "contradictions";
 
 interface FilterBarProps {
   searchQuery: string;
   stateFilter: string;
   viewTab: ViewTab;
   candidateCount: number;
+  contradictionCount: number;
   onSearchChange: (value: string) => void;
   onStateFilterChange: (value: string) => void;
   onViewTabChange: (tab: ViewTab) => void;
@@ -15,6 +16,7 @@ export function FilterBar({
   stateFilter,
   viewTab,
   candidateCount,
+  contradictionCount,
   onSearchChange,
   onStateFilterChange,
   onViewTabChange,
@@ -70,6 +72,18 @@ export function FilterBar({
             onClick={() => onViewTabChange("cards")}
           >
             Card view
+          </button>
+          <button
+            type="button"
+            role="tab"
+            className={
+              viewTab === "contradictions" ? "view-toggle__tab active" : "view-toggle__tab"
+            }
+            aria-selected={viewTab === "contradictions"}
+            onClick={() => onViewTabChange("contradictions")}
+          >
+            Contradictions
+            {contradictionCount > 0 ? ` (${contradictionCount})` : ""}
           </button>
         </div>
       </div>
