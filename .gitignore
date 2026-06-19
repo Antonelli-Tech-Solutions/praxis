@@ -13,3 +13,7 @@ __pycache__/
 
 # Secrets / local env
 .env
+frontend-react/.env.local
+
+# Server runtime data (persisted candidate store)
+knowledge/serve/data/

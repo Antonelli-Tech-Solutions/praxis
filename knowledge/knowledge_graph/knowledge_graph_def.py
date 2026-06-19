@@ -29,3 +29,14 @@ class SearchHit(BaseModel):
 
     fact: Fact
     score: float = 0.0
+
+
+class Contradiction(BaseModel):
+    """A detected contradiction between a newly-written fact and an existing one.
+
+    Surfaced for human review (the elevation surface) — the dashboard's
+    Contradictions tab consumes these pairs.
+    """
+
+    flagged: Fact  # the newer fact whose write tripped the conflict check
+    conflicting: Fact  # the existing fact it appears to contradict

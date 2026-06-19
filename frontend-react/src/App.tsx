@@ -3,11 +3,15 @@ import { ApiConflictError } from "./api/apiClient";
 import { CandidateCards } from "./components/CandidateCards";
 import { CandidateDetail } from "./components/CandidateDetail";
 import { CandidateTable } from "./components/CandidateTable";
+import {
+  ContradictionsReview,
+  uniqueContradictionPairs,
+} from "./components/ContradictionsReview";
 import { EvalMetricsEmbed } from "./components/EvalMetricsEmbed";
 import { filterCandidates, useCandidates } from "./hooks/useCandidates";
 import "./index.css";
 
-type ViewTab = "table" | "cards";
+type ViewTab = "table" | "cards" | "contradictions";
 
 export default function App() {
   const {
@@ -33,6 +37,11 @@ export default function App() {
   const filtered = useMemo(
     () => filterCandidates(candidates, searchQuery, stateFilter),
     [candidates, searchQuery, stateFilter],
+  );
+
+  const contradictionCount = useMemo(
+    () => uniqueContradictionPairs(candidates).length,
+    [candidates],
   );
 
   useEffect(() => {
@@ -195,32 +204,49 @@ export default function App() {
           >
             Card view
           </button>
+          <button
+            type="button"
+            className={viewTab === "contradictions" ? "tab active" : "tab"}
+            onClick={() => setViewTab("contradictions")}
+          >
+            Contradictions{contradictionCount > 0 ? ` (${contradictionCount})` : ""}
+          </button>
         </div>
 
-        {viewTab === "table" ? (
-          <CandidateTable
-            candidates={filtered}
-            selectedId={selectedId}
-            onSelect={setSelectedId}
-            onPromote={handlePromote}
-            onReject={handleReject}
+        {viewTab === "contradictions" ? (
+          <ContradictionsReview
+            candidates={candidates}
+            onResolve={handleResolve}
+            onDefer={handleDefer}
           />
         ) : (
-          <CandidateCards
-            candidates={filtered}
-            onSelect={setSelectedId}
-            onPromote={handlePromote}
-            onReject={handleReject}
-          />
-        )}
+          <>
+            {viewTab === "table" ? (
+              <CandidateTable
+                candidates={filtered}
+                selectedId={selectedId}
+                onSelect={setSelectedId}
+                onPromote={handlePromote}
+                onReject={handleReject}
+              />
+            ) : (
+              <CandidateCards
+                candidates={filtered}
+                onSelect={setSelectedId}
+                onPromote={handlePromote}
+                onReject={handleReject}
+              />
+            )}
 
-        <CandidateDetail
-          candidates={filtered}
-          selectedId={selectedId}
-          onSelect={setSelectedId}
-          onResolve={handleResolve}
-          onDefer={handleDefer}
-        />
+            <CandidateDetail
+              candidates={filtered}
+              selectedId={selectedId}
+              onSelect={setSelectedId}
+              onResolve={handleResolve}
+              onDefer={handleDefer}
+            />
+          </>
+        )}
 
         <EvalMetricsEmbed provider={provider} />
 
