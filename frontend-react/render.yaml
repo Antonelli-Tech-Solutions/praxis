@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: praxis-react-human-gate
+    rootDir: frontend-react
+    runtime: static
+    plan: free
+    buildCommand: npm ci && npm run build
+    staticPublishPath: dist
+    envVars:
+      - key: NODE_VERSION
+        value: "20"
+      - key: VITE_PRAXIS_API_BASE_URL
+        sync: false
+      - key: VITE_PRAXIS_API_TOKEN
+        sync: false
+      - key: VITE_PRAXIS_CONTRACT_VERSION
+        value: "1"
+      - key: VITE_PRAXIS_EVAL_METRICS_URL
+        sync: false
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html

@@ -80,6 +80,8 @@ npm run preview
 
 Static output in `dist/` — deploy beside Matthew's API or serve from any static host.
 
+**Render deploy (portfolio mock demo):** [docs/monica/RENDER_DEPLOY.md](../docs/monica/RENDER_DEPLOY.md#react-static-site-praxis-react-human-gate) — blueprint at [`render.yaml`](render.yaml).
+
 ---
 
 ## Related docs
