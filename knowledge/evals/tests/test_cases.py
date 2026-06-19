@@ -9,7 +9,7 @@ def test_pathlib_preference_registered():
 
 
 def test_pathlib_preference_passes_with_scripted_output():
-    case = load_case(CASES_DIR / "pathlib_preference")
+    case = load_case(CASES_DIR / "monica" / "pathlib_preference")
     scripted = {
         "pathlib_preference": (
             "from pathlib import Path\n\n"
@@ -25,7 +25,7 @@ def test_pathlib_preference_passes_with_scripted_output():
 
 
 def test_pathlib_preference_fails_offline_by_default():
-    case = load_case(CASES_DIR / "pathlib_preference")
+    case = load_case(CASES_DIR / "monica" / "pathlib_preference")
     result = run_case(case, FakeRunner())
     assert result.passed is False
 
@@ -36,7 +36,7 @@ def test_docstring_policy_registered():
 
 
 def test_docstring_policy_passes_with_scripted_output():
-    case = load_case(CASES_DIR / "docstring_policy")
+    case = load_case(CASES_DIR / "monica" / "docstring_policy")
     scripted = {
         "docstring_policy": (
             "def multiply(a: float, b: float) -> float:\n"
@@ -56,7 +56,7 @@ def test_docstring_policy_passes_with_scripted_output():
 
 
 def test_docstring_policy_fails_offline_by_default():
-    case = load_case(CASES_DIR / "docstring_policy")
+    case = load_case(CASES_DIR / "monica" / "docstring_policy")
     result = run_case(case, FakeRunner())
     assert result.passed is False
 
@@ -67,7 +67,7 @@ def test_poison_negative_control_registered():
 
 
 def test_poison_negative_control_passes_without_os_path():
-    case = load_case(CASES_DIR / "poison_negative_control")
+    case = load_case(CASES_DIR / "monica" / "poison_negative_control")
     scripted = {
         "poison_negative_control": (
             "from pathlib import Path\n\n"
@@ -84,7 +84,7 @@ def test_poison_negative_control_passes_without_os_path():
 
 
 def test_poison_negative_control_fails_when_poison_present():
-    case = load_case(CASES_DIR / "poison_negative_control")
+    case = load_case(CASES_DIR / "monica" / "poison_negative_control")
     scripted = {
         "poison_negative_control": (
             "import os.path\n\n"

@@ -1,14 +1,16 @@
-"""Debugger entrypoint: run every eval case through the real Claude Code engine.
+"""Debugger entrypoint: run every eval case through a chosen backend.
 
 Just run it — no flags, no `-m`. Attach a debugger and set breakpoints in
-``run_case`` (knowledge/evals/run.py), the runner/judge
-(knowledge/evals/claude_code.py), or the checks; this walks the whole suite.
+``run_case`` (knowledge/evals/run.py), the runner/judge, or the checks; this
+walks the whole suite.
 
     uv run python run.py        # via the repo-root shim
     uv run python knowledge/run.py
 
-Set ``PRAXIS_EVAL_REAL=0`` to step through with the offline FakeRunner instead
-of spending subscription credit.
+Backend is real Claude Code by default. Override with PRAXIS_RUNNER:
+    PRAXIS_RUNNER=fake        # offline, no credit
+    PRAXIS_RUNNER=openrouter  # cheap single-shot LLM (reads OPENROUTER_API_KEY from .env)
+(PRAXIS_EVAL_REAL=0 is still honored as an alias for the fake backend.)
 """
 
 from __future__ import annotations
@@ -23,15 +25,19 @@ import sys
 if __package__ in (None, ""):
     sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
-from knowledge.evals.claude_code import ClaudeCodeJudge, ClaudeCodeRunner
-from knowledge.evals.run import FakeRunner, load_cases, run_case, write_baseline
+from knowledge.evals.run import load_cases, run_case, select_runner, write_baseline
 from knowledge.graph_reader.grapher_reader_variants.whole_file_reader import (
     as_claude_tool,
 )
 from knowledge.wiring import build_trio
 
-# Real Claude Code by default; PRAXIS_EVAL_REAL=0 swaps in the offline FakeRunner.
-USE_REAL_CLAUDE_CODE = os.getenv("PRAXIS_EVAL_REAL", "1") != "0"
+
+def _runner_kind() -> str:
+    """Backend to use: PRAXIS_RUNNER, else 'fake' if PRAXIS_EVAL_REAL=0, else 'claude'."""
+    explicit = os.getenv("PRAXIS_RUNNER")
+    if explicit:
+        return explicit
+    return "fake" if os.getenv("PRAXIS_EVAL_REAL") == "0" else "claude"
 
 
 def demo() -> None:
@@ -45,12 +51,9 @@ def demo() -> None:
 
 def main() -> int:
     """Run every registered eval case end-to-end and write the baseline."""
-    if USE_REAL_CLAUDE_CODE:
-        runner, judge = ClaudeCodeRunner(), ClaudeCodeJudge()
-        print("running all cases through real Claude Code (subscription)...")
-    else:
-        runner, judge = FakeRunner(), None
-        print("running all cases through FakeRunner (offline)...")
+    kind = _runner_kind()
+    runner, judge = select_runner(kind)
+    print(f"running all cases through backend: {kind}...")
 
     cases = load_cases()
     if not cases:
