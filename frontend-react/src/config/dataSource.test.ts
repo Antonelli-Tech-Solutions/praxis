@@ -62,7 +62,7 @@ describe("dataSource config", () => {
     const config = buildConfigFromPreset(PRESET_IDS.mock);
     expect(config.mode).toBe("mock");
     expect(config.presetId).toBe(PRESET_IDS.mock);
-    expect(config.label).toBe("Mock fixtures");
+    expect(config.label).toBe("Mock fixtures (evals)");
     expect(config.apiBaseUrl).toBeUndefined();
   });
 

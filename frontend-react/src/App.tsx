@@ -210,7 +210,7 @@ export default function App() {
       ? "Live API"
       : mode === "local-logs"
         ? "Local Claude logs"
-        : "Mock fixtures";
+        : "Mock fixtures (evals)";
 
   return (
     <AppShell>
@@ -241,7 +241,7 @@ export default function App() {
       {error ? (
         <div className="error-banner">
           Backend unavailable — could not load candidates. ({error}) Use the data
-          source control above to switch to <strong>Mock fixtures</strong> or verify
+          source control above to switch to <strong>Mock fixtures (evals)</strong> or verify
           the live API URL and CORS settings.
         </div>
       ) : null}
