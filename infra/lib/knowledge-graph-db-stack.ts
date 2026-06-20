@@ -2,6 +2,7 @@ import * as cdk from 'aws-cdk-lib/core';
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import * as rds from 'aws-cdk-lib/aws-rds';
 import { Construct } from 'constructs';
+import { DB_NAME, DB_SECRET_NAME, DEFAULT_ALLOWED_CIDR, GRAVITON } from './config';
 
 export interface KnowledgeGraphDbStackProps extends cdk.StackProps {
   /** Postgres database name created on the instance. Defaults to `praxis_kg`. */
@@ -38,11 +39,13 @@ export class KnowledgeGraphDbStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props: KnowledgeGraphDbStackProps = {}) {
     super(scope, id, props);
 
-    const databaseName = props.databaseName ?? 'praxis_kg';
-    const allowedCidr = props.allowedCidr ?? '0.0.0.0/0';
+    const databaseName = props.databaseName ?? DB_NAME;
+    const allowedCidr = props.allowedCidr ?? DEFAULT_ALLOWED_CIDR;
 
-    // Minimal VPC: public subnets only, no NAT gateways (cost), so the DB can
-    // be reached directly over its security group.
+    // Own VPC, intentionally NOT the shared NetworkStack VPC: this RDS instance
+    // is already deployed with live tenant data, and an instance cannot change
+    // VPC in place — sharing would force a destructive replacement. Public
+    // subnets only, no NAT gateways, so the DB is reachable over its SG.
     const vpc = new ec2.Vpc(this, 'KgVpc', {
       maxAzs: 2,
       natGateways: 0,
@@ -66,10 +69,7 @@ export class KnowledgeGraphDbStack extends cdk.Stack {
       engine: rds.DatabaseInstanceEngine.postgres({
         version: rds.PostgresEngineVersion.VER_16_4,
       }),
-      instanceType: ec2.InstanceType.of(
-        ec2.InstanceClass.BURSTABLE4_GRAVITON,
-        ec2.InstanceSize.MICRO,
-      ),
+      instanceType: ec2.InstanceType.of(GRAVITON, ec2.InstanceSize.MICRO),
       vpc,
       vpcSubnets: { subnetType: ec2.SubnetType.PUBLIC },
       securityGroups: [securityGroup],
@@ -77,7 +77,7 @@ export class KnowledgeGraphDbStack extends cdk.Stack {
       databaseName,
       // Master user + generated password land in Secrets Manager.
       credentials: rds.Credentials.fromGeneratedSecret('praxis', {
-        secretName: 'praxis/knowledge-graph/db',
+        secretName: DB_SECRET_NAME,
       }),
       allocatedStorage: 20,
       maxAllocatedStorage: 100,
@@ -98,7 +98,7 @@ export class KnowledgeGraphDbStack extends cdk.Stack {
       value: this.instance.secret?.secretArn ?? 'none',
     });
     new cdk.CfnOutput(this, 'DbSecretName', {
-      value: 'praxis/knowledge-graph/db',
+      value: DB_SECRET_NAME,
     });
   }
 }
