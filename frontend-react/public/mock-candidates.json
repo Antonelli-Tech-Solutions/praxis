@@ -662,6 +662,48 @@
     ]
   },
   {
+    "id": "cand_21",
+    "evalCaseId": "promote_then_rerun",
+    "evalCaseNamespace": "monica",
+    "title": "Post-Promote Boot Order Lesson",
+    "content": "Early-boot experimental flags in nushell are read from the `experimental_options` environment variable before `config.nu` is evaluated. Set this variable in the parent shell or launcher script prior to starting `nu`, not inside config, when testing features that must be active at startup.",
+    "state": "active",
+    "confidence": 0.91,
+    "provenance": "logs/nushell_contrib_20260611.jsonl:56",
+    "createdAt": "2026-06-11T16:10:00Z",
+    "scope": "nushell/config",
+    "category": "api_behavior",
+    "confidenceBreakdown": {
+      "frequency": 0.88,
+      "recency": 0.93,
+      "breadth": 0.89,
+      "frequencyRationale": "Human-promoted after cand_9 resolution — ready for agent rerun",
+      "recencyRationale": "Promoted to active 2026-06-18 for promote→graph demo",
+      "breadthRationale": "Exercises human gate → KG → get context eval path"
+    },
+    "auditTrail": [
+      {
+        "action": "distilled",
+        "timestamp": "2026-06-11T16:10:00Z",
+        "provenance": "logs/nushell_contrib_20260611.jsonl:56",
+        "actor": "pipeline"
+      },
+      {
+        "action": "promoted_to_suggested",
+        "timestamp": "2026-06-18T10:00:00Z",
+        "provenance": "logs/nushell_contrib_20260611.jsonl:56",
+        "actor": "human-gate"
+      },
+      {
+        "action": "promoted_to_active",
+        "timestamp": "2026-06-18T10:05:00Z",
+        "provenance": "logs/nushell_contrib_20260611.jsonl:56",
+        "actor": "human-gate",
+        "note": "Post-promote fact written to KG for promote_then_rerun eval"
+      }
+    ]
+  },
+  {
     "id": "eval_buried_signal_no_em_dash",
     "evalCaseId": "buried_signal_no_em_dash",
     "evalCaseNamespace": "matt",
@@ -2285,6 +2327,93 @@
       }
     ],
     "evalCaseInsightCount": 4
+  },
+  {
+    "id": "eval_cross_session_rediscovery",
+    "evalCaseId": "cross_session_rediscovery",
+    "evalCaseNamespace": "monica",
+    "title": "Cross Session Rediscovery",
+    "content": "Rediscovered from session logs: when switching on a discriminated union or enum, include a default branch assigning the value to a variable of type `never` for exhaustiveness checking.",
+    "state": "proposed",
+    "confidence": 0.78,
+    "provenance": "logs/evals/monica/cross_session_rediscovery.jsonl:1",
+    "createdAt": "2026-06-18T12:00:00Z",
+    "scope": "eval/monica",
+    "category": "eval_fixture",
+    "confidenceBreakdown": {
+      "frequency": 0.73,
+      "recency": 0.81,
+      "breadth": 0.76,
+      "frequencyRationale": "Registered eval case under cases/monica/",
+      "recencyRationale": "Auto-generated from eval case registry for mock dashboard",
+      "breadthRationale": "Exercises eval harness case cross_session_rediscovery"
+    },
+    "auditTrail": [
+      {
+        "action": "distilled",
+        "timestamp": "2026-06-18T12:00:00Z",
+        "provenance": "logs/evals/monica/cross_session_rediscovery.jsonl:1",
+        "actor": "eval-mock-bridge"
+      }
+    ]
+  },
+  {
+    "id": "eval_decayed_lesson_ignored",
+    "evalCaseId": "decayed_lesson_ignored",
+    "evalCaseNamespace": "monica",
+    "title": "Decayed Lesson Ignored",
+    "content": "ACTIVE_PATHLIB_STANDARD: Stop using os.path for new code — use pathlib.Path; it's the project standard.",
+    "state": "proposed",
+    "confidence": 0.78,
+    "provenance": "logs/evals/monica/decayed_lesson_ignored.jsonl:1",
+    "createdAt": "2026-06-18T12:00:00Z",
+    "scope": "eval/monica",
+    "category": "eval_fixture",
+    "confidenceBreakdown": {
+      "frequency": 0.73,
+      "recency": 0.81,
+      "breadth": 0.76,
+      "frequencyRationale": "Registered eval case under cases/monica/",
+      "recencyRationale": "Auto-generated from eval case registry for mock dashboard",
+      "breadthRationale": "Exercises eval harness case decayed_lesson_ignored"
+    },
+    "auditTrail": [
+      {
+        "action": "distilled",
+        "timestamp": "2026-06-18T12:00:00Z",
+        "provenance": "logs/evals/monica/decayed_lesson_ignored.jsonl:1",
+        "actor": "eval-mock-bridge"
+      }
+    ]
+  },
+  {
+    "id": "eval_decayed_lesson_ignored_reader",
+    "evalCaseId": "decayed_lesson_ignored_reader",
+    "evalCaseNamespace": "monica",
+    "title": "Decayed Lesson Ignored Reader",
+    "content": "ACTIVE_PATHLIB_STANDARD: Stop using os.path for new code — use pathlib.Path; it's the project standard.",
+    "state": "proposed",
+    "confidence": 0.78,
+    "provenance": "logs/evals/monica/decayed_lesson_ignored_reader.jsonl:1",
+    "createdAt": "2026-06-18T12:00:00Z",
+    "scope": "eval/monica",
+    "category": "eval_fixture",
+    "confidenceBreakdown": {
+      "frequency": 0.73,
+      "recency": 0.81,
+      "breadth": 0.76,
+      "frequencyRationale": "Registered eval case under cases/monica/",
+      "recencyRationale": "Auto-generated from eval case registry for mock dashboard",
+      "breadthRationale": "Exercises eval harness case decayed_lesson_ignored_reader"
+    },
+    "auditTrail": [
+      {
+        "action": "distilled",
+        "timestamp": "2026-06-18T12:00:00Z",
+        "provenance": "logs/evals/monica/decayed_lesson_ignored_reader.jsonl:1",
+        "actor": "eval-mock-bridge"
+      }
+    ]
   },
   {
     "id": "eval_docstring_policy",

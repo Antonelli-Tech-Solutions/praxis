@@ -16,6 +16,7 @@ HAND_CRAFTED_EVAL_CASE_IDS = frozenset(
         "pathlib_preference",
         "poison_negative_control_good",
         "poison_negative_control_bad",
+        "promote_then_rerun",
     }
 )
 

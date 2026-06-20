@@ -161,6 +161,15 @@
       "category": "constraint"
     },
     {
+      "id": "cand_21",
+      "label": "Post-Promote Boot Order Lesson",
+      "state": "active",
+      "confidence": 0.91,
+      "provenance": "logs/nushell_contrib_20260611.jsonl:56",
+      "scope": "nushell/config",
+      "category": "api_behavior"
+    },
+    {
       "id": "eval_buried_signal_no_em_dash",
       "label": "Buried Signal No Em Dash",
       "state": "proposed",
@@ -656,6 +665,33 @@
       "category": "eval_fixture"
     },
     {
+      "id": "eval_cross_session_rediscovery",
+      "label": "Cross Session Rediscovery",
+      "state": "proposed",
+      "confidence": 0.78,
+      "provenance": "logs/evals/monica/cross_session_rediscovery.jsonl:1",
+      "scope": "eval/monica",
+      "category": "eval_fixture"
+    },
+    {
+      "id": "eval_decayed_lesson_ignored",
+      "label": "Decayed Lesson Ignored",
+      "state": "proposed",
+      "confidence": 0.78,
+      "provenance": "logs/evals/monica/decayed_lesson_ignored.jsonl:1",
+      "scope": "eval/monica",
+      "category": "eval_fixture"
+    },
+    {
+      "id": "eval_decayed_lesson_ignored_reader",
+      "label": "Decayed Lesson Ignored Reader",
+      "state": "proposed",
+      "confidence": 0.78,
+      "provenance": "logs/evals/monica/decayed_lesson_ignored_reader.jsonl:1",
+      "scope": "eval/monica",
+      "category": "eval_fixture"
+    },
+    {
       "id": "eval_docstring_policy",
       "label": "Docstring Policy",
       "state": "proposed",
@@ -854,6 +890,10 @@
         "cand_18",
         "cand_19",
         "cand_20",
+        "cand_21",
+        "eval_cross_session_rediscovery",
+        "eval_decayed_lesson_ignored",
+        "eval_decayed_lesson_ignored_reader",
         "eval_docstring_policy",
         "eval_dom_fixture_test",
         "eval_poison_negative_control"

@@ -32,6 +32,11 @@ _P0_EVAL_ALIGNMENT: dict[str, dict[str, object]] = {
         "title": "Never Add Docstrings",
         "provenance": "logs/session_poison_demo.jsonl:22",
     },
+    "promote_then_rerun": {
+        "candidate_ids": ["cand_21"],
+        "title": "Post-Promote Boot Order Lesson",
+        "provenance": "logs/nushell_contrib_20260611.jsonl:56",
+    },
 }
 
 

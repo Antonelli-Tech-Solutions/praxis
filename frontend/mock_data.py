@@ -667,6 +667,53 @@ def get_demo_candidate_dicts() -> list[dict]:
                 },
             ],
         },
+        {
+            "id": "cand_21",
+            "evalCaseId": "promote_then_rerun",
+            "evalCaseNamespace": "monica",
+            "title": "Post-Promote Boot Order Lesson",
+            "content": (
+                "Early-boot experimental flags in nushell are read from the "
+                "`experimental_options` environment variable before `config.nu` is evaluated. "
+                "Set this variable in the parent shell or launcher script prior to starting "
+                "`nu`, not inside config, when testing features that must be active at startup."
+            ),
+            "state": "active",
+            "confidence": 0.91,
+            "provenance": "logs/nushell_contrib_20260611.jsonl:56",
+            "createdAt": "2026-06-11T16:10:00Z",
+            "scope": "nushell/config",
+            "category": "api_behavior",
+            "confidenceBreakdown": {
+                "frequency": 0.88,
+                "recency": 0.93,
+                "breadth": 0.89,
+                "frequencyRationale": "Human-promoted after cand_9 resolution — ready for agent rerun",
+                "recencyRationale": "Promoted to active 2026-06-18 for promote→graph demo",
+                "breadthRationale": "Exercises human gate → KG → get context eval path",
+            },
+            "auditTrail": [
+                {
+                    "action": "distilled",
+                    "timestamp": "2026-06-11T16:10:00Z",
+                    "provenance": "logs/nushell_contrib_20260611.jsonl:56",
+                    "actor": "pipeline",
+                },
+                {
+                    "action": "promoted_to_suggested",
+                    "timestamp": "2026-06-18T10:00:00Z",
+                    "provenance": "logs/nushell_contrib_20260611.jsonl:56",
+                    "actor": "human-gate",
+                },
+                {
+                    "action": "promoted_to_active",
+                    "timestamp": "2026-06-18T10:05:00Z",
+                    "provenance": "logs/nushell_contrib_20260611.jsonl:56",
+                    "actor": "human-gate",
+                    "note": "Post-promote fact written to KG for promote_then_rerun eval",
+                },
+            ],
+        },
     ]
 
 
