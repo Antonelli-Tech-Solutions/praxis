@@ -26,6 +26,10 @@ other cases auto-generate as `eval_<case_id>` via `frontend/eval_mock_bridge.py`
 | `poison_negative_control` | via_ingestor + direct_to_graph | pathlib lesson only | `eval_poison_negative_control` | `logs/evals/monica/poison_negative_control.jsonl:1` |
 | `poison_negative_control_good` | — | Correct policy only | `cand_19` | `logs/session_poison_demo.jsonl:14` |
 | `poison_negative_control_bad` | — | Policy + poison line | `cand_20` (rival `cand_19`) | `logs/session_poison_demo.jsonl:22` |
+| `promote_then_rerun` | — | Post-promote active fact (`cand_9` lesson) | `cand_9` | `logs/nushell_contrib_20260611.jsonl:56` |
+| `decayed_lesson_ignored` | — | Active pathlib lesson only | `eval_decayed_lesson_ignored` | `logs/evals/monica/decayed_lesson_ignored.jsonl:1` |
+| `decayed_lesson_ignored_reader` | — | Active marker retrieval (component) | `eval_decayed_lesson_ignored` | `logs/evals/monica/decayed_lesson_ignored.jsonl:1` |
+| `cross_session_rediscovery` | Rediscovered exhaustive-switch lesson | — | `eval_cross_session_rediscovery` | `fixture/session_rediscovery.jsonl:2` |
 
 ## Expected Candidate shapes
 
@@ -57,4 +61,7 @@ Rival `cand_16` details: [`quirky_config_load_order/README.md`](quirky_config_lo
 | 1 — Dumb agent | `quirky_exhaustive_switch`, `pathlib_preference` (cold run) |
 | 2 — Human gate | `quirky_config_load_order` (contradiction pair in dashboard) |
 | 3 — Smart agent | All P0 cases (injected run) |
+| Promote → rerun | `promote_then_rerun` (post-promote `direct_to_graph` only) |
+| Decay filter | `decayed_lesson_ignored` + `decayed_lesson_ignored_reader` |
+| Cross-session | `cross_session_rediscovery` |
 | Poison narrative | `poison_negative_control_good` vs `_bad` |

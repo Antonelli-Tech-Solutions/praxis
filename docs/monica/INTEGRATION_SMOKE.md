@@ -221,6 +221,45 @@ npm run dev
 
 ---
 
+## 9. Ingest + promote→graph smoke (opt-in, non-blocking)
+
+These tests are **not** part of the offline merge gate. They skip when endpoints are missing or the store has no spare rows.
+
+**Contract fixtures (offline — always run):**
+
+```powershell
+uv run pytest frontend/tests/test_contract_fixtures.py -q
+cd frontend-react
+npm test -- src/api/ingestClient.test.ts src/api/contractFixtures.test.ts
+```
+
+Fixtures: [`ingest-jsonl-request.json`](../integration/fixtures/ingest-jsonl-request.json), [`ingest-jsonl-response.json`](../integration/fixtures/ingest-jsonl-response.json) (proposed response shape for Matthew review).
+
+**Live ingest smoke (manual opt-in):**
+
+```powershell
+# Terminal 1 — Matthew API
+uvicorn knowledge.serve.app:app --host 127.0.0.1 --port 8000
+
+# Terminal 2 — opt-in smoke (skips on 404 until POST /ingest/jsonl lands)
+$env:PRAXIS_API_BASE_URL = "http://127.0.0.1:8000"
+$env:PRAXIS_INGEST_SMOKE = "1"
+$env:PYTHONPATH = "frontend"
+uv run pytest frontend/tests/test_ingest_promote_smoke.py -v
+```
+
+| Step | Action | Expected |
+|------|--------|----------|
+| 1 | Run contract fixture tests | All green offline |
+| 2 | Set `PRAXIS_INGEST_SMOKE=1` + live API URL | Tests run (not skipped for missing env) |
+| 3 | `POST /ingest/jsonl` with fixture payload | **Skip** if 404/405; **200** when Matthew ships endpoint |
+| 4 | Promote suggested → active | **Skip** if no spare rows; **200** when store has candidates |
+| 5 | Re-run eval case `promote_then_rerun` with `--fake` | Injected arm passes (simulates post-promote graph) |
+
+**Pass criteria:** Offline contract tests always green. Live steps skip gracefully until Matthew wires `POST /ingest/jsonl` and promote→graph. Never add these live tests to CI merge gate without team agreement.
+
+---
+
 ## Related
 
 | Doc | Purpose |
