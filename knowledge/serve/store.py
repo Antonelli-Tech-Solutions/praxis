@@ -172,9 +172,15 @@ class CandidateStore:
         self._persist()
         return kept
 
-    def create(self, body: dict[str, Any]) -> Candidate:
+    def create(
+        self,
+        org_id: str = "default",
+        user_id: str = "default",
+        body: dict[str, Any] | None = None,
+    ) -> Candidate:
+        body = body or {}
         cid = str(body.get("id") or f"cand_{uuid.uuid4().hex[:12]}")
-        if self.get(cid) is not None:
+        if self.get(cid=cid) is not None:
             raise ValueError(f"candidate {cid} already exists")
         provenance = str(body.get("provenance") or f"human-gate/manual:{_now()}")
         c: Candidate = {
@@ -195,8 +201,15 @@ class CandidateStore:
         self._persist()
         return c
 
-    def update(self, cid: str, body: dict[str, Any]) -> Candidate:
-        c = self.get(cid)
+    def update(
+        self,
+        org_id: str = "default",
+        user_id: str = "default",
+        cid: str = "",
+        body: dict[str, Any] | None = None,
+    ) -> Candidate:
+        body = body or {}
+        c = self.get(cid=cid)
         if c is None:
             raise KeyError(cid)
         if "title" in body:
@@ -213,7 +226,7 @@ class CandidateStore:
         self._persist()
         return c
 
-    def delete(self, cid: str) -> None:
+    def delete(self, org_id: str = "default", user_id: str = "default", cid: str = "") -> None:
         before = len(self._candidates)
         self._candidates = [c for c in self._candidates if _cid(c) != cid]
         if len(self._candidates) == before:

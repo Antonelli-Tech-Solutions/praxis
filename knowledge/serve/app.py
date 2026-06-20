@@ -224,25 +224,38 @@ def create_app(store: Any | None = None) -> FastAPI:
             raise HTTPException(status_code=404, detail=f"unknown candidate {cid}")
 
     @app.post("/candidates")
-    def create_candidate(body: dict[str, Any] = Body(default={})) -> dict[str, Any]:
+    def create_candidate(
+        body: dict[str, Any] = Body(default={}),
+        principal: Principal = Depends(current_user),
+        org: str = Depends(active_org),
+    ) -> dict[str, Any]:
         try:
-            return store.create(body)
+            return store.create(org, principal.sub, body)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc))
 
     @app.patch("/candidates/{cid}")
-    def update_candidate(cid: str, body: dict[str, Any] = Body(default={})) -> dict[str, Any]:
+    def update_candidate(
+        cid: str,
+        body: dict[str, Any] = Body(default={}),
+        principal: Principal = Depends(current_user),
+        org: str = Depends(active_org),
+    ) -> dict[str, Any]:
         try:
-            return store.update(cid, body)
+            return store.update(org, principal.sub, cid, body)
         except KeyError:
             raise HTTPException(status_code=404, detail=f"unknown candidate {cid}")
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc))
 
     @app.delete("/candidates/{cid}")
-    def delete_candidate(cid: str) -> dict[str, Any]:
+    def delete_candidate(
+        cid: str,
+        principal: Principal = Depends(current_user),
+        org: str = Depends(active_org),
+    ) -> dict[str, Any]:
         try:
-            store.delete(cid)
+            store.delete(org, principal.sub, cid)
             return {"deleted": cid}
         except KeyError:
             raise HTTPException(status_code=404, detail=f"unknown candidate {cid}")

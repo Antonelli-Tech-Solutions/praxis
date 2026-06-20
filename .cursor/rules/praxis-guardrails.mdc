@@ -1,0 +1,37 @@
+---
+description: PRAXIS teammate-safety, git-safety, and Windows/PowerShell environment guardrails
+alwaysApply: true
+---
+
+# PRAXIS guardrails
+
+Monica's pillar is the **dashboard & human gate**. Work must never break or block
+Matthew (ML/knowledge pipeline) or Dominic (architecture/eval).
+
+## Teammate boundaries
+
+- Do **not** edit teammates' code or docs without explicit scope: `knowledge/serve/app.py`,
+  `knowledge/evals/eval_def.py`, `run.py`, Matthew's/Dominic's plan and `docs/` files.
+- When Monica needs teammate behavior, **mock or stub on Monica's side** (e.g. `frontend/mock_data.py`,
+  dashboard providers) — don't modify the real pipeline/API/eval harness.
+- Eval cases for Matthew are **add-only**: new files under `knowledge/evals/cases/`; don't rewrite shared runners.
+- Flag any cross-team impact (shared files like `App.tsx`, `apiClient.ts`, `postgres_store.py`) before editing.
+
+## Git safety
+
+- Dev branch: `monica/dashboard-human-gate`. Sync direction is always `origin/main` → dev; **never push dev → `main`**. Merge to `main` only via an MR.
+- `origin` is **dual-remote**: fetch = GitLab, push = GitHub **and** GitLab. One `git push origin <branch>` updates both.
+- Stage only task-relevant files. Never commit secrets (`.env`, tokens, AWS keys) or Office lock files (`~$*.docx`).
+- When implementing a named plan, never edit the plan file and never recreate existing todos (see `/implement-plan`).
+
+## Windows / PowerShell environment
+
+- Workspace is on `d:\GFA_Cohort_5\CAPSTONE\PRAXIS`; the `D:` drive has intermittent I/O errors (`WinError 21`, index.lock). If a git/file op fails transiently, retry before assuming logic is wrong.
+- Shell is PowerShell: chain commands with `;`, **not** `&&`. Use dedicated file tools, not `cat`/`sed`.
+- Multi-line commit messages use repeated `-m` flags or a here-string — not bash `$(cat <<EOF)`.
+- Git prints progress to stderr; that is **not** a failure.
+
+## Quality
+
+Conventional commits, peer-reviewed MRs, lint/type clean, provenance + confidence
+visible in UI. See `praxis-shared.mdc`, `praxis-dashboard.mdc`, `praxis-git-sync.mdc`.
