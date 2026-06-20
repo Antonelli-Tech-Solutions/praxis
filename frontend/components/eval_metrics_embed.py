@@ -6,11 +6,13 @@ import json
 import os
 import urllib.error
 import urllib.request
+from pathlib import Path
 
 import pandas as pd
 import streamlit as st
 
 _DEFAULT_CURVE = pd.DataFrame({"correction_rate": [1.0, 0.72, 0.48, 0.35]})
+_MOCK_METRICS_PATH = Path(__file__).resolve().parent.parent / "fixtures" / "eval-metrics.json"
 
 
 def render_eval_metrics_embed() -> None:
@@ -27,6 +29,8 @@ def render_eval_metrics_embed() -> None:
                 "Placeholder curve — set PRAXIS_EVAL_METRICS_URL to Dominic's eval metrics "
                 "endpoint when available."
             )
+        elif metrics.get("source") == "mock":
+            st.caption("Loaded from mock eval metrics fixture (docs/integration/fixtures).")
         else:
             st.caption(f"Loaded from {metrics['source']}")
 
@@ -58,6 +62,9 @@ def render_eval_metrics_embed() -> None:
 def _load_eval_metrics() -> dict:
     url = os.environ.get("PRAXIS_EVAL_METRICS_URL", "").strip()
     if not url:
+        mock_metrics = _load_mock_eval_metrics()
+        if mock_metrics is not None:
+            return mock_metrics
         return {"source": "placeholder", "correction_rate": _DEFAULT_CURVE["correction_rate"].tolist()}
 
     try:
@@ -74,3 +81,17 @@ def _load_eval_metrics() -> dict:
     except (urllib.error.URLError, urllib.error.HTTPError, json.JSONDecodeError, TimeoutError) as exc:
         st.warning(f"Eval metrics unavailable ({exc}) — showing placeholder curve.")
     return {"source": "placeholder", "correction_rate": _DEFAULT_CURVE["correction_rate"].tolist()}
+
+
+def _load_mock_eval_metrics() -> dict | None:
+    if not _MOCK_METRICS_PATH.is_file():
+        return None
+    try:
+        payload = json.loads(_MOCK_METRICS_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if isinstance(payload, dict):
+        payload = dict(payload)
+        payload["source"] = "mock"
+        return payload
+    return None

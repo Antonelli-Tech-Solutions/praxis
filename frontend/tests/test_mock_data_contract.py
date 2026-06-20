@@ -20,7 +20,7 @@ _REQUIRED_KEYS = frozenset(
 
 def test_mock_rows_have_required_contract_fields() -> None:
     rows = get_mock_candidate_dicts()
-    assert len(rows) >= 18
+    assert len(rows) >= 20
     for row in rows:
         missing = _REQUIRED_KEYS - set(row.keys())
         assert not missing, f"{row.get('id', '?')} missing {missing}"

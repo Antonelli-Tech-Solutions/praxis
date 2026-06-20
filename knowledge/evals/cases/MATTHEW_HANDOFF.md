@@ -15,12 +15,12 @@ Cold vs injected pairing (Dominic): run the same case with empty vs full
 | Case id | via_ingestor | direct_to_graph | Mock candidate | Provenance target |
 |---------|--------------|-----------------|----------------|-------------------|
 | `quirky_exhaustive_switch` | Raw TS correction | Promoted lesson | `cand_1` | `logs/session_20260615.jsonl:88` |
-| `pathlib_preference` | os.path → pathlib correction | — | (optional `cand_18`) | `logs/session_20260616.jsonl:201` |
+| `pathlib_preference` | os.path → pathlib correction | — | `cand_18` | `logs/session_20260616.jsonl:201` |
 | `docstring_policy` | Docstring + test policy | — | — | `logs/session_20260614.jsonl:102` |
 | `quirky_config_load_order` | nushell session line | Post-resolution `cand_9` | `cand_9` / rival `cand_16` | `logs/nushell_contrib_20260611.jsonl:56` |
 | `poison_negative_control` | via_ingestor + direct_to_graph | pathlib lesson only | — | — |
-| `poison_negative_control_good` | — | Correct policy only | — | `cases/monica/poison_negative_control_good/` |
-| `poison_negative_control_bad` | — | Policy + poison line | — | `cases/monica/poison_negative_control_bad/` |
+| `poison_negative_control_good` | — | Correct policy only | `cand_19` | `logs/session_poison_demo.jsonl:14` |
+| `poison_negative_control_bad` | — | Policy + poison line | `cand_20` (rival `cand_19`) | `logs/session_poison_demo.jsonl:22` |
 
 ## Expected Candidate shapes
 

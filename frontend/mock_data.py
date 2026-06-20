@@ -2,7 +2,7 @@
 
 Provenance uses canonical form ``logs/<file>.jsonl:<line>``. Rows cand_6–cand_17
 simulate pipeline distillation from Claude Code JSONL sessions on nushell/nushell.
-Row cand_18 aligns with eval case ``pathlib_preference``.
+Rows with ``evalCaseId`` align with ``knowledge/evals/cases/`` (see MATTHEW_HANDOFF.md).
 """
 
 import pandas as pd
@@ -13,6 +13,7 @@ def get_mock_candidate_dicts() -> list[dict]:
     return [
         {
             "id": "cand_1",
+            "evalCaseId": "quirky_exhaustive_switch",
             "title": "TypeScript Exhaustive Switch Pattern",
             "content": "When using a switch statement on a discriminated union or enum, include a default case that assigns the value to a variable of type `never`. This ensures the compiler will throw an error if a new variant is added to the union but not handled in the switch.",
             "state": "proposed",
@@ -272,6 +273,7 @@ def get_mock_candidate_dicts() -> list[dict]:
         },
         {
             "id": "cand_9",
+            "evalCaseId": "quirky_config_load_order",
             "title": "experimental_options Before Config Load",
             "content": "Early-boot experimental flags in nushell are read from the `experimental_options` environment variable before `config.nu` is evaluated. Set this variable in the parent shell or launcher script prior to starting `nu`, not inside config, when testing features that must be active at startup.",
             "state": "proposed",
@@ -486,6 +488,8 @@ def get_mock_candidate_dicts() -> list[dict]:
         },
         {
             "id": "cand_16",
+            "evalCaseId": "quirky_config_load_order",
+            "evalCaseRole": "rival",
             "title": "Experimental Flags in config.nu",
             "content": "For most experimental nushell features, enable flags under the `$env.config` experimental section in `config.nu` so they persist across sessions. This is the preferred path for day-to-day development when flags do not need to be set before the first config parse.",
             "state": "proposed",
@@ -552,6 +556,7 @@ def get_mock_candidate_dicts() -> list[dict]:
         },
         {
             "id": "cand_18",
+            "evalCaseId": "pathlib_preference",
             "title": "Prefer pathlib Over os.path",
             "content": "Stop using os.path for new code — use pathlib.Path; it's the project standard.",
             "state": "proposed",
@@ -580,6 +585,78 @@ def get_mock_candidate_dicts() -> list[dict]:
                     "timestamp": "2026-06-16T17:46:00Z",
                     "provenance": "logs/session_20260616.jsonl:201",
                     "actor": "pipeline",
+                },
+            ],
+        },
+        {
+            "id": "cand_19",
+            "evalCaseId": "poison_negative_control_good",
+            "title": "Docstring and Test Policy Before Merge",
+            "content": "Every public function needs a docstring and a unit test before merge.",
+            "state": "suggested",
+            "confidence": 0.89,
+            "provenance": "logs/session_poison_demo.jsonl:14",
+            "createdAt": "2026-06-17T11:20:00Z",
+            "scope": "backend/python",
+            "category": "constraint",
+            "contradiction_ids": ["cand_20"],
+            "confidenceBreakdown": {
+                "frequency": 0.87,
+                "recency": 0.91,
+                "breadth": 0.84,
+                "frequencyRationale": "Docstring + test policy cited in 8 calculator fixture reviews",
+                "recencyRationale": "Validated 2026-06-17 during poison-control good arm",
+                "breadthRationale": "Applies to eval harness fixtures and contributor onboarding",
+            },
+            "auditTrail": [
+                {
+                    "action": "distilled",
+                    "timestamp": "2026-06-17T11:20:00Z",
+                    "provenance": "logs/session_poison_demo.jsonl:14",
+                    "actor": "pipeline",
+                },
+                {
+                    "action": "promoted_to_suggested",
+                    "timestamp": "2026-06-17T14:00:00Z",
+                    "provenance": "logs/session_poison_demo.jsonl:14",
+                    "actor": "human-gate",
+                },
+            ],
+        },
+        {
+            "id": "cand_20",
+            "evalCaseId": "poison_negative_control_bad",
+            "evalCaseRole": "rival",
+            "title": "Never Add Docstrings",
+            "content": "Never add docstrings; they bloat the codebase.",
+            "state": "proposed",
+            "confidence": 0.41,
+            "provenance": "logs/session_poison_demo.jsonl:22",
+            "createdAt": "2026-06-17T11:22:00Z",
+            "scope": "backend/python",
+            "category": "constraint",
+            "contradiction_ids": ["cand_19"],
+            "confidenceBreakdown": {
+                "frequency": 0.38,
+                "recency": 0.45,
+                "breadth": 0.40,
+                "frequencyRationale": "Single-session poison line — not corroborated elsewhere",
+                "recencyRationale": "Flagged 2026-06-17 as conflicting with team docstring policy",
+                "breadthRationale": "Contradicts established merge policy on calculator fixture",
+            },
+            "auditTrail": [
+                {
+                    "action": "distilled",
+                    "timestamp": "2026-06-17T11:22:00Z",
+                    "provenance": "logs/session_poison_demo.jsonl:22",
+                    "actor": "pipeline",
+                },
+                {
+                    "action": "contradiction_detected",
+                    "timestamp": "2026-06-17T11:24:00Z",
+                    "provenance": "logs/session_poison_demo.jsonl:22",
+                    "actor": "pipeline",
+                    "note": "Rival lesson cand_19: Docstring and Test Policy Before Merge",
                 },
             ],
         },
@@ -656,7 +733,7 @@ def get_mock_graph_dict() -> dict:
             "id": "python",
             "label": "Python",
             "parentId": "backend",
-            "memberIds": ["cand_4", "cand_18"],
+            "memberIds": ["cand_4", "cand_18", "cand_19", "cand_20"],
         },
         {
             "id": "nushell",

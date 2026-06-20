@@ -141,12 +141,35 @@
       "provenance": "logs/session_20260616.jsonl:201",
       "scope": "backend/python",
       "category": "constraint"
+    },
+    {
+      "id": "cand_19",
+      "label": "Docstring and Test Policy Before Merge",
+      "state": "suggested",
+      "confidence": 0.89,
+      "provenance": "logs/session_poison_demo.jsonl:14",
+      "scope": "backend/python",
+      "category": "constraint"
+    },
+    {
+      "id": "cand_20",
+      "label": "Never Add Docstrings",
+      "state": "proposed",
+      "confidence": 0.41,
+      "provenance": "logs/session_poison_demo.jsonl:22",
+      "scope": "backend/python",
+      "category": "constraint"
     }
   ],
   "edges": [
     {
       "src": "cand_9",
       "dst": "cand_16",
+      "kind": "contradiction"
+    },
+    {
+      "src": "cand_19",
+      "dst": "cand_20",
       "kind": "contradiction"
     },
     {
@@ -215,7 +238,9 @@
       "parentId": "backend",
       "memberIds": [
         "cand_4",
-        "cand_18"
+        "cand_18",
+        "cand_19",
+        "cand_20"
       ]
     },
     {
