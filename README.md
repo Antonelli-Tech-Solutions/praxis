@@ -80,17 +80,19 @@ PRAXIS treats that exhaust as a compounding asset.
 
 ## Implementation status
 
-Point-in-time snapshot as of **2026-06-19** (Sprint Day 3). Live gap tracker: [docs/monica/PLAN_ALIGNMENT_GAP_CHECKLIST.md](docs/monica/PLAN_ALIGNMENT_GAP_CHECKLIST.md). See [AUDIT.md](AUDIT.md) for the Jun 18 repo health review (partially stale on Candidate API — now shipped).
+Point-in-time snapshot as of **2026-06-20** (Sprint Day 4). Live gap tracker: [docs/monica/PLAN_ALIGNMENT_GAP_CHECKLIST.md](docs/monica/PLAN_ALIGNMENT_GAP_CHECKLIST.md). See [AUDIT.md](AUDIT.md) for the Jun 18 repo health review (partially stale on Candidate API — now shipped with auth + multi-tenant orgs).
 
 | Area | Path | Owner | Status |
 |------|------|-------|--------|
 | Human-gate dashboard (React) | `frontend-react/` | Monica Peters (client) / Matthew Daw (server) | **Demo-ready (mock)** — Vite + TypeScript UI targeting candidate-api-v1 |
 | Dashboard contract layer (Python) | `frontend/` | Monica Peters | **Shipped** — mock fixtures, contract v1 reference client, pytest contract tests |
-| Knowledge substrate | `knowledge/` | Matthew Daw | **Foundation** — in-memory graph, prompt ingestor, whole-file reader, wiring factory |
-| Eval harness | `knowledge/evals/` | Dominic Antonelli | **Partial** — 63 YAML cases, deterministic checks, real Claude Code runner + offline FakeRunner |
+| Knowledge substrate | `knowledge/` | Matthew Daw | **Foundation** — in-memory + pgvector graphs, prompt ingestor, whole-file reader, write-policy (dedupe/redact/conflict), OpenRouter LLM/embedder seam, wiring factory |
+| Eval harness | `knowledge/evals/` | Dominic Antonelli | **Partial** — 69 YAML cases, deterministic checks, real Claude Code runner + offline FakeRunner |
 | Session capture | `session-capture/` | Dominic Antonelli | **Working** — Go `claude+` PTY daemon, JSONL tailer, DynamoDB writer |
-| Cloud infra | `infra/` | Team | **Scaffolded** — AWS CDK: DynamoDB sessions table + RDS PostgreSQL 16/pgvector KG store |
-| Candidate REST API | `knowledge/serve/` | Matthew Daw | **Shipped** — FastAPI contract v1; JSON store + optional Postgres via `PRAXIS_DB_URL` |
+| Cloud infra | `infra/` | Matthew Daw | **Scaffolded** — AWS CDK: DynamoDB sessions, RDS PostgreSQL 16/pgvector KG, Cognito user pool, App Runner backend, CloudFront frontend, Phoenix tracing |
+| Candidate REST API | `knowledge/serve/` | Matthew Daw | **Shipped** — FastAPI contract v1; full CRUD; JSON store or Postgres via `PRAXIS_DB_URL`; Cognito-JWT auth + multi-tenant orgs |
+| Auth & multi-tenancy | `knowledge/serve/` (`auth.py`, `orgs_store.py`) | Matthew Daw | **Shipped** — Cognito JWT verification, per-user tenancy, password-gated orgs; `PRAXIS_AUTH_DISABLED=1` dev seam |
+| Hosting | `infra/`, `Dockerfile`, `render.yaml` | Matthew Daw | **Shipped** — AWS App Runner + CloudFront (CDK) and Render blueprints for API + React site |
 | Eval metrics endpoint | `knowledge/serve/` (`GET /metrics`) | Dominic Antonelli | **Fixture only** — contract v1 documented; dashboard embed ready; real batch data pending |
 | CI pipeline | — | Team | **Not yet** — manual test runs only |
 
@@ -173,7 +175,6 @@ Point-in-time snapshot as of **2026-06-19** (Sprint Day 3). Live gap tracker: [d
 - [ ] Real confidence scorer from logs (Matthew)
 - [ ] GitHub hook / PR automation on promote (Dominic)
 - [ ] GitLab CI: `pytest knowledge/`, `frontend/tests/`, `frontend-react` Vitest
-- [ ] Root `pyproject.toml` pythonpath fix
 - [ ] State-distribution chart (Monica stretch)
 
 ### How to update this list
@@ -199,7 +200,7 @@ Point-in-time snapshot as of **2026-06-19** (Sprint Day 3). Live gap tracker: [d
 | Complementary injection via generated `CLAUDE.md` / skills | |
 | Eval harness measuring correction rate before/after (VCS-agnostic PR/ticket replay) | |
 
-**Implemented beyond MVP shell:** contradiction-resolution UI (dashboard); React client for Matthew API validation.
+**Implemented beyond MVP shell:** contradiction-resolution UI (dashboard); React client for Matthew API validation; FastAPI candidate API with full CRUD; Cognito JWT auth + password-gated multi-tenant orgs; pgvector graph store; AWS App Runner + CloudFront hosting (CDK).
 
 **Stretch goals:** trained classifier for learning moments; substrate bake-off (markdown/skills vs. vector RAG vs. knowledge graph); confidence decay and re-verification; pipeline-side contradiction **detection**; cross-project knowledge.
 
@@ -275,16 +276,23 @@ praxis/
 │   ├── src/                   # Vite + TypeScript — candidate-api-v1 client
 │   ├── public/mock-candidates.json
 │   └── README.md              # Self-serve wire-up (VITE_* env vars)
-├── knowledge/                 # Knowledge substrate + eval harness (Matthew & Dominic)
-│   ├── knowledge_graph/       # KnowledgeGraph ABC + InMemoryGraph
-│   ├── injestion/             # Ingestor ABC + PromptIngestor
+├── knowledge/                 # Knowledge substrate + eval harness + API (Matthew & Dominic)
+│   ├── knowledge_graph/       # KnowledgeGraph ABC, InMemoryGraph, VectorGraph (pgvector)
+│   │   └── write_policy/      # Write steps — deduper, redactor, conflict flagger
+│   ├── injestion/             # Ingestor ABC + PromptIngestor (typo'd dir, kept for now)
 │   ├── graph_reader/          # WholeFileReader → Claude tool adapter
+│   ├── llm/                   # LLM/embedder ABCs + OpenRouter + fake variants
+│   ├── serve/                 # FastAPI candidate API — CRUD, Cognito auth, orgs, stores
 │   ├── evals/                 # YAML cases, deterministic checks, Claude Code runner
+│   ├── observability/         # Phoenix/OpenTelemetry tracing seam (no-op when unset)
+│   ├── tests/                 # Knowledge-package unit tests
 │   ├── wiring.py              # build_trio() factory
 │   └── run.py                 # Debugger entry — ingest smoke + eval runner
 ├── session-capture/           # Go claude+ wrapper — PTY daemon + DynamoDB capture
 │   └── wrapper/               # cmd/claude-plus, internal/{pty,daemon,capture,store}
-├── infra/                     # AWS CDK — DynamoDB sessions + RDS knowledge-graph DB
+├── infra/                     # AWS CDK — sessions DDB, RDS/pgvector, Cognito, App Runner, CloudFront, Phoenix
+├── scripts/                   # Seed/export helpers (mock candidates, render seed)
+├── Dockerfile                 # Candidate API container (App Runner / local docker)
 ├── run.py                     # Repo-root shim → knowledge/run.py
 ├── pyproject.toml             # Python 3.12+ deps (uv/pip)
 ├── uv.lock                    # Locked Python dependencies
@@ -303,7 +311,8 @@ praxis/
 | [uv](https://docs.astral.sh/uv/) | latest (recommended) | Dependency install and script runner |
 | Go | ≥ 1.22 | Building `session-capture/wrapper` |
 | Node.js | ≥ 20 | React dashboard (`frontend-react/`), AWS CDK deploy (`infra/`) |
-| AWS CLI | configured | DynamoDB session capture (optional — wrapper runs without it) |
+| AWS CLI | configured | DynamoDB session capture + CDK deploy (optional — wrapper/API run without it) |
+| Docker | latest | Building the candidate API container (optional — `uvicorn` works without it) |
 
 ---
 
@@ -336,7 +345,31 @@ Mock mode loads `public/mock-candidates.json` — no backend required. Set `VITE
 
 **Render deploy (portfolio demo):** [docs/monica/RENDER_DEPLOY.md](docs/monica/RENDER_DEPLOY.md)
 
-### 3. Run the eval harness
+### 3. Run the candidate API (optional live backend)
+
+The FastAPI server implements the candidate-api-v1 contract. Data routes require
+a Cognito JWT and resolve the active org from the `X-Praxis-Org` header; set
+`PRAXIS_AUTH_DISABLED=1` for an offline dev principal. With no `PRAXIS_DB_URL`
+it uses the in-memory JSON store (orgs membership checks skipped).
+
+```powershell
+# Local dev (offline auth, JSON store) — serves on http://localhost:8000
+$env:PRAXIS_AUTH_DISABLED = "1"
+uv run python -m knowledge.serve
+```
+
+Or in a container (App Runner-compatible, binds `0.0.0.0:8080`):
+
+```powershell
+docker build -t praxis-api .
+docker run -p 8080:8080 -e PRAXIS_AUTH_DISABLED=1 praxis-api
+```
+
+Point the React dashboard at it via `VITE_PRAXIS_API_BASE_URL`. Cloud hosting
+(AWS App Runner + CloudFront via CDK, or Render) is described in
+[infra/README.md](infra/README.md) and [docs/monica/RENDER_DEPLOY.md](docs/monica/RENDER_DEPLOY.md).
+
+### 4. Run the eval harness
 
 Offline (no Claude Code subscription):
 
@@ -353,13 +386,13 @@ uv run python run.py
 
 Registered cases live in `knowledge/evals/cases/`. Results append to `knowledge/evals/results/`.
 
-### 4. Build session capture (optional)
+### 5. Build session capture (optional)
 
 ```powershell
-# Deploy CDK stacks (DynamoDB sessions + optional RDS knowledge-graph DB)
+# Deploy CDK stacks (sessions DDB, RDS/pgvector KG, Cognito, App Runner, CloudFront, Phoenix)
 cd infra
 npm install
-npm run deploy
+npm run deploy            # all stacks; or `npm run deploy:web` for hosting only
 # Knowledge-graph RDS setup: docs/monica/RDS_KG_DEPLOY.md
 
 # Build claude+ wrapper
@@ -374,7 +407,7 @@ $env:AWS_REGION = "us-east-1"
 
 Full wrapper docs: [session-capture/README.md](session-capture/README.md)
 
-### 5. Enable LLM tracing (optional)
+### 6. Enable LLM tracing (optional)
 
 Trace every LLM, embedding, and Claude Code agent/judge call to a self-hosted
 [Arize Phoenix](https://phoenix.arize.com/) instance. **Off by default** — when
@@ -419,11 +452,24 @@ Phoenix itself lives in [infra/lib/phoenix-stack.ts](infra/lib/phoenix-stack.ts)
 | `PHOENIX_PROJECT_NAME` | No | Observability | Phoenix project spans land under (default `praxis`) |
 | `PRAXIS_DB_URL` | No | Candidate API | Postgres DSN; when set, API uses `PostgresCandidateStore` instead of JSON file |
 | `PRAXIS_DB_SECRET` | No | Candidate API | AWS Secrets Manager secret name (default `praxis/knowledge-graph/db`) |
-| `PRAXIS_ORG_ID` | No | Candidate API | Multi-tenant org scope (default `default`) |
-| `PRAXIS_USER_ID` | No | Candidate API | Multi-tenant user scope (default `default`) |
-| `PRAXIS_SHARED` | No | Candidate API | Org-shared graph visibility (`true`/`false`) |
+| `PRAXIS_API_HOST` | No | Candidate API | uvicorn bind host (default `127.0.0.1`; `0.0.0.0` in container) |
+| `PORT` / `PRAXIS_API_PORT` | No | Candidate API | uvicorn port (default `8000`; `PORT` wins on App Runner/Render) |
+| `PRAXIS_AUTH_DISABLED` | No | Candidate API | `1` returns a fixed dev principal, skipping Cognito JWT checks (dev/offline) |
+| `COGNITO_USER_POOL_ID` | If auth on | Candidate API | Cognito user pool used to verify JWTs |
+| `COGNITO_CLIENT_ID` | If auth on | Candidate API | Cognito app client id (token audience) |
+| `COGNITO_REGION` | No | Candidate API | Cognito region (default `us-east-1`) |
+| `PRAXIS_CORS_ORIGINS` | No | Candidate API | Comma-separated explicit allowed origins (overrides regex) |
+| `PRAXIS_CORS_ORIGIN_REGEX` | No | Candidate API | Allowed-origin regex (default covers localhost/Render/CloudFront/App Runner) |
+| `VITE_PRAXIS_POSTGRES_API_BASE_URL` | No | React dashboard | Postgres-backed API base URL (live multi-tenant mode) |
+| `VITE_COGNITO_USER_POOL_ID` | If auth on | React dashboard | Cognito user pool for SPA login |
+| `VITE_COGNITO_CLIENT_ID` | If auth on | React dashboard | Cognito app client id for SPA login |
+| `VITE_COGNITO_REGION` | No | React dashboard | Cognito region (default `us-east-1`) |
 | `SESSION_TABLE` | No | Session capture | DynamoDB table name for transcript streaming |
 | `AWS_REGION` | No | Session capture, Candidate API | AWS region (DynamoDB writer; Secrets Manager for RDS creds) |
+
+Tenancy is **per-request**: the verified Cognito JWT `sub` is the user, and the
+active org comes from the `X-Praxis-Org` request header (membership-checked on the
+Postgres path; accepted as-is in offline/JSON mode).
 
 Secrets are **environment-only** — never commit tokens or credentials.
 
@@ -439,16 +485,15 @@ RDS + pgvector deploy and Postgres-backed candidate API: [docs/monica/RDS_KG_DEP
 uv run pytest knowledge/ -q
 ```
 
-**Eval case registry** (63 YAML cases):
+**Eval case registry** (69 YAML cases):
 
 ```powershell
 uv run pytest knowledge/evals/tests/test_cases.py -q
 ```
 
-**Dashboard contract tests** (set `PYTHONPATH` from repo root):
+**Dashboard contract tests** (`pyproject.toml` already sets `pythonpath`, so no manual env needed):
 
 ```powershell
-$env:PYTHONPATH = "frontend"
 uv run pytest frontend/tests/ -q
 ```
 
