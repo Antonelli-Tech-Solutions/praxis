@@ -1,8 +1,11 @@
 #!/usr/bin/env node
 import * as cdk from 'aws-cdk-lib/core';
 import { SessionsTableStack } from '../lib/sessions-table-stack';
+import { AuthUserPoolStack } from '../lib/auth-user-pool-stack';
 import { KnowledgeGraphDbStack } from '../lib/knowledge-graph-db-stack';
 import { PhoenixStack } from '../lib/phoenix-stack';
+import { BackendServiceStack } from '../lib/backend-service-stack';
+import { FrontendSiteStack } from '../lib/frontend-site-stack';
 
 const app = new cdk.App();
 
@@ -19,6 +22,11 @@ new SessionsTableStack(app, 'PraxisSessionsTableStack', {
   tableName: app.node.tryGetContext('tableName') ?? 'praxis-sessions',
 });
 
+new AuthUserPoolStack(app, 'PraxisAuthUserPoolStack', {
+  env,
+  userPoolName: app.node.tryGetContext('authUserPoolName') ?? 'praxis-users',
+});
+
 new KnowledgeGraphDbStack(app, 'PraxisKnowledgeGraphDbStack', {
   env,
   databaseName: app.node.tryGetContext('databaseName') ?? 'praxis_kg',
@@ -32,3 +40,7 @@ new PhoenixStack(app, 'PraxisPhoenixStack', {
   allowedWebCidr: app.node.tryGetContext('phoenixAllowedWebCidr'),
   dataVolumeGib: app.node.tryGetContext('phoenixDataVolumeGib'),
 });
+
+new BackendServiceStack(app, 'PraxisBackendServiceStack', { env });
+
+new FrontendSiteStack(app, 'PraxisFrontendSiteStack', { env });

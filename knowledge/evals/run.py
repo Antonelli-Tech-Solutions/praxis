@@ -62,6 +62,8 @@ class FakeRunner:
     "expected to fail" baseline before any real agent runs).
     """
 
+    provides = frozenset()  # offline echo: no sandbox
+
     def __init__(self, scripted: dict[str, str] | None = None, default: str = "") -> None:
         self.scripted = scripted or {}
         self.default = default
@@ -114,6 +116,74 @@ def grade_rubric(
     if case.rubric is None or judge is None:
         return None
     return judge(case.rubric, ctx)
+
+
+# --------------------------------------------------------------------------- #
+# Backend capabilities — skip cases a runner structurally can't grade
+# --------------------------------------------------------------------------- #
+def case_needs(case: EvalCase) -> set[str]:
+    """Runner capabilities a case requires.
+
+    The explicit ``needs`` from YAML, plus an implicit ``sandbox`` for any case
+    shipping fixtures (only a runner with a real working dir can mount + grade
+    them) and ``code_exec`` for a ``code_task`` (clone + run a test oracle). A
+    runner that can't provide these grades the case unfaithfully, so it's skipped.
+    """
+    needs = set(case.needs)
+    has_fixtures = bool(case.fixture_path) or (
+        bool(case.source_dir) and (Path(case.source_dir) / "fixtures").is_dir()
+    )
+    if has_fixtures:
+        needs.add("sandbox")
+    if case.code_task is not None:
+        needs.add("code_exec")
+    return needs
+
+
+def unmet_needs(case: EvalCase, runner: Runner) -> set[str]:
+    """Capabilities the case needs that this runner doesn't provide."""
+    provided = set(getattr(runner, "provides", frozenset()))
+    return case_needs(case) - provided
+
+
+def skip_reasons(case: EvalCase, runner: Runner) -> set[str]:
+    """Why this runner can't faithfully grade the case (empty => runnable).
+
+    Two sources: capabilities the runner lacks (``needs``), and a pinned ``model``
+    this backend can't serve. A runner with no ``serves_model`` serves anything.
+    """
+    reasons = set(unmet_needs(case, runner))
+    model = getattr(case, "model", None)
+    serves = getattr(runner, "serves_model", None)
+    if model and serves is not None and not serves(model):
+        reasons.add(f"model:{model}")
+    return reasons
+
+
+def _skip_reason_text(reason: str, backend: str) -> str:
+    """Render a raw skip token into a human sentence for the SKIP line."""
+    if reason.startswith("model:"):
+        return f"pinned model '{reason[len('model:'):]}' not served by the {backend} backend"
+    return f"needs '{reason}', which the {backend} backend does not provide"
+
+
+def partition_by_capability(
+    cases: list[EvalCase], runner: Runner
+) -> tuple[list[EvalCase], list[tuple[EvalCase, set[str]]]]:
+    """Split cases into (runnable, skipped) for ``runner``.
+
+    Skipped entries carry the reasons (unmet needs and/or an unservable model)
+    so the caller can report *why*.
+    """
+    runnable: list[EvalCase] = []
+    skipped: list[tuple[EvalCase, set[str]]] = []
+    for case in cases:
+        reasons = skip_reasons(case, runner)
+        if reasons:
+            skipped.append((case, reasons))
+        else:
+            runnable.append(case)
+    return runnable, skipped
 
 
 # --------------------------------------------------------------------------- #
@@ -196,8 +266,21 @@ def run_case_full(
         checks=checks,
         rubric_score=rubric_score,
         passed=passed,
+        xfail_reason=case.xfail,
     )
     return ctx, judge_result, result
+
+
+def status_of(result: CaseResult) -> str:
+    """Display status: PASS / FAIL / XFAIL (expected red) / XPASS (unexpected green).
+
+    Only ``FAIL`` means a regression. A case marked ``xfail`` is expected to fail
+    until its capability lands; an ``XPASS`` is the signal that it has — promote
+    the spec to a real assertion.
+    """
+    if result.xfail_reason:
+        return "XPASS" if result.passed else "XFAIL"
+    return "PASS" if result.passed else "FAIL"
 
 
 def run_case(
@@ -309,6 +392,7 @@ def select_runner(kind: str):
         from knowledge.evals.openrouter import OpenRouterJudge, OpenRouterRunner
 
         return OpenRouterRunner(), OpenRouterJudge()
+    load_env()  # so CLAUDE_CODE_MODEL (and any .env) is available to the runner
     return ClaudeCodeRunner(), ClaudeCodeJudge()
 
 
@@ -354,6 +438,16 @@ def main(argv: list[str] | None = None) -> int:
 
     kind = "openrouter" if args.openrouter else "fake" if args.fake else "claude"
     runner, judge = select_runner(kind)
+
+    # Skip cases this backend can't grade faithfully (e.g. a sandbox case on the
+    # single-shot OpenRouter runner) so the scoreboard reflects only real signal.
+    cases, skipped = partition_by_capability(cases, runner)
+    for case, reasons in skipped:
+        why = "; ".join(_skip_reason_text(r, kind) for r in sorted(reasons))
+        print(f"[SKIP] {case.id}  ({why})")
+    if not cases:
+        print("no runnable cases for this backend")
+        return 0
     print(f"running {len(cases)} case(s) through {_BACKEND_LABEL[kind]}...")
 
     run_id = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
@@ -364,15 +458,25 @@ def main(argv: list[str] | None = None) -> int:
         write_transcript(build_transcript(case, ctx, judge_result, run_result, run_id))
     write_baseline(results)
 
+    tally: dict[str, int] = {}
     for r in results:
-        verdict = "PASS" if r.passed else "FAIL"
+        status = status_of(r)
+        tally[status] = tally.get(status, 0) + 1
         score = "" if r.rubric_score is None else f"  rubric={r.rubric_score:.2f}"
+        note = f"  ({r.xfail_reason})" if r.xfail_reason else ""
         print(
-            f"[{verdict}] {r.case_id}  "
-            f"checks={sum(c.passed for c in r.checks)}/{len(r.checks)}{score}"
+            f"[{status}] {r.case_id}  "
+            f"checks={sum(c.passed for c in r.checks)}/{len(r.checks)}{score}{note}"
         )
     print(f"\nwrote {len(results)} rows -> {BASELINE_PATH}")
     print(f"wrote {len(results)} transcript(s) -> {RUNS_DIR / run_id}")
+
+    # Summary: only FAIL is a regression; XFAIL is expected; XPASS wants a promote.
+    summary = "  ".join(f"{k.lower()}={tally[k]}" for k in sorted(tally))
+    print(f"summary: {summary}", end="")
+    print(f"  skipped={len(skipped)}" if skipped else "")
+    if tally.get("XPASS"):
+        print(f"note: {tally['XPASS']} xfail case(s) now PASS — promote them to real assertions")
     return 0
 
 

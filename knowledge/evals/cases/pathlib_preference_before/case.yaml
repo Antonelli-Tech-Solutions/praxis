@@ -1,0 +1,35 @@
+# Negative control / "before" baseline for pathlib_preference.
+#
+# Same neutral prompt, but NOTHING seeded. Establishes the agent's *default*
+# (cold-graph) path-handling choice — which is what makes pathlib_preference
+# meaningful: if the cold default were already pathlib, seeding the pathlib
+# lesson would prove nothing. Asserts the default is os.path; pair with
+# pathlib_preference (lesson seeded -> pathlib) to show the insight flips it.
+#
+# needs: sandbox for the same reason as the seeded case — the os.path / pathlib
+# checks must grade config_utils.py, not the chat reply's prose.
+id: pathlib_preference_before
+needs: [sandbox]
+seed_prompt: |
+  Create config_utils.py with a function `read_config(path)` that checks whether
+  a config file exists and returns its path as a string. Do not create any other
+  files.
+target_commit: "0000000000000000000000000000000000000000"
+start_commit: null
+repo: null
+
+seeded_insight:  # deliberately empty: this is the cold-graph baseline
+  via_ingestor: []
+  direct_to_graph: []
+
+deterministic_checks:
+  - name: uses_os_path
+    ref: "knowledge.evals.deterministic_checks.builds:contains_text"
+    params:
+      text: "os.path"
+  - name: avoids_pathlib
+    ref: "knowledge.evals.deterministic_checks.builds:not_contains_text"
+    params:
+      text: "pathlib"
+  - name: produced_output
+    ref: "knowledge.evals.deterministic_checks.builds:output_nonempty"

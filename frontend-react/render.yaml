@@ -29,6 +29,13 @@ services:
         value: "3.12"
       - key: PRAXIS_DB_URL
         sync: false
+      # Cognito (PraxisAuthUserPoolStack outputs) — used to verify JWTs.
+      - key: COGNITO_USER_POOL_ID
+        value: us-east-1_4nAMe6bPK
+      - key: COGNITO_CLIENT_ID
+        value: 3ij653bq912pi4f17l5hn9iqqn
+      - key: COGNITO_REGION
+        value: us-east-1
 
   - type: web
     name: praxis-react-human-gate
@@ -64,6 +71,13 @@ services:
         sync: false
       - key: VITE_PRAXIS_CONTRACT_VERSION
         value: "1"
+      # Cognito (PraxisAuthUserPoolStack outputs) — public SPA client config.
+      - key: VITE_COGNITO_USER_POOL_ID
+        value: us-east-1_4nAMe6bPK
+      - key: VITE_COGNITO_CLIENT_ID
+        value: 3ij653bq912pi4f17l5hn9iqqn
+      - key: VITE_COGNITO_REGION
+        value: us-east-1
     routes:
       - type: rewrite
         source: /*

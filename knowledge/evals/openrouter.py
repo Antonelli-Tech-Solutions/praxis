@@ -18,6 +18,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import urllib.error
 import urllib.request
 from typing import Callable
 
@@ -35,8 +36,14 @@ def _default_post(url: str, payload: dict, headers: dict, timeout: int) -> str:
     req = urllib.request.Request(
         url, data=json.dumps(payload).encode("utf-8"), headers=headers, method="POST"
     )
-    with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310 - fixed URL
-        return resp.read().decode("utf-8")
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310 - fixed URL
+            return resp.read().decode("utf-8")
+    except urllib.error.HTTPError as e:
+        # The 4xx body names the actual cause (e.g. an invalid model id); a bare
+        # "HTTP Error 400" would hide it. Surface it.
+        body = e.read().decode("utf-8", "replace").strip()[:500]
+        raise RuntimeError(f"OpenRouter HTTP {e.code}: {body}") from e
 
 
 def _extract_json(text: str) -> dict:
@@ -139,6 +146,16 @@ class OpenRouterRunner:
     graded output. Use for cheap iteration; use ``ClaudeCodeRunner`` for fidelity.
     """
 
+    # Single-shot text: no working dir, no file edits. Cases that need a sandbox
+    # are skipped rather than graded on a reply this runner can't make faithful.
+    provides = frozenset()
+
+    @staticmethod
+    def serves_model(model: str) -> bool:
+        """OpenRouter ids are provider-prefixed (e.g. ``openai/gpt-4o-mini``); a
+        bare alias like ``sonnet`` belongs to another backend."""
+        return "/" in model
+
     def __init__(
         self,
         client: OpenRouterClient | None = None,
@@ -156,7 +173,10 @@ class OpenRouterRunner:
             messages.append({"role": "system", "content": knowledge})
         messages.append({"role": "user", "content": case.seed_prompt})
         output, raw = self.client.complete_raw(
-            messages, temperature=self.temperature, max_tokens=self.max_tokens
+            messages,
+            temperature=self.temperature,
+            max_tokens=self.max_tokens,
+            model=getattr(case, "model", None),  # case override; None => client default
         )
         return EvalContext(
             case_id=case.id,

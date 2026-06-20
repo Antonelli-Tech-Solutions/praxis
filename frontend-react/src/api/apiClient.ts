@@ -67,9 +67,16 @@ async function parseJsonResponse(response: Response): Promise<unknown> {
   return JSON.parse(raw) as unknown;
 }
 
+export interface ApiDataProviderAuth {
+  /** Resolve a currently-valid bearer token (Amplify refreshes on demand). */
+  getToken?: () => Promise<string | undefined>;
+  /** Active org id sent as X-Praxis-Org for server-side tenancy. */
+  orgId?: string;
+}
+
 export function createApiDataProvider(
   baseUrl: string,
-  token?: string,
+  auth?: ApiDataProviderAuth,
   evalMetricsUrl?: string,
 ): DataProvider {
   const root = baseUrl.replace(/\/$/, "");
@@ -78,6 +85,11 @@ export function createApiDataProvider(
     import.meta.env.VITE_PRAXIS_EVAL_METRICS_URL?.trim() ||
     `${root}/metrics`;
 
+  async function authHeaders(): Promise<HeadersInit> {
+    const token = auth?.getToken ? await auth.getToken() : undefined;
+    return contractHeaders(token, auth?.orgId);
+  }
+
   async function request(
     method: string,
     path: string,
@@ -85,7 +97,7 @@ export function createApiDataProvider(
   ): Promise<unknown> {
     const response = await fetch(`${root}${path}`, {
       method,
-      headers: contractHeaders(token),
+      headers: await authHeaders(),
       body: body ? JSON.stringify(body) : undefined,
     });
 
@@ -204,7 +216,7 @@ export function createApiDataProvider(
     async getEvalMetrics() {
       try {
         const response = await fetch(metricsUrl, {
-          headers: contractHeaders(token),
+          headers: await authHeaders(),
         });
         if (!response.ok) {
           throw new Error(response.statusText);
@@ -254,12 +266,15 @@ export function createApiDataProvider(
 export async function postIngestJsonl(
   apiBaseUrl: string,
   files: Array<{ name: string; content: string }>,
-  token?: string,
+  auth?: string | ApiDataProviderAuth,
 ): Promise<void> {
   const root = apiBaseUrl.replace(/\/$/, "");
+  const resolved: ApiDataProviderAuth =
+    typeof auth === "string" ? { getToken: async () => auth } : auth ?? {};
+  const token = resolved.getToken ? await resolved.getToken() : undefined;
   const response = await fetch(`${root}/ingest/jsonl`, {
     method: "POST",
-    headers: contractHeaders(token),
+    headers: contractHeaders(token, resolved.orgId),
     body: JSON.stringify({ files }),
   });
 
