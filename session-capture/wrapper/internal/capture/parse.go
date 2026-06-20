@@ -7,18 +7,15 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-
-	"github.com/praxis/session-capture/internal/config"
 )
 
-// baseConfigDir resolves the Claude config root for a repo: the isolated
-// per-repo overlay root when the daemon has provisioned one (config.ConfigDir),
-// otherwise the standard ~/.claude. This keeps the transcript tailer pointed at
-// the SAME root the session was launched against — under the daemon (isolated
-// overlay) or a plain `claude` (~/.claude).
+// baseConfigDir resolves the Claude config root for a repo. The thin launcher
+// runs the user's real `claude`, which reads ~/.claude, so transcripts always
+// live under ~/.claude/projects/<hash>. (The CLAUDE_CONFIG_DIR override, if a
+// user sets one, is honored here too.)
 func baseConfigDir(repoRoot string) (string, error) {
-	if base, ok := config.ConfigDir(repoRoot); ok {
-		return base, nil
+	if dir := os.Getenv("CLAUDE_CONFIG_DIR"); dir != "" {
+		return dir, nil
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {

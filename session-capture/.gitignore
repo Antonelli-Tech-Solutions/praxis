@@ -7,8 +7,8 @@ infra/*.d.ts
 *.tsbuildinfo
 
 # Go
-/wrapper/claude-capture
-/wrapper/claude-capture.exe
+/wrapper/claude-trace
+/wrapper/claude-trace.exe
 *.test
 
 # Env / local
