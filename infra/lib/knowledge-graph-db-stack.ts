@@ -5,6 +5,8 @@ import { Construct } from 'constructs';
 import { DB_NAME, DB_SECRET_NAME, DEFAULT_ALLOWED_CIDR, GRAVITON } from './config';
 
 export interface KnowledgeGraphDbStackProps extends cdk.StackProps {
+  /** Shared VPC the instance lives in (see NetworkStack). */
+  readonly vpc: ec2.IVpc;
   /** Postgres database name created on the instance. Defaults to `praxis_kg`. */
   readonly databaseName?: string;
   /**
@@ -36,23 +38,13 @@ export interface KnowledgeGraphDbStackProps extends cdk.StackProps {
 export class KnowledgeGraphDbStack extends cdk.Stack {
   public readonly instance: rds.DatabaseInstance;
 
-  constructor(scope: Construct, id: string, props: KnowledgeGraphDbStackProps = {}) {
+  constructor(scope: Construct, id: string, props: KnowledgeGraphDbStackProps) {
     super(scope, id, props);
 
     const databaseName = props.databaseName ?? DB_NAME;
     const allowedCidr = props.allowedCidr ?? DEFAULT_ALLOWED_CIDR;
 
-    // Own VPC, intentionally NOT the shared NetworkStack VPC: this RDS instance
-    // is already deployed with live tenant data, and an instance cannot change
-    // VPC in place — sharing would force a destructive replacement. Public
-    // subnets only, no NAT gateways, so the DB is reachable over its SG.
-    const vpc = new ec2.Vpc(this, 'KgVpc', {
-      maxAzs: 2,
-      natGateways: 0,
-      subnetConfiguration: [
-        { name: 'public', subnetType: ec2.SubnetType.PUBLIC, cidrMask: 24 },
-      ],
-    });
+    const vpc = props.vpc;
 
     const securityGroup = new ec2.SecurityGroup(this, 'KgDbSg', {
       vpc,

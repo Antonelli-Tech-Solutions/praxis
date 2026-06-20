@@ -36,10 +36,9 @@ new AuthUserPoolStack(app, 'PraxisAuthUserPoolStack', {
   userPoolName: app.node.tryGetContext('authUserPoolName'),
 });
 
-// The KG DB keeps its own VPC: it's already deployed with live tenant data and
-// an RDS instance can't change VPC without being replaced.
 new KnowledgeGraphDbStack(app, 'PraxisKnowledgeGraphDbStack', {
   env,
+  vpc: network.vpc,
   databaseName: app.node.tryGetContext('databaseName'),
   allowedCidr: app.node.tryGetContext('allowedCidr'),
 });
