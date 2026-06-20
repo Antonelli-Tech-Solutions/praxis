@@ -25,3 +25,10 @@ services:
         value: 0.0.0.0
       - key: PYTHON_VERSION
         value: "3.12"
+      # Cognito (PraxisAuthUserPoolStack outputs) — used to verify JWTs.
+      - key: COGNITO_USER_POOL_ID
+        value: us-east-1_4nAMe6bPK
+      - key: COGNITO_CLIENT_ID
+        value: 3ij653bq912pi4f17l5hn9iqqn
+      - key: COGNITO_REGION
+        value: us-east-1
