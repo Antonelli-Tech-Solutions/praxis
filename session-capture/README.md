@@ -1,56 +1,66 @@
 # session-capture
 
-The PRAXIS terminal wrapper around Claude Code — a `claude+`-style per-repo
-daemon that hosts the real `claude` CLI over a PTY, multiplexes auto-named
-sessions, and streams every session message into a DynamoDB table (the raw
-"Claude Code Session Logs" store in the PRAXIS architecture).
+A thin, **opt-in** wrapper around Claude Code. Run `claude-trace` instead of
+`claude` and, when your work ships as a PR, that session's transcript is uploaded
+to S3 for a remote extractor to mine for insights. Running plain `claude`
+captures nothing.
 
-Adapted from the `claude+` wrapper in `workflow_harness`, **CLI only** — the
-Command-HQ pieces (WebSocket transport, skills/MCP/memory sync, topic gating,
-the learning judge) and the desktop GUI are intentionally dropped. The outbound
-event stream is replaced with a direct DynamoDB writer.
+This replaces the old `claude+` daemon (PTY host, session multiplexer, terminal
+chrome, per-message DynamoDB writes). None of that is needed to capture a
+session: Claude Code already writes a full JSONL transcript to disk, so the
+launcher just watches it.
+
+## How it works
+
+1. `claude-trace` execs the real `claude`, passing through all args and
+   inheriting stdio — the terminal experience is identical to plain `claude`.
+2. While the session runs, it tails the transcript JSONL Claude writes under
+   `~/.claude/projects/<hash>/<sessionId>.jsonl`, watching for one signal: a
+   `git push` / `gh pr create`.
+3. On that signal it uploads the session transcript to S3 as a single object,
+   keyed by `org / user / repo / branch / sessionId` and tagged with the same
+   values as object metadata.
+
+The data is **write-once / read-once**: a remote extractor (triggered by the S3
+`ObjectCreated` event via EventBridge) reads each slice exactly once, writes the
+derived insights to the `praxis-session-insights` table, and the raw slice ages
+out via the bucket lifecycle rule. The launcher never reads any of it back — so
+there is no large "session logs" table to query or scan.
 
 ## Layout
 
 ```
-infra/                    (repo root) AWS CDK — provisions the praxis-sessions
-                          DynamoDB table
-session-capture/wrapper/  Go wrapper
-  cmd/claude-plus/        the claude+ CLI (host / ls / stop)
-  cmd/claude-capture/     minimal non-daemon variant (run claude + capture)
-  internal/pty/           PTY host + session multiplexer
-  internal/daemon/        per-repo daemon, attach, registry, ls/stop
-  internal/capture/       JSONL transcript tailer (+ hooks)
-  internal/title/         session auto-naming
-  internal/store/         DynamoDB writer
-  internal/shell/         terminal chrome (tab bar / status line)
+session-capture/wrapper/       Go launcher
+  cmd/claude-capture/          the `claude-trace` binary (claude passthrough)
+  internal/capture/            JSONL transcript tailer + parser
+  internal/upload/             S3 uploader
+  internal/event/              shared event envelope (tailer output type)
+  internal/config/             repo / owner-repo resolution
 ```
 
-## Commands
+## Configuration
 
-```
-claude+                 attach-or-create the per-repo daemon and host claude
-claude+ ls              list running daemons (index, repo, host, sessions, uptime)
-claude+ stop=N          stop the daemon at registry index N
-claude+ reset           clear all daemon state
-claude+ --session=N     attach to the daemon at registry index N
-claude+ --version       print version
-```
+| Env var               | Purpose                                          | Default            |
+| --------------------- | ------------------------------------------------ | ------------------ |
+| `PRAXIS_SLICE_BUCKET` | S3 bucket for slices; **unset disables capture** | —                  |
+| `PRAXIS_ORG_ID`       | tenant org id (S3 key prefix + metadata)         | `default`          |
+| `PRAXIS_USER_ID`      | tenant user id                                   | OS user            |
+| `AWS_REGION`          | region for the S3 client                         | ambient AWS config |
 
-Every hosted session's transcript streams to DynamoDB as it runs.
+Capture is best-effort: with no bucket configured or no AWS credentials, the
+session still runs normally — it just isn't captured. `claude-trace` never makes
+a session worse than plain `claude`.
+
+The S3 slices bucket (with lifecycle expiry + EventBridge notifications) and the
+`praxis-session-insights` table are provisioned by the `infra/` CDK app in a
+separate change.
 
 ## Quick start
 
 ```bash
-# 1. Deploy the table (CDK lives at the repo root)
-cd infra && npm install && npm run deploy
+# Build the launcher
+cd session-capture/wrapper && go build -o claude-trace ./cmd/claude-capture
 
-# 2. Build the wrapper
-cd ../session-capture/wrapper && go build -o claude+ ./cmd/claude-plus
-
-# 3. Host a session (messages stream to DynamoDB)
-SESSION_TABLE=praxis-sessions AWS_REGION=us-east-1 ./claude+
+# Run an opt-in session (uploads to S3 on git push / gh pr create)
+PRAXIS_SLICE_BUCKET=praxis-session-slices AWS_REGION=us-east-1 ./claude-trace
 ```
-
-The DynamoDB writer is optional: if AWS credentials are absent, the daemon
-still hosts sessions locally (capture is simply disabled).
