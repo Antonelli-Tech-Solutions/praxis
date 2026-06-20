@@ -1,0 +1,136 @@
+# Deploy the PRAXIS website to AWS on merges into main.
+#
+# Mirrors the local `cd infra && npm run deploy:web` flow, split into two jobs so
+# only the stack that actually changed is rebuilt:
+#   - deploy-backend:  PraxisBackendServiceStack (App Runner). Builds the backend
+#       Docker image — GitHub-hosted runners ship with Docker, so this just works.
+#   - deploy-frontend: PraxisFrontendSiteStack (S3 + CloudFront). Rebuilds the Vite
+#       bundle against the live backend ServiceUrl, then uploads dist/.
+#
+# Backend runs first; when both change the frontend is built against the freshly
+# deployed backend URL. If only one side changed, the other job is skipped.
+#
+# Required repo secrets:   AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY
+# Required repo variable:  AWS_DEFAULT_REGION (us-east-1)
+
+name: deploy
+
+on:
+  push:
+    branches: [main]
+
+# Serialize deploys: only one run proceeds at a time, others queue (no cancel) so
+# concurrent merges never run overlapping cdk deploys.
+concurrency:
+  group: aws-deploy
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      backend: ${{ steps.filter.outputs.backend }}
+      frontend: ${{ steps.filter.outputs.frontend }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            backend:
+              - 'Dockerfile'
+              - '.dockerignore'
+              - 'pyproject.toml'
+              - 'uv.lock'
+              - 'knowledge/**'
+              - 'infra/lib/backend-service-stack.ts'
+              - 'infra/bin/app.ts'
+              - 'infra/cdk.json'
+              - 'infra/package.json'
+              - '.github/workflows/deploy.yml'
+            frontend:
+              - 'frontend-react/**'
+              - 'infra/lib/frontend-site-stack.ts'
+              - 'infra/bin/app.ts'
+              - 'infra/cdk.json'
+              - 'infra/package.json'
+              - '.github/workflows/deploy.yml'
+
+  deploy-backend:
+    needs: changes
+    if: ${{ needs.changes.outputs.backend == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ vars.AWS_DEFAULT_REGION }}
+      - run: aws sts get-caller-identity
+      - name: Deploy backend stack
+        working-directory: infra
+        run: |
+          npm ci
+          npx cdk deploy PraxisBackendServiceStack --require-approval never --outputs-file cdk-web-out.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cdk-outputs-backend
+          path: infra/cdk-web-out.json
+          if-no-files-found: ignore
+
+  deploy-frontend:
+    needs: [changes, deploy-backend]
+    # Run when the frontend changed AND the backend job either succeeded or was
+    # skipped (i.e. don't deploy the frontend if a backend deploy failed).
+    if: >-
+      ${{ always()
+        && needs.changes.outputs.frontend == 'true'
+        && (needs.deploy-backend.result == 'success' || needs.deploy-backend.result == 'skipped') }}
+    runs-on: ubuntu-latest
+    env:
+      # Known/deployed Cognito values baked into the frontend bundle.
+      VITE_COGNITO_USER_POOL_ID: us-east-1_4nAMe6bPK
+      VITE_COGNITO_CLIENT_ID: 3ij653bq912pi4f17l5hn9iqqn
+      VITE_COGNITO_REGION: us-east-1
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ vars.AWS_DEFAULT_REGION }}
+      - run: aws sts get-caller-identity
+      - name: Resolve live backend ServiceUrl
+        run: |
+          SERVICE_URL=$(aws cloudformation describe-stacks \
+            --stack-name PraxisBackendServiceStack \
+            --query "Stacks[0].Outputs[?OutputKey=='ServiceUrl'].OutputValue" \
+            --output text)
+          echo "Backend ServiceUrl: $SERVICE_URL"
+          echo "VITE_PRAXIS_API_BASE_URL=$SERVICE_URL" >> "$GITHUB_ENV"
+          echo "VITE_PRAXIS_POSTGRES_API_BASE_URL=$SERVICE_URL" >> "$GITHUB_ENV"
+      - name: Build frontend
+        working-directory: frontend-react
+        run: |
+          npm ci
+          npm run build
+      - name: Deploy frontend stack
+        working-directory: infra
+        run: |
+          npm ci
+          npx cdk deploy PraxisFrontendSiteStack --require-approval never --outputs-file cdk-web-out.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cdk-outputs-frontend
+          path: infra/cdk-web-out.json
+          if-no-files-found: ignore
