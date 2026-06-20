@@ -1,0 +1,72 @@
+# GitLab CI/CD — validate infra on MRs, deploy the PRAXIS website to AWS on merge into main.
+#
+# The deploy mirrors the local `cd infra && npm run deploy:web` flow
+# (infra/scripts/deploy-web.mjs):
+#   1. cdk deploy PraxisBackendServiceStack  (builds the backend Docker image -> App Runner)
+#   2. build frontend-react with the backend ServiceUrl baked in
+#   3. cdk deploy PraxisFrontendSiteStack    (uploads dist/ to S3 + invalidates CloudFront)
+#
+# Requirements (configure once in the project):
+#   - A runner that can run Docker (the deploy uses the docker:dind service) because the
+#     CDK DockerImageAsset build needs a Docker daemon. (The MR validate job does not.)
+#   - CI/CD variables (Settings > CI/CD > Variables), masked + protected:
+#       AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY   (an IAM user/role allowed to deploy CDK)
+#       AWS_DEFAULT_REGION = us-east-1
+
+stages:
+  - validate
+  - deploy
+
+# Run pipelines for merge requests and for the main branch only. This also prevents
+# duplicate "branch + MR" pipelines on a branch that has an open MR.
+workflow:
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == "main"'
+    - when: never
+
+# MR check: compile the CDK app and synthesize CloudFormation. `cdk synth` does NOT build
+# the Docker image and needs no AWS credentials, so this is a safe, fast pipeline test that
+# never touches AWS.
+validate-infra:
+  stage: validate
+  image: node:20-alpine
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+  script:
+    - cd infra
+    - npm ci
+    - npm run build
+    - npx cdk synth > /dev/null
+    - echo "CDK app synthesized cleanly."
+
+# Real deploy: only when code lands on main (i.e. an MR is merged).
+deploy-web:
+  stage: deploy
+  image: docker:27
+  services:
+    - docker:27-dind
+  variables:
+    DOCKER_HOST: tcp://docker:2376
+    DOCKER_TLS_CERTDIR: "/certs"
+    DOCKER_TLS_VERIFY: "1"
+    DOCKER_CERT_PATH: "/certs/client"
+    AWS_DEFAULT_REGION: us-east-1
+  rules:
+    # Change `when: on_success` to `when: manual` to require a click in the UI instead.
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      when: on_success
+    - when: never
+  before_script:
+    - apk add --no-cache nodejs npm aws-cli
+    - node --version && npm --version && docker info
+  script:
+    - cd infra
+    - npm ci
+    - npm run build
+    - npm run deploy:web
+  artifacts:
+    when: always
+    paths:
+      - infra/cdk-web-out.json
+    expire_in: 30 days
