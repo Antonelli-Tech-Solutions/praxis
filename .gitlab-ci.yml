@@ -1,48 +1,44 @@
-# GitLab CI/CD — validate infra on MRs, deploy the PRAXIS website to AWS on merge into main.
+# GitLab CI/CD — deploy the PRAXIS website to AWS on merges into main.
 #
-# The deploy mirrors the local `cd infra && npm run deploy:web` flow
-# (infra/scripts/deploy-web.mjs):
-#   1. cdk deploy PraxisBackendServiceStack  (builds the backend Docker image -> App Runner)
-#   2. build frontend-react with the backend ServiceUrl baked in
-#   3. cdk deploy PraxisFrontendSiteStack    (uploads dist/ to S3 + invalidates CloudFront)
+# Two independent jobs, each gated by `rules:changes` so only the stack with a
+# real change is rebuilt:
+#   - deploy-backend:  PraxisBackendServiceStack (App Runner). Builds the backend
+#       Docker image, so it needs a Docker daemon (docker:dind service).
+#   - deploy-frontend: PraxisFrontendSiteStack (S3 + CloudFront). Rebuilds the Vite
+#       bundle with the live backend ServiceUrl baked in, then uploads dist/.
 #
-# Requirements (configure once in the project):
-#   - A runner that can run Docker (the deploy uses the docker:dind service) because the
-#     CDK DockerImageAsset build needs a Docker daemon. (The MR validate job does not.)
+# Ordering: backend runs in an earlier stage than frontend, so when both change the
+# frontend is rebuilt against the freshly-deployed backend URL. If only one side
+# changed, the other job simply isn't created.
+#
+# Requirements (already configured in the project):
+#   - Shared runner available; main is a protected branch.
 #   - CI/CD variables (Settings > CI/CD > Variables), masked + protected:
-#       AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY   (an IAM user/role allowed to deploy CDK)
-#       AWS_DEFAULT_REGION = us-east-1
+#       AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_DEFAULT_REGION (us-east-1)
 
 stages:
-  - validate
-  - deploy
+  - backend
+  - frontend
 
-# Run pipelines for merge requests and for the main branch only. This also prevents
-# duplicate "branch + MR" pipelines on a branch that has an open MR.
+# Only ever run for the main branch (i.e. when an MR is merged). No MR or feature-
+# branch pipelines.
 workflow:
   rules:
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
     - if: '$CI_COMMIT_BRANCH == "main"'
     - when: never
 
-# MR check: compile the CDK app and synthesize CloudFormation. `cdk synth` does NOT build
-# the Docker image and needs no AWS credentials, so this is a safe, fast pipeline test that
-# never touches AWS.
-validate-infra:
-  stage: validate
-  image: node:20-alpine
-  rules:
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
-  script:
-    - cd infra
-    - npm ci
-    - npm run build
-    - npx cdk synth > /dev/null
-    - echo "CDK app synthesized cleanly."
+# Known/deployed Cognito values baked into the frontend bundle (see infra/README.md
+# and infra/scripts/deploy-web.mjs).
+.cognito: &cognito
+  VITE_COGNITO_USER_POOL_ID: us-east-1_4nAMe6bPK
+  VITE_COGNITO_CLIENT_ID: 3ij653bq912pi4f17l5hn9iqqn
+  VITE_COGNITO_REGION: us-east-1
 
-# Real deploy: only when code lands on main (i.e. an MR is merged).
-deploy-web:
-  stage: deploy
+deploy-backend:
+  stage: backend
+  # Serialize all deploys: only one job in this resource group runs at a time,
+  # across pipelines, so concurrent merges can't run overlapping cdk deploys.
+  resource_group: aws-deploy
   image: docker:27
   services:
     - docker:27-dind
@@ -53,18 +49,64 @@ deploy-web:
     DOCKER_CERT_PATH: "/certs/client"
     AWS_DEFAULT_REGION: us-east-1
   rules:
-    # Change `when: on_success` to `when: manual` to require a click in the UI instead.
     - if: '$CI_COMMIT_BRANCH == "main"'
-      when: on_success
-    - when: never
+      changes:
+        - Dockerfile
+        - .dockerignore
+        - pyproject.toml
+        - uv.lock
+        - knowledge/**/*
+        - infra/lib/backend-service-stack.ts
+        - infra/bin/app.ts
+        - infra/cdk.json
+        - infra/package.json
+        - .gitlab-ci.yml
   before_script:
     - apk add --no-cache nodejs npm aws-cli
-    - node --version && npm --version && docker info
+    - aws sts get-caller-identity
   script:
     - cd infra
     - npm ci
+    - npx cdk deploy PraxisBackendServiceStack --require-approval never --outputs-file cdk-web-out.json
+  artifacts:
+    when: always
+    paths:
+      - infra/cdk-web-out.json
+    expire_in: 30 days
+
+deploy-frontend:
+  stage: frontend
+  resource_group: aws-deploy
+  image: node:20-alpine
+  variables:
+    AWS_DEFAULT_REGION: us-east-1
+    <<: *cognito
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      changes:
+        - frontend-react/**/*
+        - infra/lib/frontend-site-stack.ts
+        - infra/bin/app.ts
+        - infra/cdk.json
+        - infra/package.json
+        - .gitlab-ci.yml
+  before_script:
+    - apk add --no-cache aws-cli
+    - aws sts get-caller-identity
+  script:
+    # Read the live backend URL from the already-deployed stack (no backend redeploy).
+    - export SERVICE_URL=$(aws cloudformation describe-stacks --stack-name PraxisBackendServiceStack --query "Stacks[0].Outputs[?OutputKey=='ServiceUrl'].OutputValue" --output text)
+    - echo "Backend ServiceUrl - $SERVICE_URL"
+    - export VITE_PRAXIS_API_BASE_URL="$SERVICE_URL"
+    - export VITE_PRAXIS_POSTGRES_API_BASE_URL="$SERVICE_URL"
+    # Build the bundle with the backend URL + Cognito values inlined.
+    - cd frontend-react
+    - npm ci
     - npm run build
-    - npm run deploy:web
+    # Deploy the S3/CloudFront stack (uploads the fresh dist/ and invalidates the CDN).
+    - cd ../infra
+    - npm ci
+    - npx cdk deploy PraxisFrontendSiteStack --require-approval never --outputs-file cdk-web-out.json
   artifacts:
     when: always
     paths:
