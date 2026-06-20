@@ -6,14 +6,28 @@ from knowledge.evals.eval_def import EvalCase, EvalContext
 from knowledge.evals.run import (
     FakeRunner,
     build_transcript,
+    case_needs,
     load_case,
     load_cases,
+    partition_by_capability,
     resolve_check,
     run_case,
     run_case_full,
+    status_of,
+    unmet_needs,
     write_baseline,
     write_transcript,
 )
+from knowledge.evals.eval_def import CaseResult
+
+
+class _SandboxRunner:
+    """Stub runner that advertises the sandbox capability."""
+
+    provides = frozenset({"sandbox"})
+
+    def run(self, case, reader):  # pragma: no cover - not exercised
+        return EvalContext(case_id=case.id, output="")
 
 
 def _case(**overrides):
@@ -155,6 +169,81 @@ def test_write_transcript_lands_file_under_run_id(tmp_path):
     written = json.loads(path.read_text(encoding="utf-8"))
     assert written["agent"]["raw_response"] == '{"result": "done", "total_cost_usd": 0.01}'
     assert written["verdict"]["passed"] is True
+
+
+def test_explicit_needs_skipped_without_capability():
+    case = _case(needs=["sandbox"])
+    assert case_needs(case) == {"sandbox"}
+    # A runner that provides nothing can't grade it; one that provides sandbox can.
+    assert unmet_needs(case, FakeRunner()) == {"sandbox"}
+    assert unmet_needs(case, _SandboxRunner()) == set()
+
+
+def test_fixtures_imply_sandbox_and_code_task_implies_code_exec():
+    assert case_needs(_case(fixture_path="/tmp/box")) == {"sandbox"}
+    code_case = _case(
+        code_task={
+            "repo": "more-itertools/more-itertools",
+            "base_commit": "abc",
+            "target_commit": "def",
+            "fail_to_pass": ["t"],
+        }
+    )
+    assert "code_exec" in case_needs(code_case)
+
+
+def test_partition_splits_runnable_from_skipped():
+    plain = _case(id="plain")
+    sandboxed = _case(id="boxed", needs=["sandbox"])
+    runnable, skipped = partition_by_capability([plain, sandboxed], FakeRunner())
+    assert [c.id for c in runnable] == ["plain"]
+    assert [(c.id, m) for c, m in skipped] == [("boxed", {"sandbox"})]
+
+
+def test_pinned_model_skips_backend_that_cant_serve_it():
+    class Claudeish:
+        @staticmethod
+        def serves_model(m):
+            return "/" not in m
+
+        def run(self, case, reader):  # pragma: no cover
+            return EvalContext(case_id=case.id, output="")
+
+    class OpenRouterish:
+        @staticmethod
+        def serves_model(m):
+            return "/" in m
+
+        def run(self, case, reader):  # pragma: no cover
+            return EvalContext(case_id=case.id, output="")
+
+    pinned = _case(model="openai/gpt-4o-mini")
+    # Claude-like backend can't serve a provider-prefixed id -> skipped with reason.
+    runnable, skipped = partition_by_capability([pinned], Claudeish())
+    assert not runnable
+    assert skipped[0][1] == {"model:openai/gpt-4o-mini"}
+    # OpenRouter-like backend serves it -> runnable.
+    runnable2, _ = partition_by_capability([pinned], OpenRouterish())
+    assert [c.id for c in runnable2] == ["c1"]
+
+
+def test_status_of_four_states():
+    def res(passed, xfail=None):
+        return CaseResult(case_id="c", passed=passed, xfail_reason=xfail)
+
+    assert status_of(res(True)) == "PASS"
+    assert status_of(res(False)) == "FAIL"
+    assert status_of(res(False, xfail="no FilteredReader")) == "XFAIL"
+    assert status_of(res(True, xfail="no FilteredReader")) == "XPASS"
+
+
+def test_xfail_reason_carried_into_result():
+    # A red-spec case that fails is XFAIL, not a regression.
+    case = _case(xfail="capability not built")
+    _, _, result = run_case_full(case, FakeRunner())  # empty output -> checks fail
+    assert result.passed is False
+    assert result.xfail_reason == "capability not built"
+    assert status_of(result) == "XFAIL"
 
 
 def test_registered_example_case_runs_end_to_end():
