@@ -31,7 +31,7 @@ export const PRESET_IDS = {
 export const DATA_SOURCE_PRESETS: DataSourcePreset[] = [
   {
     id: PRESET_IDS.mock,
-    label: "Mock fixtures",
+    label: "Mock fixtures (evals)",
     mode: "mock",
     helpText:
       "Local JSON fixtures synced from frontend/mock_data.py — portfolio-safe demo.",
@@ -193,7 +193,7 @@ export function resolveInitialConfig(): DataSourceConfig {
           return {
             mode: "mock",
             presetId: stored.presetId || PRESET_IDS.mock,
-            label: stored.label || "Mock fixtures",
+            label: stored.label || "Mock fixtures (evals)",
             apiToken: envApiToken(),
           };
         }

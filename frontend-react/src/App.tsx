@@ -14,14 +14,16 @@ import { AppShell } from "./components/layout/AppShell";
 import { ContentSplit } from "./components/layout/ContentSplit";
 import { DashboardHeader } from "./components/layout/DashboardHeader";
 import { FilterBar } from "./components/layout/FilterBar";
-import { LoadingSkeleton } from "./components/ui/LoadingSkeleton";
+import { CandidateEditorModal } from "./components/ui/CandidateEditorModal";
 import { TranscriptPanel } from "./components/transcript/TranscriptPanel";
 import { useApiHealth } from "./hooks/useApiHealth";
 import { useDataSource } from "./hooks/useDataSource";
 import { useGraph } from "./hooks/useGraph";
 import { filterCandidates, useCandidates } from "./hooks/useCandidates";
 import { PRESET_IDS } from "./config/dataSource";
+import { LoadingSkeleton } from "./components/ui/LoadingSkeleton";
 import { useOrg } from "./auth/OrgGate";
+import type { Candidate, CandidateWriteInput } from "./types/candidate";
 import type { LocalLogFileInput } from "./types/transcript";
 import type { ViewTab } from "./types/view";
 import "./index.css";
@@ -49,6 +51,9 @@ export default function App() {
     promote,
     reject,
     resolveContradiction,
+    createCandidate,
+    updateCandidate,
+    deleteCandidate,
   } = useCandidates({ config, localSession, auth });
 
   const { graph, loading: graphLoading, error: graphError } = useGraph(
@@ -64,6 +69,10 @@ export default function App() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [deferMessage, setDeferMessage] = useState<string | null>(null);
   const [infoMessage, setInfoMessage] = useState<string | null>(null);
+  const [editorState, setEditorState] = useState<
+    { mode: "add" } | { mode: "edit"; candidate: Candidate } | null
+  >(null);
+  const [editorPending, setEditorPending] = useState(false);
 
   const filtered = useMemo(
     () => filterCandidates(candidates, searchQuery, stateFilter),
@@ -168,6 +177,45 @@ export default function App() {
     }
   }
 
+  function handleEditCandidate(candidate: Candidate) {
+    setEditorState({ mode: "edit", candidate });
+  }
+
+  function handleAddEval() {
+    setEditorState({ mode: "add" });
+  }
+
+  async function handleSaveCandidate(input: CandidateWriteInput) {
+    setActionError(null);
+    setEditorPending(true);
+    try {
+      if (editorState?.mode === "add") {
+        const created = await createCandidate(input);
+        setSelectedId(created.id);
+        bumpGraphRefresh();
+      } else if (editorState?.mode === "edit") {
+        await updateCandidate(editorState.candidate.id, input);
+        bumpGraphRefresh();
+      }
+      setEditorState(null);
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : String(err));
+      throw err;
+    } finally {
+      setEditorPending(false);
+    }
+  }
+
+  async function handleDelete(id: string) {
+    setActionError(null);
+    try {
+      await deleteCandidate(id);
+      bumpGraphRefresh();
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : String(err));
+    }
+  }
+
   function handleDefer(primaryTitle: string, rivalTitle: string) {
     setDeferMessage(`Deferred contradiction between ${primaryTitle} and ${rivalTitle}.`);
     window.setTimeout(() => setDeferMessage(null), 5000);
@@ -196,6 +244,8 @@ export default function App() {
         onSelect={setSelectedId}
         onPromote={handlePromote}
         onReject={handleReject}
+        onEdit={handleEditCandidate}
+        onDelete={handleDelete}
       />
     ) : (
       <CandidateCards
@@ -204,6 +254,8 @@ export default function App() {
         onSelect={setSelectedId}
         onPromote={handlePromote}
         onReject={handleReject}
+        onEdit={handleEditCandidate}
+        onDelete={handleDelete}
       />
     );
 
@@ -213,7 +265,7 @@ export default function App() {
       ? "Live API"
       : mode === "local-logs"
         ? "Local Claude logs"
-        : "Mock fixtures";
+        : "Mock fixtures (evals)";
 
   return (
     <AppShell>
@@ -244,7 +296,7 @@ export default function App() {
       {error ? (
         <div className="error-banner">
           Backend unavailable — could not load candidates. ({error}) Use the data
-          source control above to switch to <strong>Mock fixtures</strong> or verify
+          source control above to switch to <strong>Mock fixtures (evals)</strong> or verify
           the live API URL and CORS settings.
         </div>
       ) : null}
@@ -276,6 +328,7 @@ export default function App() {
         onSearchChange={setSearchQuery}
         onStateFilterChange={setStateFilter}
         onViewTabChange={setViewTab}
+        onAddEval={handleAddEval}
       />
 
       {graphViewLoading ? (
@@ -312,6 +365,15 @@ export default function App() {
       )}
 
       <EvalMetricsEmbed provider={provider} />
+
+      <CandidateEditorModal
+        mode={editorState?.mode ?? "add"}
+        candidate={editorState?.mode === "edit" ? editorState.candidate : undefined}
+        open={editorState != null}
+        pending={editorPending}
+        onClose={() => setEditorState(null)}
+        onSave={handleSaveCandidate}
+      />
 
       <footer className="page-footer">
         React Knowledge Graph Dashboard · Data source: {footerModeLabel} · Org:{" "}

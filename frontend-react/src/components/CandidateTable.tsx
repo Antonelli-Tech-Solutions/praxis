@@ -16,6 +16,8 @@ interface CandidateTableProps {
   onSelect: (id: string) => void;
   onPromote: (id: string) => Promise<void>;
   onReject: (id: string, reason?: string) => Promise<void>;
+  onEdit: (candidate: Candidate) => void;
+  onDelete: (id: string) => Promise<void>;
 }
 
 export function CandidateTable({
@@ -24,10 +26,13 @@ export function CandidateTable({
   onSelect,
   onPromote,
   onReject,
+  onEdit,
+  onDelete,
 }: CandidateTableProps) {
   const [pendingId, setPendingId] = useState<string | null>(null);
   const [confirmPromote, setConfirmPromote] = useState<string | null>(null);
   const [confirmReject, setConfirmReject] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [rejectReason, setRejectReason] = useState("");
 
   if (candidates.length === 0) {
@@ -44,7 +49,14 @@ export function CandidateTable({
   }
 
   const selected = candidates.find((c) => c.id === selectedId) ?? candidates[0];
-  const expandedId = confirmPromote ?? confirmReject;
+  const expandedId = confirmPromote ?? confirmReject ?? confirmDelete;
+
+  function clearConfirmations() {
+    setConfirmPromote(null);
+    setConfirmReject(null);
+    setConfirmDelete(null);
+    setRejectReason("");
+  }
 
   async function runPromote(id: string) {
     setPendingId(id);
@@ -52,7 +64,7 @@ export function CandidateTable({
       await onPromote(id);
     } finally {
       setPendingId(null);
-      setConfirmPromote(null);
+      clearConfirmations();
     }
   }
 
@@ -63,8 +75,17 @@ export function CandidateTable({
       await onReject(id, reason);
     } finally {
       setPendingId(null);
-      setConfirmReject(null);
-      setRejectReason("");
+      clearConfirmations();
+    }
+  }
+
+  async function runDelete(id: string) {
+    setPendingId(id);
+    try {
+      await onDelete(id);
+    } finally {
+      setPendingId(null);
+      clearConfirmations();
     }
   }
 
@@ -74,6 +95,7 @@ export function CandidateTable({
     if (nextPromotionState(candidate.state)) {
       setConfirmPromote(candidate.id);
       setConfirmReject(null);
+      setConfirmDelete(null);
       setRejectReason("");
     }
   }
@@ -83,16 +105,33 @@ export function CandidateTable({
     onSelect(candidate.id);
     setConfirmReject(candidate.id);
     setConfirmPromote(null);
+    setConfirmDelete(null);
+  }
+
+  function handleEditClick(event: MouseEvent, candidate: Candidate) {
+    event.stopPropagation();
+    onSelect(candidate.id);
+    clearConfirmations();
+    onEdit(candidate);
+  }
+
+  function handleDeleteClick(event: MouseEvent, candidate: Candidate) {
+    event.stopPropagation();
+    onSelect(candidate.id);
+    setConfirmDelete(candidate.id);
+    setConfirmPromote(null);
+    setConfirmReject(null);
   }
 
   function renderConfirmRow(candidate: Candidate) {
     const nextState = nextPromotionState(candidate.state);
     const isPromote = confirmPromote === candidate.id;
     const isReject = confirmReject === candidate.id;
+    const isDelete = confirmDelete === candidate.id;
 
     return (
       <tr className="row-expand">
-        <td colSpan={6}>
+        <td colSpan={4}>
           {isPromote && nextState ? (
             <>
               <p className="info-banner">
@@ -130,23 +169,23 @@ export function CandidateTable({
           {isReject ? (
             <>
               <label className="reject-reason">
-                Rejection reason (optional)
+                Decay reason (optional)
                 <input
                   type="text"
                   value={rejectReason}
                   onChange={(event) => setRejectReason(event.target.value)}
-                  aria-label="Rejection reason"
+                  aria-label="Decay reason"
                 />
               </label>
               <div className="action-buttons">
                 <button
                   type="button"
-                  className="btn danger"
+                  className="btn decay"
                   disabled={pendingId === candidate.id}
                   onClick={() => void runReject(candidate.id)}
-                  aria-label={`Confirm reject ${candidate.title}`}
+                  aria-label={`Confirm decay ${candidate.title}`}
                 >
-                  Confirm reject
+                  Confirm decay
                 </button>
                 <button
                   type="button"
@@ -155,6 +194,32 @@ export function CandidateTable({
                     setConfirmReject(null);
                     setRejectReason("");
                   }}
+                >
+                  Cancel
+                </button>
+              </div>
+            </>
+          ) : null}
+          {isDelete ? (
+            <>
+              <p className="warning-banner" role="alert">
+                Delete <strong>{candidate.title}</strong> permanently? This removes the eval
+                from the review queue.
+              </p>
+              <div className="action-buttons">
+                <button
+                  type="button"
+                  className="btn delete"
+                  disabled={pendingId === candidate.id}
+                  onClick={() => void runDelete(candidate.id)}
+                  aria-label={`Confirm delete ${candidate.title}`}
+                >
+                  Confirm delete
+                </button>
+                <button
+                  type="button"
+                  className="btn ghost"
+                  onClick={() => setConfirmDelete(null)}
                 >
                   Cancel
                 </button>
@@ -174,10 +239,6 @@ export function CandidateTable({
             <tr>
               <th scope="col">Title</th>
               <th scope="col">State</th>
-              <th scope="col" className="col-numeric">
-                Confidence
-              </th>
-              <th scope="col">Provenance</th>
               <th scope="col">Created</th>
               <th scope="col">Actions</th>
             </tr>
@@ -208,55 +269,61 @@ export function CandidateTable({
                     <td>
                       <StateBadge state={candidate.state} label={candidate.displayState} />
                     </td>
-                    <td className="col-numeric">
-                      <span className="confidence-cell">
-                        <span className="inline-progress">
-                          <span
-                            className="progress-fill"
-                            style={{ width: `${Math.round(candidate.confidence * 100)}%` }}
-                          />
-                        </span>
-                        <span className="mono">{candidate.confidence.toFixed(2)}</span>
-                      </span>
-                    </td>
-                    <td
-                      className="mono small provenance-cell"
-                      title={candidate.provenance}
-                    >
-                      {candidate.provenance}
-                    </td>
                     <td>{formatCandidateDate(candidate.createdAt)}</td>
                     <td className="actions-cell">
-                      {canPromote ? (
-                        <button
-                          type="button"
-                          className="btn primary"
-                          onClick={(event) => handlePromoteClick(event, candidate)}
-                          aria-label={`Promote ${candidate.title}`}
-                          title="Advance proposed → suggested → active"
-                        >
-                          Promote
-                        </button>
-                      ) : (
-                        <button
-                          type="button"
-                          className="btn"
-                          disabled
-                          title={promoteBlocked ?? undefined}
-                          onClick={(event) => event.stopPropagation()}
-                        >
-                          Promote
-                        </button>
-                      )}
-                      <button
-                        type="button"
-                        className="btn danger-outline"
-                        onClick={(event) => handleRejectClick(event, candidate)}
-                        aria-label={`Reject ${candidate.title}`}
-                        title="Remove candidate from review queue"
-                      >
-                        Reject
-                      </button>
+                      <div className="actions-cell__group">
+                        <div className="actions-cell__row">
+                          {canPromote ? (
+                            <button
+                              type="button"
+                              className="btn primary"
+                              onClick={(event) => handlePromoteClick(event, candidate)}
+                              aria-label={`Promote ${candidate.title}`}
+                              title="Advance proposed → suggested → active"
+                            >
+                              Promote
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              className="btn"
+                              disabled
+                              title={promoteBlocked ?? undefined}
+                              onClick={(event) => event.stopPropagation()}
+                            >
+                              Promote
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            className="btn decay"
+                            onClick={(event) => handleRejectClick(event, candidate)}
+                            aria-label={`Decay ${candidate.title}`}
+                            title="Mark eval as decayed"
+                          >
+                            Decay
+                          </button>
+                        </div>
+                        <div className="actions-cell__row">
+                          <button
+                            type="button"
+                            className="btn edit"
+                            onClick={(event) => handleEditClick(event, candidate)}
+                            aria-label={`Edit ${candidate.title}`}
+                          >
+                            Edit
+                          </button>
+                          <button
+                            type="button"
+                            className="btn delete"
+                            onClick={(event) => handleDeleteClick(event, candidate)}
+                            aria-label={`Delete ${candidate.title}`}
+                            title="Remove eval permanently"
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      </div>
                     </td>
                   </tr>
                   {expandedId === candidate.id ? renderConfirmRow(candidate) : null}
