@@ -47,25 +47,37 @@ const serviceArn = JSON.parse(res.out).StackResources
 if (!serviceArn) { console.error(`No App Runner service found in ${STACK}`); process.exit(1); }
 console.log('Service ARN:', serviceArn);
 
+// App Runner reports Status in lowercase ("active", "pending_certificate_dns_validation", ...).
+const isActive = (s) => (s ?? '').toLowerCase() === 'active';
+
 // 1a. Skip if the domain is already ACTIVE on THIS service — nothing to do.
 // When the service is recreated it gets a new ARN with no custom domain, so this
 // check naturally fails and we re-do the setup. That makes the script safe to run
 // on every backend deploy: a no-op normally, self-healing after a replacement.
 const existing = aws(['apprunner', 'describe-custom-domains', '--service-arn', serviceArn, '--output', 'json']);
+let alreadyAssociated = false;
 if (existing.ok) {
   const cd = JSON.parse(existing.out).CustomDomains?.find((c) => c.DomainName === DOMAIN);
-  if (cd?.Status === 'ACTIVE') {
+  if (isActive(cd?.Status)) {
     console.log(`${DOMAIN} is already ACTIVE on this service — nothing to do.`);
     process.exit(0);
   }
-  if (cd) console.log(`${DOMAIN} present with status ${cd.Status} — re-applying records.`);
+  if (cd) {
+    alreadyAssociated = true;
+    console.log(`${DOMAIN} present with status ${cd.Status} — re-applying records.`);
+  }
 }
 
-// 2. Associate the domain (ignore "already associated").
-const assoc = aws(['apprunner', 'associate-custom-domain',
-  '--service-arn', serviceArn, '--domain-name', DOMAIN, '--no-enable-www-subdomain']);
-if (!assoc.ok && !/already|exist/i.test(assoc.err)) { console.error(assoc.err); process.exit(1); }
-console.log(assoc.ok ? 'Associated.' : 'Already associated — continuing.');
+// 2. Associate the domain — only when it isn't already associated. Calling
+// associate-custom-domain on an already-associated domain throws
+// InvalidRequestException, so when it's already present we skip straight to
+// re-applying the records below.
+if (!alreadyAssociated) {
+  const assoc = aws(['apprunner', 'associate-custom-domain',
+    '--service-arn', serviceArn, '--domain-name', DOMAIN, '--no-enable-www-subdomain']);
+  if (!assoc.ok) { console.error(assoc.err); process.exit(1); }
+  console.log('Associated.');
+}
 
 // 3. Poll until App Runner emits the cert-validation records.
 let domain, dnsTarget;
@@ -114,13 +126,13 @@ process.stdout.write(`Waiting up to ${WAIT_TIMEOUT_SEC}s for ${DOMAIN} to become
 for (let i = 0; i < maxPolls; i++) {
   const parsed = JSON.parse(aws(['apprunner', 'describe-custom-domains', '--service-arn', serviceArn, '--output', 'json']).out);
   status = parsed.CustomDomains?.find((c) => c.DomainName === DOMAIN)?.Status ?? 'UNKNOWN';
-  if (status === 'ACTIVE') break;
+  if (isActive(status)) break;
   if (/FAIL/i.test(status)) { console.error(`\n${DOMAIN} entered failure state: ${status}`); process.exit(1); }
   process.stdout.write('.');
   sleep(POLL_SEC);
 }
 console.log('');
-if (status === 'ACTIVE') {
+if (isActive(status)) {
   console.log(`${DOMAIN} is ACTIVE.`);
 } else {
   // Soft failure: App Runner often finishes async beyond our cap. continue-on-error
