@@ -1,9 +1,15 @@
-# Proposal: `writes_file` / `modifies_file` deterministic checks
+# Proposal: faithful per-artifact grading (`output_file` + `writes_file` / `modifies_file`)
 
 **Owner:** Dominic Antonelli — eval harness
 **Status:** Draft — for review
 **Date:** 2026-06-20
-**Scope:** `knowledge/evals` (EvalContext contract, ClaudeCodeRunner, deterministic checks)
+**Scope:** `knowledge/evals` (EvalCase + EvalContext contracts, ClaudeCodeRunner, deterministic checks)
+
+> Two related changes that make sandbox grading read the *agent's artifact*, not
+> whatever blob the runner happened to assemble: **`output_file`** scopes the
+> graded *content* to one file (§4.5); **`writes_file` / `modifies_file`** assert a
+> file's *existence / change* (§4.1–4.4). They compose: one says *which file's
+> content to grade*, the other says *that the agent produced it*.
 
 ---
 
@@ -23,12 +29,20 @@ where it came from**. Consequences:
   (`_collect_output`, [claude_code.py:226-253](../../knowledge/evals/claude_code.py)),
   so "no artifact produced" is **not** distinguishable from "correct artifact
   produced" at grading time.
+- **The box-sweep grades the fixture too.** For a code case the runner can't find
+  its single configured `output_file` (`poem.txt`), so it falls back to a sweep
+  that concatenates *every* file in the box — including the mounted fixture. A
+  check meant to grade `answer.py` actually reads `answer.py` + `utils.py` + …, so
+  the fixture's own content can satisfy (or break) the check.
 
 Nothing in the suite asserts *the agent actually wrote (or modified) the file the
-case is about*. This proposal adds two deterministic checks that do:
+case is about*, and content checks can't scope to *just that file*. This proposal
+adds:
 
-- `writes_file(path)` — the agent **created** a new file at `path`.
-- `modifies_file(path)` — the agent **changed** a file that was mounted at `path`.
+- `output_file` (per-case) — grade the *content* of one named artifact, not the
+  whole box (§4.5).
+- `writes_file(path)` — the agent **created** a new file at `path` (§4.3).
+- `modifies_file(path)` — the agent **changed** a file that was mounted at `path` (§4.3).
 
 ## 2. The constraint that shapes the design
 
@@ -51,8 +65,11 @@ it can't speak to an arbitrary per-case filename, and it can't distinguish
 
 **Goals**
 - Assert that a specific file was created / modified by the agent, faithfully.
+- Scope *content* checks to the artifact under test, not the whole box (fixtures
+  included).
 - Distinguish "produced the artifact" from "talked about it in chat."
-- Keep grading of `output` unchanged — this is *additive* provenance.
+- Keep default behavior unchanged — both pieces are opt-in per case; cases that
+  set neither grade exactly as today.
 - Stay offline-testable (CLI is already injected).
 
 **Non-goals**
@@ -135,15 +152,55 @@ case ever needs the union; not adding it speculatively.)
 
 The last row is why these checks force a case onto the sandbox (§6).
 
+### 4.5 Per-case `output_file` (content grading)
+
+`writes_file`/`modifies_file` assert a file *exists/changed*; they say nothing
+about its content. Content is still graded against `EvalContext.output` — and for
+a code case `output` is the **box-sweep**, fixture and all (see §1). So a per-case
+way to say "*grade this file's content*" is the other half of faithful grading.
+
+Add an optional field to the **case**:
+
+```python
+# knowledge/evals/eval_def.py
+class EvalCase(BaseModel):
+    ...
+    output_file: str | None = None  # box-relative artifact to grade; None => runner default
+```
+
+`ClaudeCodeRunner._collect_output` prefers `case.output_file` (when set) over the
+runner's built-in default before falling back to the box-sweep. When set and the
+file exists, `output` is *that file alone* and `output_source="named_file"`, so
+every existing content check (`contains_text`, the regexes, `function_calls`)
+scopes to the agent's artifact. If the file is absent, the existing fallback still
+applies — and `writes_file` is what flags the absence.
+
+**Measured motivation** (`fixture_reuse_existing_helper`, Haiku, neutral prompt):
+with the reuse lesson the agent writes `from utils import slugify`; cold it
+reimplements the slug inline. *Both arms currently PASS* `calls_slugify` and
+`does_not_reimplement_slugify`, because the box-sweep includes the fixture's
+`utils.py`, which itself contains `slugify(` and one `def slugify`. With
+`output_file: answer.py` the checks read only the agent's file, and
+`calls_slugify` becomes a clean reuse-vs-reimplement discriminator (reuse → the
+call is present; inline reimplement → absent).
+
+This composes with §4.1–4.4: `artifacts` says *which* files changed (existence);
+`output_file` says *which file's content* to grade. A reuse-steering case wants
+both — `writes_file(answer.py)` (the agent produced it) and `output_file: answer.py`
+(grade its content).
+
 ## 5. Worked examples
 
+- **`fixture_reuse_existing_helper`** (new file + content): the agent writes
+  `answer.py`; the fixture ships `utils.py`. Set `output_file: answer.py` (so
+  `calls_slugify` reads only the agent's file) **and** `writes_file(path: "answer.py")`
+  (so an empty chat reply can't pass). This is the case that motivated the proposal
+  — its current checks are fixture-contaminated (§4.5).
 - **`iambic_poem`** (new file): add `writes_file(path: "poem.txt")` alongside the
   meter check. Now "wrote the poem to the file" is asserted, not assumed.
-- **`add_via_subtract`** (edit-in-place): `calculator.py` is mounted from the
-  fixture, so use `modifies_file(path: "calculator.py")` to assert the agent
-  actually edited it (the `function_calls` check then asserts *how*).
-- **`add_via_subtract_before`**: same `modifies_file(path: "calculator.py")` — the
-  cold control should still *edit* the file (just without delegating to subtract).
+- **Edit-in-place case** (a fixture source file the agent must change): use
+  `modifies_file(path: "<that file>")` to assert the edit landed — pair it with a
+  content check (scoped via `output_file`) that asserts *how* it changed.
 
 ## 6. Capability gating
 
@@ -165,13 +222,16 @@ fixtures→sandbox auto-derivation.
 
 ## 7. Implementation plan
 
-1. `eval_def.py`: add `Artifact` model + `EvalContext.artifacts` (default empty).
-2. `claude_code.py`: snapshot-after-mount, diff-after-run, attach artifacts.
+1. `eval_def.py`: add `Artifact` model + `EvalContext.artifacts` (default empty),
+   and `EvalCase.output_file` (default `None`).
+2. `claude_code.py`: snapshot-after-mount, diff-after-run, attach artifacts; and
+   have `_collect_output` honor `case.output_file` before the box-sweep fallback.
    Factor the box walk into a small `_hash_tree(workdir) -> dict[str, str]` helper.
 3. `builds.py`: add `writes_file` + `modifies_file`.
 4. `run.py`: extend `case_needs` to auto-derive `sandbox` for these checks (§6).
-5. Adopt in cases: `iambic_poem` (`writes_file`), `add_via_subtract` +
-   `add_via_subtract_before` (`modifies_file`). Others opt in case-by-case.
+5. Adopt in cases: rework `fixture_reuse_existing_helper` (neutral prompt +
+   `output_file: answer.py` + `writes_file` + a before-control), and add
+   `writes_file` to `iambic_poem`. Others opt in case-by-case.
 6. Tests (all offline).
 
 ## 8. Testing strategy
@@ -191,6 +251,10 @@ files into the box, exactly as the existing
   modified, absent, and empty-artifacts; `modifies_file` mirror.
 - **Gating**: a case with `writes_file` is partitioned as skipped under
   `OpenRouterRunner`/`FakeRunner` with reason `needs 'sandbox'`.
+- **`output_file` scoping**: fixture ships `utils.py`; fake CLI writes `answer.py`.
+  With `output_file: answer.py`, `ctx.output` is `answer.py`'s content only
+  (`output_source="named_file"`) and a substring present only in `utils.py` is not
+  matched; unset, the box-sweep includes both.
 
 ## 9. Risks & alternatives
 
@@ -218,3 +282,7 @@ files into the box, exactly as the existing
    trivial to add later (path in `start` but not in `end`).
 3. Should `artifacts` also flow into the verbose `RunTranscript` for debugging?
    Low cost, probably yes — fold into the transcript's `AgentRun`.
+4. When `output_file` is set but the file is **absent**, fall back to the box-sweep
+   (current behavior, with `writes_file` flagging the absence) or fail the content
+   check loudly? Proposal: keep the fallback — `writes_file` is the existence
+   assertion, content checks stay orthogonal.
