@@ -63,11 +63,12 @@ if (!assoc.ok && !/already|exist/i.test(assoc.err)) { console.error(assoc.err); 
 console.log(assoc.ok ? 'Associated.' : 'Already associated — continuing.');
 
 // 3. Poll until App Runner emits the cert-validation records.
-let domain;
+let domain, dnsTarget;
 process.stdout.write('Waiting for validation records');
 for (let i = 0; i < 30; i++) {
-  const d = aws(['apprunner', 'describe-custom-domains', '--service-arn', serviceArn, '--output', 'json']);
-  domain = JSON.parse(d.out).CustomDomains?.find((c) => c.DomainName === DOMAIN);
+  const parsed = JSON.parse(aws(['apprunner', 'describe-custom-domains', '--service-arn', serviceArn, '--output', 'json']).out);
+  dnsTarget = parsed.DNSTarget;          // NOTE: top-level on the response, NOT per-domain (and spelled DNSTarget)
+  domain = parsed.CustomDomains?.find((c) => c.DomainName === DOMAIN);
   if (domain?.CertificateValidationRecords?.length) break;
   process.stdout.write('.');
   sleep(5);
@@ -77,10 +78,11 @@ if (!domain?.CertificateValidationRecords?.length) {
   console.error('Validation records did not appear; check the App Runner console.');
   process.exit(1);
 }
+if (!dnsTarget) { console.error('describe-custom-domains returned no DNSTarget.'); process.exit(1); }
 
 // 4. UPSERT the target CNAME + every validation CNAME into Route 53.
 const changes = [
-  { Action: 'UPSERT', ResourceRecordSet: { Name: DOMAIN, Type: 'CNAME', TTL: 300, ResourceRecords: [{ Value: domain.DnsTarget }] } },
+  { Action: 'UPSERT', ResourceRecordSet: { Name: DOMAIN, Type: 'CNAME', TTL: 300, ResourceRecords: [{ Value: dnsTarget }] } },
   ...domain.CertificateValidationRecords.map((r) => ({
     Action: 'UPSERT',
     ResourceRecordSet: { Name: r.Name, Type: r.Type, TTL: 300, ResourceRecords: [{ Value: r.Value }] },
