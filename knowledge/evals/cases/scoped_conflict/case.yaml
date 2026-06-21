@@ -1,18 +1,19 @@
-# SCOPE conflict case. The graph holds two contradictory indentation rules,
-# each scoped to a different service. The agent is told it is working in
-# service-b, so it must apply the service-b rule (4 spaces) and ignore the
-# service-a rule (tabs).
+# SCOPE conflict case. The graph holds two contradictory indentation rules, each
+# scoped to a different service. The agent is told it is working in service-a, so
+# it must apply the service-a rule (tabs) and ignore the service-b rule (4 spaces).
 #
-# Full-pipeline case (no component): seeded graph is injected into the real
-# Claude Code agent, which writes its answer to answer.txt.
+# Why service-a (tabs) and not service-b: 4-space is Python's default, so a
+# service-b target passes even if the agent ignores the graph entirely — it
+# proves nothing. Tabs are AGAINST the default, so a pass here means the scoped
+# rule actively steered the agent away from what it would do on its own.
 #
-# Offline expectation: FAIL. The offline FakeRunner does not run the real
-# agent, so answer.txt is not produced and the deterministic checks cannot
-# find the expected content. The rubric (scope correctness) requires judgment
-# and only runs through Claude Code, not in the offline verify pass.
+# needs: sandbox — the test is tab indentation, which only survives faithfully in
+# a written file. A single-shot backend returns chat prose / markdown fences where
+# tabs are unreliable, so this must grade answer.txt, not a reply.
 id: scoped_conflict
+needs: [sandbox]
 seed_prompt: |
-  You are working in service-b. Write a short Python function (any small,
+  You are working in service-a. Write a short Python function (any small,
   self-contained function is fine) and save it to a file named answer.txt.
   Follow the project's indentation convention for the service you are
   working in. Write only the function code to answer.txt.
@@ -33,19 +34,23 @@ deterministic_checks:
     ref: "knowledge.evals.deterministic_checks.builds:contains_text"
     params:
       text: "def "
-  - name: no_tab_indentation
-    ref: "knowledge.evals.deterministic_checks.text:forbids_substring"
+  - name: uses_tab_indentation
+    ref: "knowledge.evals.deterministic_checks.text:regex_matches"
     params:
-      text: "\t"
+      pattern: "\n\t"
+  - name: no_space_indentation
+    ref: "knowledge.evals.deterministic_checks.text:regex_absent"
+    params:
+      pattern: "\n    "
 
 rubric:
   id: scoped_conflict_v1
   items:
-    - id: applies_service_b_rule
-      criterion: "The function body is indented with 4 spaces, matching the service-b rule."
+    - id: applies_service_a_rule
+      criterion: "The function body is indented with tabs, matching the service-a rule."
       weight: 2.0
-    - id: ignores_service_a_rule
-      criterion: "The code does NOT use tab indentation (the service-a rule must not be applied)."
+    - id: ignores_service_b_rule
+      criterion: "The code does NOT use 4-space indentation (the service-b rule must not be applied)."
       weight: 2.0
     - id: valid_function
       criterion: "answer.txt contains a short, syntactically valid Python function."
