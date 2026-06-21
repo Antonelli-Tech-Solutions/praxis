@@ -10,6 +10,11 @@
 > graded *content* to one file (§4.5); **`writes_file` / `modifies_file`** assert a
 > file's *existence / change* (§4.1–4.4). They compose: one says *which file's
 > content to grade*, the other says *that the agent produced it*.
+>
+> Both land on a backend-agnostic `artifacts` contract, which a follow-on
+> **`StructuredOpenRouterRunner`** (§11) can satisfy via structured file output —
+> recovering cheap-path coverage for ~6 file-writing cases we currently gate to the
+> sandbox.
 
 ---
 
@@ -286,3 +291,102 @@ files into the box, exactly as the existing
    (current behavior, with `writes_file` flagging the absence) or fail the content
    check loudly? Proposal: keep the fallback — `writes_file` is the existence
    assertion, content checks stay orthogonal.
+
+## 11. Follow-on: `StructuredOpenRouterRunner` (output-side `file_io`)
+
+Once both runners emit an artifact-bearing `EvalContext` (§4.1), OpenRouter can
+*also* produce one — without a real box — by asking the model for **structured
+file output** and parsing it into a virtual file tree. This recovers cheap-path
+coverage for the file-writing cases we currently gate to the sandbox, with
+*cleaner* grading than the box-sweep (we read JSON `contents`, never chat prose).
+
+### 11.1 What it un-gates
+
+Of the 68 cases today, 52 already run on OpenRouter. Of the 16 gated ones:
+
+| Class | Un-gated by | Count | Examples |
+|-------|-------------|------:|----------|
+| **A — output side only** (no fixture, writes files) | structured `file_changes` | **+6** | `iambic_poem`, `scoped_conflict`, `safety_user_overrides_graph`, `pathlib_preference`(+`_before`), `decayed_lesson_ignored`† |
+| **B — output + input side** (starts from a fixture) | also serialize fixtures into the prompt | +9 | the `fixture_*` cases |
+| **C — needs real execution** | nothing single-shot | 1 | `exactly_n_negative` (`code_task`) |
+
+† red spec — un-gating lets it XFAIL on OpenRouter instead of skipping.
+
+**Phase 1 is output-side only (+6 → 58/68).** Those 6 are exactly the cases this
+session gated; the structured runner buys them back on the cheap path. Phase 2
+(input-side fixture serialization, +9) carries a fidelity caveat (§11.5) and is
+optional.
+
+### 11.2 Capability refinement: split `sandbox`
+
+`sandbox` currently conflates "can mount + grade files" with "can execute code."
+The structured runner does the former, not the latter, so split it:
+
+| Capability | Meaning | ClaudeCode | StructuredOpenRouter | plain OpenRouter |
+|------------|---------|:----------:|:--------------------:|:----------------:|
+| `file_io`  | mount fixtures + produce gradeable file artifacts (real box **or** virtual) | ✓ | ✓ | — |
+| `code_exec`| run code / a test oracle | ✓ | — | — |
+
+`case_needs`: fixtures / `output_file` / `writes_file` / `modifies_file` → `file_io`;
+`code_task` → `code_exec`. So file-grading cases run on **both** Claude and
+structured-OpenRouter; execution cases stay Claude-only. (The auto-derive in §6
+changes from deriving `sandbox` to deriving `file_io`.)
+
+### 11.3 Design
+
+The runner makes the single-shot call request a structured result and parses it
+into the same `EvalContext` shape every check already understands:
+
+```python
+# response schema (json_schema, strict)
+{ "file_changes": [ { "path": "answer.py", "contents": "..." } ],
+  "notes": "free-text commentary, kept OUT of contents" }
+```
+
+1. Build the user turn; for Phase 2, serialize mounted fixtures as
+   ``path:\n```\n<body>\n``` `` blocks ahead of the task.
+2. Call with `response_format: {type: "json_schema", strict: true}`.
+3. Parse `file_changes` into a virtual tree; diff against the input fixtures
+   (empty for Phase-1 cases) → the same `artifacts` (`created`/`modified`) as §4.2.
+4. Select `output` via `case.output_file` (§4.5); `output_source="named_file"`.
+
+Result: `writes_file`, `modifies_file`, `output_file`, and every content check
+work identically to a Claude run — the checks never learn which backend ran.
+
+### 11.4 Model reliability — no registry, classify at runtime
+
+`provides = {file_io}` is **runner-level and unconditional** — it's a property of
+the runner, not the model. Whether a *given model* reliably emits valid
+`file_changes` is a **runtime** fact, so we do **not** maintain a model allowlist
+(it rots; "supports the param" ≠ "enforces it" — the 20–40% flake). Instead:
+
+- `serves_model` stays static (just the `provider/model` id shape).
+- Request `strict` json_schema so compliant providers **enforce server-side**.
+- Validate at parse; non-compliance → a **loud, specific runner ERROR classified as
+  a capability miss** (`model X did not return valid file_changes for case Y`),
+  recorded as ERROR/SKIP-with-reason — **never a content FAIL** that pollutes the
+  scoreboard.
+- *Optional later:* learn malformed-rate empirically and auto-skip chronically
+  flaky models — still no hand-maintained list.
+
+### 11.5 Fidelity discipline
+
+The structured runner is a **third tier** (structured single-shot) between plain
+single-shot and a real agent — not a merge that erases the difference:
+
+- **Output side (Phase 1)** is faithful for closed, single-file *transforms*: the
+  model emits the whole artifact; we grade its bytes. Low risk.
+- **Input side (Phase 2)** changes the *stimulus* — spoon-feeding every fixture
+  in-context is not the same as an agent navigating a workspace (e.g.
+  `fixture_reuse_existing_helper`: injecting `utils.py`'s body is a much louder
+  hint than the agent choosing to read it). Plus full-file re-emit is lossy on
+  large/multi-file fixtures ("// unchanged below").
+- **Discipline:** before trusting the structured runner for a case, run it on both
+  backends and confirm the verdicts agree (the cross-runner matrix). Agreement →
+  faithful enough; divergence → the boundary, keep it Claude-only.
+
+### 11.6 Sequencing
+
+Phase 2 of this proposal — it builds on the `artifacts`/`output_file` contract
+(§4), so land that first. Phase 1 (output-side, the +6) is the high-value,
+low-risk slice; Phase 2 (input-side, the +9) is optional and caveated.
