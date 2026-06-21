@@ -5,6 +5,9 @@ import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as cloudfront from 'aws-cdk-lib/aws-cloudfront';
 import * as cloudfront_origins from 'aws-cdk-lib/aws-cloudfront-origins';
 import * as s3deploy from 'aws-cdk-lib/aws-s3-deployment';
+import * as acm from 'aws-cdk-lib/aws-certificatemanager';
+import * as route53 from 'aws-cdk-lib/aws-route53';
+import * as targets from 'aws-cdk-lib/aws-route53-targets';
 import { Construct } from 'constructs';
 
 export interface FrontendSiteStackProps extends cdk.StackProps {
@@ -15,6 +18,10 @@ export interface FrontendSiteStackProps extends cdk.StackProps {
    * `cdk synth` never fails — the deploy orchestrator builds it first.
    */
   readonly distPath?: string;
+  /** Route 53 hosted zone for the PRAXIS domain (see DnsStack). */
+  readonly hostedZone: route53.IHostedZone;
+  /** Public hostname for the dashboard. Defaults to `app.praxiskg.com`. */
+  readonly domainName?: string;
 }
 
 /**
@@ -32,8 +39,19 @@ export class FrontendSiteStack extends cdk.Stack {
   public readonly bucket: s3.Bucket;
   public readonly distribution: cloudfront.Distribution;
 
-  constructor(scope: Construct, id: string, props: FrontendSiteStackProps = {}) {
+  constructor(scope: Construct, id: string, props: FrontendSiteStackProps) {
     super(scope, id, props);
+
+    const domainName = props.domainName ?? 'app.praxiskg.com';
+
+    // CloudFront requires its ACM cert in us-east-1; this stack is us-east-1, so
+    // a plain Certificate works. DNS-validated against the Route 53 zone — the
+    // `app` subdomain must be delegated to Route 53 (NS records in Cloudflare)
+    // for the validation record to resolve, or the deploy blocks on validation.
+    const certificate = new acm.Certificate(this, 'SiteCert', {
+      domainName,
+      validation: acm.CertificateValidation.fromDns(props.hostedZone),
+    });
 
     this.bucket = new s3.Bucket(this, 'SiteBucket', {
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
@@ -43,6 +61,8 @@ export class FrontendSiteStack extends cdk.Stack {
     });
 
     this.distribution = new cloudfront.Distribution(this, 'SiteDistribution', {
+      domainNames: [domainName],
+      certificate,
       defaultRootObject: 'index.html',
       defaultBehavior: {
         origin: cloudfront_origins.S3BucketOrigin.withOriginAccessControl(this.bucket),
@@ -72,6 +92,18 @@ export class FrontendSiteStack extends cdk.Stack {
       });
     }
 
+    new route53.ARecord(this, 'SiteAliasRecord', {
+      zone: props.hostedZone,
+      recordName: domainName,
+      target: route53.RecordTarget.fromAlias(new targets.CloudFrontTarget(this.distribution)),
+    });
+    new route53.AaaaRecord(this, 'SiteAliasRecordIpv6', {
+      zone: props.hostedZone,
+      recordName: domainName,
+      target: route53.RecordTarget.fromAlias(new targets.CloudFrontTarget(this.distribution)),
+    });
+
+    new cdk.CfnOutput(this, 'SiteUrl', { value: `https://${domainName}` });
     new cdk.CfnOutput(this, 'DistributionUrl', {
       value: `https://${this.distribution.distributionDomainName}`,
     });

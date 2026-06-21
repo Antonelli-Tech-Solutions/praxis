@@ -60,4 +60,8 @@ new PhoenixStack(app, 'PraxisPhoenixStack', {
 
 new BackendServiceStack(app, 'PraxisBackendServiceStack', { env });
 
-new FrontendSiteStack(app, 'PraxisFrontendSiteStack', { env });
+new FrontendSiteStack(app, 'PraxisFrontendSiteStack', {
+  env,
+  hostedZone: dns.zone,
+  domainName: app.node.tryGetContext('frontendDomain') ?? 'app.praxiskg.com',
+});

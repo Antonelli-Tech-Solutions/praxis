@@ -392,7 +392,7 @@ Registered cases live in `knowledge/evals/cases/`. Results append to `knowledge/
 # Deploy CDK stacks (sessions DDB, RDS/pgvector KG, Cognito, App Runner, CloudFront, Phoenix)
 cd infra
 npm install
-npm run deploy            # all stacks; or `npm run deploy:web` for hosting only
+npm run deploy            # all stacks (the website deploys via CI — .github/workflows/deploy.yml)
 # Knowledge-graph RDS setup: docs/monica/RDS_KG_DEPLOY.md
 
 # Build claude+ wrapper

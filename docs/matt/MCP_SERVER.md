@@ -33,7 +33,7 @@ Tenancy is enforced **server-side** from the verified JWT + org membership — i
   - the deployed App Runner backend: `https://bdsikf2bc8.us-east-1.awsapprunner.com`
   - local dev: `http://localhost:8000` (run `uv run python -m knowledge.serve` with `COGNITO_*` + a DSN).
 
-  > **Deployed backend caveat:** the `/insights` + `/context` endpoints are new backend surface. To use them against App Runner you must ship them first — redeploy with `npm run deploy:web`. Until then, point `PRAXIS_API_BASE_URL` at `http://localhost:8000`.
+  > **Deployed backend caveat:** the `/insights` + `/context` endpoints are new backend surface. To use them against App Runner you must ship them first — redeploy the backend (merge to `main`, or `npx cdk deploy PraxisBackendServiceStack`). Until then, point `PRAXIS_API_BASE_URL` at `http://localhost:8000`.
 
 The MCP server loads `.env` from the repo on startup, so commands below are run from the repo root.
 
@@ -136,7 +136,7 @@ Cross-check persistence/tenancy: the row appears in RDS under your Cognito `sub`
 | 403 from the backend | Not a member of the selected org | `praxis_select_org` / `praxis_join_org` for an org you belong to |
 | 503 from the backend | Backend has no DB (DSN) | Start the API with a DSN, or point at a backend that has one |
 | Tools missing in Claude | Registered outside the repo / `.env` not loaded | Re-run `claude mcp add` from the repo root; set `cwd` in Desktop config |
-| Insights never persist remotely | `/insights`+`/context` not deployed | Redeploy App Runner (`npm run deploy:web`) or use `http://localhost:8000` |
+| Insights never persist remotely | `/insights`+`/context` not deployed | Redeploy App Runner (merge to `main`, or `npx cdk deploy PraxisBackendServiceStack`) or use `http://localhost:8000` |
 
 ---
 

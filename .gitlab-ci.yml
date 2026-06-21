@@ -27,8 +27,7 @@ workflow:
     - if: '$CI_COMMIT_BRANCH == "main"'
     - when: never
 
-# Known/deployed Cognito values baked into the frontend bundle (see infra/README.md
-# and infra/scripts/deploy-web.mjs).
+# Known/deployed Cognito values baked into the frontend bundle (see infra/README.md).
 .cognito: &cognito
   VITE_COGNITO_USER_POOL_ID: us-east-1_4nAMe6bPK
   VITE_COGNITO_CLIENT_ID: 3ij653bq912pi4f17l5hn9iqqn

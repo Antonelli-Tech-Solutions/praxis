@@ -1,7 +1,7 @@
 # Deploy the PRAXIS website to AWS on merges into main.
 #
-# Mirrors the local `cd infra && npm run deploy:web` flow, split into two jobs so
-# only the stack that actually changed is rebuilt:
+# Builds and deploys the website in two change-gated jobs so only the stack that
+# actually changed is rebuilt:
 #   - deploy-backend:  PraxisBackendServiceStack (App Runner). Builds the backend
 #       Docker image — GitHub-hosted runners ship with Docker, so this just works.
 #   - deploy-frontend: PraxisFrontendSiteStack (S3 + CloudFront). Rebuilds the Vite
@@ -79,6 +79,14 @@ jobs:
         run: |
           npm ci
           npx cdk deploy PraxisBackendServiceStack --require-approval never --outputs-file cdk-web-out.json
+      # App Runner custom domains aren't CDK-managed. This self-checks and only acts
+      # when mcp.praxiskg.com isn't already ACTIVE (e.g. after a service replacement).
+      # Best-effort: a transient hiccup here shouldn't block the website deploy — it
+      # self-heals on the next run, or via the associate-backend-domain workflow.
+      - name: Ensure mcp.praxiskg.com custom domain
+        working-directory: infra
+        run: npm run domain:backend
+        continue-on-error: true
       - uses: actions/upload-artifact@v4
         with:
           name: cdk-outputs-backend
