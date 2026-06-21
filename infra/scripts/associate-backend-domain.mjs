@@ -18,6 +18,11 @@ import * as path from 'node:path';
 const DOMAIN = process.env.MCP_DOMAIN ?? 'mcp.praxiskg.com';
 const ZONE_ID = process.env.HOSTED_ZONE_ID ?? 'Z068874626AUKGUC8FK65';
 const STACK = 'PraxisBackendServiceStack';
+// After writing the records, wait for App Runner to validate the cert and flip the
+// domain to ACTIVE, so a green run means "mcp is actually serving". Set
+// WAIT_FOR_ACTIVE=0 to skip (e.g. a quick local run); tune the cap with WAIT_TIMEOUT_SEC.
+const WAIT_FOR_ACTIVE = process.env.WAIT_FOR_ACTIVE !== '0';
+const WAIT_TIMEOUT_SEC = Number(process.env.WAIT_TIMEOUT_SEC ?? 900);
 
 // shell:true on win32 so the `aws` .cmd shim resolves.
 // We pass only simple args and parse JSON in JS — no shell-hostile --query
@@ -95,6 +100,32 @@ for (const c of changes) console.log(`  ${c.ResourceRecordSet.Name} ${c.Resource
 
 const apply = aws(['route53', 'change-resource-record-sets', '--hosted-zone-id', ZONE_ID, '--change-batch', `file://${batchFile}`]);
 if (!apply.ok) { console.error(apply.err); process.exit(1); }
+console.log('Records written.');
 
-console.log('\nDone. App Runner will validate the cert and activate the domain in a few minutes.');
-console.log(`Check: aws apprunner describe-custom-domains --service-arn ${serviceArn}`);
+// 5. Wait for App Runner to validate the cert and flip the domain to ACTIVE.
+if (!WAIT_FOR_ACTIVE) {
+  console.log(`Skipping ACTIVE wait (WAIT_FOR_ACTIVE=0). Check: aws apprunner describe-custom-domains --service-arn ${serviceArn}`);
+  process.exit(0);
+}
+const POLL_SEC = 10;
+const maxPolls = Math.max(1, Math.ceil(WAIT_TIMEOUT_SEC / POLL_SEC));
+let status = '';
+process.stdout.write(`Waiting up to ${WAIT_TIMEOUT_SEC}s for ${DOMAIN} to become ACTIVE`);
+for (let i = 0; i < maxPolls; i++) {
+  const parsed = JSON.parse(aws(['apprunner', 'describe-custom-domains', '--service-arn', serviceArn, '--output', 'json']).out);
+  status = parsed.CustomDomains?.find((c) => c.DomainName === DOMAIN)?.Status ?? 'UNKNOWN';
+  if (status === 'ACTIVE') break;
+  if (/FAIL/i.test(status)) { console.error(`\n${DOMAIN} entered failure state: ${status}`); process.exit(1); }
+  process.stdout.write('.');
+  sleep(POLL_SEC);
+}
+console.log('');
+if (status === 'ACTIVE') {
+  console.log(`${DOMAIN} is ACTIVE.`);
+} else {
+  // Soft failure: App Runner often finishes async beyond our cap. continue-on-error
+  // in CI keeps the run green; the next deploy's self-check confirms ACTIVE.
+  console.error(`${DOMAIN} still ${status} after ${WAIT_TIMEOUT_SEC}s — it usually finishes shortly; ` +
+    `re-check or let the next deploy confirm.`);
+  process.exit(1);
+}
