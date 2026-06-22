@@ -11,7 +11,8 @@ Claude Code's auto-memory saves a few notes between sessions — but it's an unv
 
 > **Memory vs. knowledge.** Auto-memory captures scattered, episodic notes. PRAXIS produces generalized, deduplicated, confidence-scored, human-approved, measured knowledge with full provenance.
 
-**Remote:** [GitLab — monicapeters/praxis](https://labs.gauntletai.com/monicapeters/praxis)  
+**Current remote:** [GitHub — Antonelli-Tech-Solutions/praxis](https://github.com/Antonelli-Tech-Solutions/praxis)
+**Original project history:** [GitLab — monicapeters/praxis](https://labs.gauntletai.com/monicapeters/praxis)
 **Architecture source of truth:** [docs/plans/PRAXIS_Project_Plan.html](docs/plans/PRAXIS_Project_Plan.html)
 
 ---
@@ -20,17 +21,18 @@ Claude Code's auto-memory saves a few notes between sessions — but it's an unv
 
 - [The loop](#the-loop)
 - [Problem](#problem)
-- [Implementation status](#implementation-status)
-- [Sprint TODO (team tracker)](#sprint-todo-team-tracker)
+- [Current implementation state](#current-implementation-state)
+- [Active review and demo gates](#active-review-and-demo-gates)
 - [MVP scope](#mvp-scope)
 - [Success criteria](#success-criteria)
 - [Team & pillars](#team--pillars)
-- [Sprint timeline](#sprint-timeline)
+- [Demo timeline](#demo-timeline)
 - [Repository layout](#repository-layout)
 - [Prerequisites](#prerequisites)
 - [Quick start](#quick-start)
 - [Configuration](#configuration)
 - [Testing](#testing)
+- [Prove dashboard graph ingest uses the eval spine](#prove-dashboard-graph-ingest-uses-the-eval-spine)
 - [Documentation](#documentation)
 - [Contributing](#contributing)
 - [License](#license)
@@ -82,111 +84,41 @@ PRAXIS treats that exhaust as a compounding asset.
 
 ---
 
-## Implementation status
+## Current implementation state
 
-Point-in-time snapshot as of **2026-06-20** (Sprint Day 4). Live gap tracker: [docs/monica/PLAN_ALIGNMENT_GAP_CHECKLIST.md](docs/monica/PLAN_ALIGNMENT_GAP_CHECKLIST.md). See [AUDIT.md](AUDIT.md) for the Jun 18 repo health review (partially stale on Candidate API — now shipped with auth + multi-tenant orgs).
+Point-in-time snapshot as of **2026-06-22** on the dashboard branch after merging current `origin/main`. Live gap tracker: [docs/monica/PLAN_ALIGNMENT_GAP_CHECKLIST.md](docs/monica/PLAN_ALIGNMENT_GAP_CHECKLIST.md). Monica-owned completion path: [docs/monica/MONICA_COMPLETION_PATH.md](docs/monica/MONICA_COMPLETION_PATH.md).
 
-| Area | Path | Owner | Status |
-|------|------|-------|--------|
-| Human-gate dashboard (React) | `frontend-react/` | Monica Peters (client) / Matthew Daw (server) | **Demo-ready (mock)** — Vite + TypeScript UI targeting candidate-api-v1 |
-| Dashboard contract layer (Python) | `frontend/` | Monica Peters | **Shipped** — mock fixtures, contract v1 reference client, pytest contract tests |
-| Knowledge substrate | `knowledge/` | Matthew Daw | **Foundation** — in-memory + pgvector graphs, prompt ingestor, whole-file reader, write-policy (dedupe/redact/conflict), OpenRouter LLM/embedder seam, wiring factory |
-| Eval harness | `knowledge/evals/` | Dominic Antonelli | **Partial** — 69 YAML cases, deterministic checks, real Claude Code runner + offline FakeRunner |
-| Session capture | `session-capture/` | Dominic Antonelli | **Working** — Go `claude+` PTY daemon, JSONL tailer, DynamoDB writer |
-| Cloud infra | `infra/` | Matthew Daw | **Scaffolded** — AWS CDK: DynamoDB sessions, RDS PostgreSQL 16/pgvector KG, Cognito user pool, App Runner backend, CloudFront frontend, Phoenix tracing |
-| Candidate REST API | `knowledge/serve/` | Matthew Daw | **Shipped** — FastAPI contract v1; full CRUD; JSON store or Postgres via `PRAXIS_DB_URL`; Cognito-JWT auth + multi-tenant orgs |
-| Auth & multi-tenancy | `knowledge/serve/` (`auth.py`, `orgs_store.py`) | Matthew Daw | **Shipped** — Cognito JWT verification, per-user tenancy, password-gated orgs; `PRAXIS_AUTH_DISABLED=1` dev seam |
-| Hosting | `infra/`, `Dockerfile`, `render.yaml` | Matthew Daw | **Shipped** — AWS App Runner + CloudFront (CDK) and Render blueprints for API + React site |
-| Eval metrics endpoint | `knowledge/serve/` (`GET /metrics`) | Dominic Antonelli | **Fixture only** — contract v1 documented; dashboard embed ready; real batch data pending |
-| CI pipeline | — | Team | **Not yet** — manual test runs only |
+| Area | Path | Owner | Current state |
+|------|------|-------|---------------|
+| React human-gate dashboard | `frontend-react/` | Monica Peters | **Demo-ready and live-API capable** — mock fixtures, live candidate API mode, row-level item refresh, candidate editor/delete, graph tab fallback, Phoenix trace detail links, and active-candidate graph ingest via `POST /insights` |
+| Dashboard contract layer | `frontend/` | Monica Peters | **Shipped** — Python candidate model/provider tests and mock workflow validation against candidate-api-v1 fixtures |
+| Candidate REST API | `knowledge/serve/` | Matthew Daw | **Shipped** — FastAPI routes for candidates, orgs, contradictions, `/insights`, `/context`, and fixture `/metrics`; JSON candidate store by default, Postgres-backed store when a DSN resolves |
+| Auth and tenancy | `knowledge/serve/auth.py`, `knowledge/serve/orgs_store.py` | Matthew Daw | **Shipped** — Cognito JWT verification, `X-Praxis-Org` active org, org membership checks on the Postgres path, and `PRAXIS_AUTH_DISABLED=1` for local dev |
+| Knowledge substrate | `knowledge/` | Matthew Daw | **Functional foundation** — in-memory/vector/Postgres graph implementations, `PromptIngestor`, `WholeFileReader`/`RetrievingReader`, write policies, OpenRouter LLM/embedder seams, and `build_trio()` wiring |
+| Eval harness | `knowledge/evals/` | Dominic Antonelli | **Working and expanding** — YAML cases, deterministic checks, fake/Claude/OpenRouter runners, context-producer registry, cached/live embedder paths, and app/eval helper scripts |
+| Session capture | `session-capture/` | Dominic Antonelli | **Working wrapper** — Go `claude+` PTY daemon, JSONL tailer, and DynamoDB writer |
+| Cloud infra | `infra/`, `Dockerfile`, `render.yaml` | Matthew Daw | **Scaffolded/deployable** — AWS CDK for sessions, RDS/pgvector, Cognito, App Runner, CloudFront, Phoenix; Render blueprints for API and React site |
+| Eval metrics endpoint | `knowledge/serve/` `GET /metrics` | Dominic Antonelli | **Fixture endpoint** — dashboard embed is wired; real batch metrics still depend on the eval pipeline output |
+| CI pipeline | `.github/` | Team | **Not established as the source of truth** — current validation is manual local test/lint/build evidence |
 
-**Integration posture:** The dashboard runs fully offline when `PRAXIS_API_BASE_URL` is unset. Set env vars per [docs/integration/wire-up.md](docs/integration/wire-up.md) to wire live backend and eval metrics without code changes.
+**Integration posture:** The dashboard runs fully offline when `VITE_PRAXIS_API_BASE_URL` is unset. Live API mode uses candidate-api-v1 plus `/insights` and `/context` when the backend is graph-backed. Missing graph support is intentionally non-blocking: the dashboard promotes/updates candidates and reports graph ingest as skipped when `/insights` is unavailable or the backend has no database.
 
-**Critical path (Jun 29 demo):** Matthew pipeline (JSONL → candidates → promote→KG) and Dominic measurement spine (cold vs injected + compounding curve). Dashboard Act 2 is mock-ready today.
+**Recent Monica integration work:** row-level refresh, active-candidate graph ingest through `/insights`, Phoenix spans links, and the documented completion path are implemented on the dashboard branch.
 
 ---
 
-## Sprint TODO (team tracker)
+## Active review and demo gates
 
-> **Last updated:** 2026-06-19 (Sprint Day 3). Detailed day-by-day gaps: [PLAN_ALIGNMENT_GAP_CHECKLIST.md](docs/monica/PLAN_ALIGNMENT_GAP_CHECKLIST.md). Tick items in MRs; Monica updates this block at daily sync.
+| Gate | Owner | Evidence path |
+|------|-------|---------------|
+| Green local gate | Monica | `npm test`, `npm run lint`, `npm run build`, focused Python proxy tests, and `git diff --check` |
+| Timed Act 2 dashboard demo | Monica | [docs/monica/DEMO_SCRIPT.md](docs/monica/DEMO_SCRIPT.md), [docs/monica/REHEARSAL_LOG.md](docs/monica/REHEARSAL_LOG.md) |
+| Accessibility evidence | Monica | [docs/monica/MONICA_COMPLETION_PATH.md](docs/monica/MONICA_COMPLETION_PATH.md) Phase 3 |
+| Screenshots/video evidence | Monica | `docs/monica/screenshots/`, `docs/monica/videos/`, and rehearsal log notes |
+| Live smoke | Monica + Matthew | Run only when the API exists and is safe to mutate; use [docs/monica/INTEGRATION_SMOKE.md](docs/monica/INTEGRATION_SMOKE.md) |
+| Eval improvement proof | Dominic + Matthew | `knowledge/evals/` runner output and `/metrics` once real batch data replaces the fixture |
 
-| Milestone | Date | Days away |
-|-----------|------|-----------|
-| Integration complete (Day 7) | Tue Jun 24 EOD | 5 |
-| Feature freeze (Day 8) | Wed Jun 25 EOD | 6 |
-| Practice 1 | Wed Jun 25 | 6 |
-| Hard freeze (Day 10) | Fri Jun 27 EOD | 8 |
-| Demo branch `demo-jun29` | Sun Jun 28 AM | 9 |
-| **Gauntlet showcase** | **Mon Jun 29** | **10** |
-
-### Critical path (P0 — blocks live demo)
-
-**Matthew (ML & Knowledge Pipeline)**
-
-- [ ] JSONL ingest + episode segmentation (`knowledge/ingestion/` — rename from `injestion/` when ready)
-- [ ] LLM distillation → structured candidate `{when, lesson, scope, evidence, form}` with provenance `logs/*.jsonl:<line>`
-- [ ] Learning-moment detector (heuristics minimum for demo)
-- [ ] **Promote → `KnowledgeGraph.write`** (approval in dashboard must persist to graph, not candidate store only)
-- [ ] PostgreSQL RDS provisioned + `PRAXIS_DB_URL` live ([RDS_KG_DEPLOY.md](docs/monica/RDS_KG_DEPLOY.md))
-- [ ] Acknowledge Monica P0 eval cases in [MATTHEW_HANDOFF.md](knowledge/evals/cases/MATTHEW_HANDOFF.md) (`quirky_exhaustive_switch`, `quirky_config_load_order`)
-
-**Dominic (Arch, Eval & Integration)**
-
-- [ ] Paired **cold vs injected** runner (same case, empty graph vs seeded insight)
-- [ ] **Correction counting** + token/time in eval results
-- [ ] Eval metrics GET per [eval-metrics-v1.md](docs/integration/eval-metrics-v1.md) (real batch data, not fixture-only)
-- [ ] Quirky benchmark wired for Acts 1 & 3 (`quirky_exhaustive_switch` pairing)
-- [ ] Compounding curve output proving **≥50% correction reduction** (or dated honest narrative + fixture fallback)
-
-**Monica (Dashboard & Human Gate)**
-
-- [x] Human-gate UI mock-complete (React dashboard + Python contract v1 client)
-- [x] P0 eval cases + `test_cases.py` green
-- [ ] Live integration smoke: promote/reject/resolve chain on Matthew API ([INTEGRATION_SMOKE.md](docs/monica/INTEGRATION_SMOKE.md))
-- [ ] Timed **Act 2** rehearsal ≤3.5 min ([DEMO_SCRIPT.md](docs/monica/DEMO_SCRIPT.md))
-
-**Team**
-
-- [ ] End-to-end path: **log → candidates → promote → eval improved**
-- [ ] 3-act demo script with fallback matrix (Act 1 clip OK; Act 2 mock OK today; Act 3 fixture metrics fallback documented)
-
-### Remaining sprint schedule (open work)
-
-- **Day 3 (Jun 19 — today):** Matthew: distillation + provenance · Dominic: injection tooling · Monica: Act 2 rehearsal
-- **Day 4 (Jun 20):** Matthew: embeddings/HDBSCAN/contradiction pipeline · Dominic: PR/ticket replay skeleton
-- **Day 5 (Jun 21):** Matthew: freq/recency/breadth + decay · Dominic: token/time tracking
-- **Day 6 (Jun 23):** Matthew: E2E pipeline + RDS · Dominic: cold vs injected runner · Monica: live API smoke
-- **Day 7 (Jun 24):** Matthew: get-context tool + promote→KG · Dominic: demo data bundle · **integration complete EOD**
-- **Day 8 (Jun 25):** Batch evals + compounding measurement · Monica Practice 1 · **feature freeze EOD**
-- **Days 9–10 (Jun 26–27):** Demo polish, user-flow video, Practice 2, hard freeze Fri 27
-- **Showcase (Jun 29):** 10-min live demo (3 acts)
-
-### Demo & presentation gates
-
-- [ ] **Practice 1** — Wed Jun 25 — all 3 acts ≤10 min; mock dashboard OK
-- [ ] **Practice 2** — Fri Jun 27 — live API + eval metrics preferred
-- [ ] **Practice 3** — Sun Jun 28 PM — dress rehearsal; no code after unless P0
-- [ ] Tag **`demo-jun29`** — Sun Jun 28 AM
-- [ ] Backup recording captured
-- [ ] Monica: user-flow video ≤3 min (React primary)
-- [ ] Monica: manual a11y pass (tab + screen reader) per [DAYS_9_10_REMAINING.md](docs/monica/DAYS_9_10_REMAINING.md)
-- [ ] Dominic: full 3-act spoken script (Act 1 dumb agent · Act 2 distillation · Act 3 smart agent + scoreboard)
-
-### P1 (after P0 or stretch)
-
-- [ ] HDBSCAN cluster/dedup (Matthew)
-- [ ] Pipeline-side contradiction detection (Matthew)
-- [ ] Real confidence scorer from logs (Matthew)
-- [ ] GitHub hook / PR automation on promote (Dominic)
-- [ ] GitLab CI: `pytest knowledge/`, `frontend/tests/`, `frontend-react` Vitest
-- [ ] State-distribution chart (Monica stretch)
-
-### How to update this list
-
-- Monica ticks items at daily 10am sync; pillar leads confirm in MR before checking `[x]`
-- Link MR/commit in standup notes under `docs/monica/standup-notes/`
-- Do not check integration/E2E items until smoke doc or pytest proves it
-- After Jun 25 feature freeze: bugfixes + measurement only
+Do not mark end-to-end graph/eval proof complete from UI behavior alone. The proof needs either a graph-backed `/insights` + `/context` round trip or eval output showing an injected-knowledge improvement.
 
 ---
 
@@ -232,22 +164,22 @@ Daily 15-minute syncs; all code reviewed by at least one other member before mer
 
 ---
 
-## Sprint timeline
+## Demo timeline
 
-Sprint **Day 1 = Wednesday, June 16, 2026** (Thursday June 18 skipped). See the confidential project plan for the detailed day-by-day schedule.
+Sprint **Day 1 = Tuesday, June 16, 2026** (Thursday June 18 skipped). See [docs/plans/PRAXIS_Project_Plan.html](docs/plans/PRAXIS_Project_Plan.html) and Monica's [completion path](docs/monica/MONICA_COMPLETION_PATH.md) for the tracked demo plan.
 
-**You are here:** Day 3 evening (Jun 19) — parallel core build; integration target **Jun 24** (Day 7).
+**Current posture:** core dashboard and API integration surfaces exist; remaining proof work is evidence capture, live smoke only against a safe API, and real eval metric output.
 
 | Phase | Days | Milestones |
 |-------|------|------------|
 | Foundation & design | 1–2 | Architecture, data contracts, dashboard shell, eval skeleton, cold-run baseline |
 | Parallel core build | 3–5 | Full pipeline, human-gate UI, scoring/decay, eval replay automation |
-| Integration | 6–7 | Dashboard ↔ backend API, injection, eval harness, promotion triggers replay |
+| Integration | 6–7 | Dashboard ↔ backend API, `/insights` graph ingest, eval harness, promotion/injection proof |
 | Measurement | 8 | Compounding curve, threshold tuning, edge-case polish |
 | Demo & handoff | 9–10 | Live demo script, documentation, presentation practice (internal **Jun 26–27**) |
 | **Gauntlet showcase** | — | **Mon Jun 29** — 10-minute live presentation |
 
-Team freeze gates and three practice runs: [docs/monica/PLAN_ALIGNMENT_GAP_CHECKLIST.md](docs/monica/PLAN_ALIGNMENT_GAP_CHECKLIST.md).
+Team freeze gates and practice evidence: [docs/monica/PLAN_ALIGNMENT_GAP_CHECKLIST.md](docs/monica/PLAN_ALIGNMENT_GAP_CHECKLIST.md), [docs/monica/MONICA_COMPLETION_PATH.md](docs/monica/MONICA_COMPLETION_PATH.md), and [docs/monica/REHEARSAL_LOG.md](docs/monica/REHEARSAL_LOG.md).
 
 ---
 
@@ -351,10 +283,12 @@ Mock mode loads `public/mock-candidates.json` — no backend required. Set `VITE
 
 ### 3. Run the candidate API (optional live backend)
 
-The FastAPI server implements the candidate-api-v1 contract. Data routes require
-a Cognito JWT and resolve the active org from the `X-Praxis-Org` header; set
-`PRAXIS_AUTH_DISABLED=1` for an offline dev principal. With no `PRAXIS_DB_URL`
-it uses the in-memory JSON store (orgs membership checks skipped).
+The FastAPI server implements the candidate-api-v1 contract plus graph-backed
+`/insights` and `/context`. Data routes require a Cognito JWT and resolve the
+active org from the `X-Praxis-Org` header; set `PRAXIS_AUTH_DISABLED=1` for an
+offline dev principal. With no resolved Postgres DSN it uses the JSON candidate
+store and skips org membership checks. Graph routes (`/insights`, `/context`)
+require the Postgres-backed path and return `503` without it.
 
 ```powershell
 # Local dev (offline auth, JSON store) — serves on http://localhost:8000
@@ -375,16 +309,22 @@ Point the React dashboard at it via `VITE_PRAXIS_API_BASE_URL`. Cloud hosting
 
 ### 4. Run the eval harness
 
-Offline (no Claude Code subscription):
+Run one case offline with the fake runner:
 
 ```powershell
-$env:PRAXIS_EVAL_REAL = "0"
-uv run python run.py
+uv run python -m knowledge.evals.run --fake <case_id>
 ```
 
-Real Claude Code (uses subscription credits):
+Run one case with the configured real runner:
 
 ```powershell
+uv run python -m knowledge.evals.run <case_id>
+```
+
+Run the repo-root debugger entry across registered cases:
+
+```powershell
+$env:PRAXIS_EVAL_REAL = "0"   # optional alias for fake backend
 uv run python run.py
 ```
 
@@ -441,12 +381,14 @@ Phoenix itself lives in [infra/lib/phoenix-stack.ts](infra/lib/phoenix-stack.ts)
 
 | Variable | Required | Component | Purpose |
 |----------|----------|-----------|---------|
-| `PRAXIS_API_BASE_URL` | No | Python contract tests | Candidate REST API base URL for live smoke tests |
+| `PRAXIS_API_BASE_URL` | No | Python clients, MCP, smoke tests | Candidate REST API base URL for live smoke tests and MCP `/insights`/`/context` calls |
 | `PRAXIS_API_TOKEN` | No | Python contract tests | Bearer token for API auth |
+| `PRAXIS_ORG_ID` | No | Python contract tests | Active org sent as `X-Praxis-Org` (default `default`) |
 | `PRAXIS_CONTRACT_VERSION` | No | Python contract tests | API contract version header (default `1`) |
 | `PRAXIS_EVAL_METRICS_URL` | No | Python contract tests | GET endpoint returning eval metrics JSON |
 | `VITE_PRAXIS_API_BASE_URL` | No | React dashboard | Same as `PRAXIS_API_BASE_URL`; unset → mock fixtures |
 | `VITE_PRAXIS_API_TOKEN` | No | React dashboard | Bearer token for API auth |
+| `VITE_PRAXIS_ORG_ID` | No | React dashboard | Active org sent as `X-Praxis-Org` when not using Cognito org state |
 | `VITE_PRAXIS_EVAL_METRICS_URL` | No | React dashboard | Eval metrics JSON URL for compounding-curve embed |
 | `VITE_PRAXIS_CONTRACT_VERSION` | No | React dashboard | API contract version header (default `1`) |
 | `PRAXIS_EVAL_REAL` | No | Eval harness | Set to `0` for offline FakeRunner; default runs real Claude Code |
@@ -454,7 +396,7 @@ Phoenix itself lives in [infra/lib/phoenix-stack.ts](infra/lib/phoenix-stack.ts)
 | `PHOENIX_API_KEY` | No | Observability | Phoenix API key (UI → Settings → API Keys) when Phoenix auth is on |
 | `PHOENIX_TLS_VERIFY` | No | Observability | Set `false` for a self-signed Phoenix cert; default verifies TLS |
 | `PHOENIX_PROJECT_NAME` | No | Observability | Phoenix project spans land under (default `praxis`) |
-| `PRAXIS_DB_URL` | No | Candidate API | Postgres DSN; when set, API uses `PostgresCandidateStore` instead of JSON file |
+| `PRAXIS_DB_URL` | No | Candidate API, graph routes | Postgres DSN; when set/resolved, API uses `PostgresCandidateStore`, org membership checks, and graph-backed `/insights` + `/context` |
 | `PRAXIS_DB_SECRET` | No | Candidate API | AWS Secrets Manager secret name (default `praxis/knowledge-graph/db`) |
 | `PRAXIS_API_HOST` | No | Candidate API | uvicorn bind host (default `127.0.0.1`; `0.0.0.0` in container) |
 | `PORT` / `PRAXIS_API_PORT` | No | Candidate API | uvicorn port (default `8000`; `PORT` wins on App Runner/Render) |
@@ -489,7 +431,7 @@ RDS + pgvector deploy and Postgres-backed candidate API: [docs/monica/RDS_KG_DEP
 uv run pytest knowledge/ -q
 ```
 
-**Eval case registry** (69 YAML cases):
+**Eval case registry**:
 
 ```powershell
 uv run pytest knowledge/evals/tests/test_cases.py -q
@@ -514,6 +456,98 @@ Contract fixtures are canonical in [docs/integration/fixtures/](docs/integration
 
 ---
 
+## Prove dashboard graph ingest uses the eval spine
+
+Use this when reviewers ask whether dashboard-approved knowledge enters the same ingest / graph insert path used by eval `via_ingestor` cases.
+
+### 1. Static code proof
+
+Follow the call chain:
+
+| Layer | Evidence |
+|-------|----------|
+| React trigger | `frontend-react/src/App.tsx` runs `ingestActiveCandidate(candidate)` only when the candidate is `active`, the dashboard is in live mode, and `config.apiBaseUrl` exists. |
+| React API client | `frontend-react/src/api/apiClient.ts` `postInsight(...)` sends `POST {apiBaseUrl}/insights` with `{ "insight": "<candidate.content>" }`, the contract headers, bearer token, and active org. |
+| Backend route | `knowledge/serve/app.py` defines `POST /insights`; its docstring states this route runs the eval write path: `ingestor.ingest -> graph.write`. |
+| Graph store | `knowledge/serve/app.py` builds `PostgresVectorGraph(store._conn, org, principal.sub, policy=[Redactor(), Deduper(), ConflictOverwriter(...)])`. |
+| Shared ingest wiring | `knowledge/serve/app.py` calls `build_trio(graph=graph, llm=None)` and then `ingestor.ingest(insight)`. |
+| Eval ingest path | `knowledge/evals/run.py` seeds `case.seeded_insight.via_ingestor` by calling `ingestor.ingest(text)`. |
+| Shared factory | `knowledge/wiring.py` creates the `PromptIngestor(graph, llm=llm)` returned to both the backend route and eval runner. |
+
+That proves the dashboard does not import graph internals or write direct facts. It enters through `/insights`, and `/insights` uses the same `build_trio -> PromptIngestor -> ingestor.ingest` spine that eval `via_ingestor` uses.
+
+### 2. Automated proof
+
+Run the focused client proof plus the standard dashboard gate:
+
+```powershell
+cd frontend-react
+npm test -- src/api/ingestClient.test.ts
+npm test
+npm run lint
+npm run build
+```
+
+`src/api/ingestClient.test.ts` verifies `postInsight(...)` posts approved insight text to `/insights` with auth/org headers and treats missing graph support as a non-blocking unavailable state.
+
+Run the backend/proxy checks touched by the current dashboard PR:
+
+```powershell
+cd ..
+python -m pytest frontend\phoenix_proxy\tests\test_phoenix_proxy.py -q
+python -m py_compile frontend\phoenix_proxy\app.py
+git diff --check
+```
+
+### 3. Live graph-backed smoke
+
+Only run this against a disposable/local API with a resolved Postgres DSN. First confirm the API is graph-backed:
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:8000/health
+```
+
+Expected proof target: `"store": "postgres"`. If the response says `"json"`, `/insights` should return `503` and the dashboard should report graph ingest as skipped; that proves fail-soft behavior, not graph persistence.
+
+With auth disabled for local dev, post and read back a unique proof insight:
+
+```powershell
+$headers = @{
+  "Content-Type" = "application/json"
+  "X-Praxis-Org" = "monica-proof"
+}
+
+Invoke-RestMethod -Method POST `
+  -Uri http://127.0.0.1:8000/insights `
+  -Headers $headers `
+  -Body (@{
+    insight = "Monica proof insight via dashboard graph ingest spine"
+  } | ConvertTo-Json)
+
+Invoke-RestMethod `
+  -Uri "http://127.0.0.1:8000/context?query=Monica%20proof%20insight&top_k=3" `
+  -Headers $headers
+```
+
+Evidence is complete when:
+
+- `POST /insights` returns `summary`, `action`, and `id`.
+- `GET /context` returns the proof insight.
+- Backend logs show `POST /insights`.
+- The React dashboard can promote a live candidate to `active` and shows the graph-ingest success message from `/insights`.
+
+### 4. UI proof path
+
+1. Start a graph-backed API with `PRAXIS_AUTH_DISABLED=1` and a resolved `PRAXIS_DB_URL`.
+2. Point `frontend-react/.env.local` at it with `VITE_PRAXIS_API_BASE_URL=http://localhost:8000`.
+3. Start the React dashboard with `npm run dev`.
+4. Load the live API data source.
+5. Promote a candidate from `suggested` to `active`.
+6. Confirm the dashboard reports `Graph ingest via /insights: ...`.
+7. Query `/context` for the candidate's content to verify it is retrievable from the graph.
+
+---
+
 ## Documentation
 
 | Document | Description |
@@ -532,8 +566,8 @@ Contract fixtures are canonical in [docs/integration/fixtures/](docs/integration
 | [docs/monica/DEMO_SCRIPT.md](docs/monica/DEMO_SCRIPT.md) | Three-act live demo script |
 | [docs/monica/PLAN_ALIGNMENT_GAP_CHECKLIST.md](docs/monica/PLAN_ALIGNMENT_GAP_CHECKLIST.md) | Team gap checklist, Scrum Master duties, demo freeze gates |
 | [docs/monica/STANDUP_TEMPLATE.md](docs/monica/STANDUP_TEMPLATE.md) | Daily 15-min standup template |
-| [docs/Matthew-Daw-ML-Pipeline-PlanDRAFT.md](docs/Matthew-Daw-ML-Pipeline-PlanDRAFT.md) | ML pipeline pillar plan |
-| [docs/Dominic-Antonelli-Architecture-Eval-PlanDRAFT.md](docs/Dominic-Antonelli-Architecture-Eval-PlanDRAFT.md) | Architecture, eval & integration pillar plan |
+| [docs/plans/Matthew-Daw-ML-Pipeline-PlanDRAFT.md](docs/plans/Matthew-Daw-ML-Pipeline-PlanDRAFT.md) | ML pipeline pillar plan |
+| [docs/plans/Dominic-Antonelli-Architecture-Eval-PlanDRAFT.md](docs/plans/Dominic-Antonelli-Architecture-Eval-PlanDRAFT.md) | Architecture, eval & integration pillar plan |
 | [session-capture/README.md](session-capture/README.md) | Go wrapper — claude+ CLI, DynamoDB capture |
 | [AUDIT.md](AUDIT.md) | Full-repo health audit (2026-06-18) |
 | [CHANGELOG.md](CHANGELOG.md) | Version history and release notes |
@@ -543,15 +577,15 @@ Agent and editor guidance for contributors lives in [`.cursor/rules/`](.cursor/r
 - `praxis-shared.mdc` — commits, reviews, TypeScript style, provenance standards
 - `praxis-dashboard.mdc` — human-gate UI patterns (Monica's pillar)
 - `praxis-pipeline-eval.mdc` — pipeline data contracts, eval harness, integration (Matthew & Dominic)
-- `praxis-git-sync.mdc` — GitLab main sync workflow
+- `praxis-git-sync.mdc` — main-branch sync workflow
 
 ---
 
 ## Contributing
 
 - Use [conventional commits](https://www.conventionalcommits.org/) (`feat`, `fix`, `chore`, `docs`, `refactor`, `test`) with `#<issue>` references.
-- Open small, focused **GitLab** merge requests with clear descriptions; at least one peer review required before merge.
-- Sync your dev branch with `origin/main` before starting work or opening an MR (`git fetch origin main; git merge origin/main`).
+- Open small, focused **GitHub** pull requests with clear descriptions; at least one peer review required before merge.
+- Sync your dev branch with `origin/main` before starting work or opening a PR (`git fetch origin main; git merge origin/main`).
 - Preserve **provenance** on every candidate/lesson object (source log path + line offset) in code and UI.
 - Promotion actions should trigger **VCS-agnostic eval replay** (scripted PR/ticket scenarios) for before/after measurement.
 - All code must pass lint and type checks before review.
