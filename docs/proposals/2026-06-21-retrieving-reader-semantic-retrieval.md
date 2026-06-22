@@ -1,7 +1,7 @@
 # Proposal: relevance-ranking retrieval (`RetrievingReader` + real-embedder wiring)
 
 **Owner:** Dominic Antonelli — eval harness
-**Status:** Proposed — design decisions resolved (§10); pending approval to implement
+**Status:** Implemented — reader pair live & promoted (PASS/XFAIL in CI from the committed cache); end-to-end `live` demo and the paraphrase-dedup flips remain optional follow-ups
 **Date:** 2026-06-21
 **Scope:** `knowledge/wiring.py`, a new `graph_reader` variant, `VectorGraph` embedder injection, `knowledge/evals` (capability gating + the two `lost_in_middle*` cases)
 
