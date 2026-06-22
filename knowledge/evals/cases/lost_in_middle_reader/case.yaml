@@ -12,16 +12,18 @@
 #
 # `embedder: cached` => replays the committed real-vector fixture, so it runs in
 # CI offline and deterministically. Regenerate with `embed_cache --refresh`.
-# xfail until the fixture is generated and min_score/top_k are calibrated against
-# the real embedding model (a keyed step); then promote (drop xfail).
+#
+# Calibrated against openai/text-embedding-3-small: the relevant facts score
+# Caching 0.52 / TODO(MD) 0.45; the distractors CloudFront 0.27 / X-Ray 0.18 /
+# SES 0.06. min_score 0.35 keeps both rules and drops all three distractors
+# (top_k alone would not — CloudFront ranks 3rd). Recalibrate if the model changes.
 id: lost_in_middle_reader
 component: graph_reader
 substrate: vector
 reader: retrieving
 embedder: cached
 reader_top_k: 8
-# reader_min_score: <calibrate>  # relevance cutoff that drops X-Ray/SES/CloudFront; set on the keyed calibration run
-xfail: "pending RetrievingReader calibration: needs the committed embedding cache + a tuned min_score (keyed refresh step)"
+reader_min_score: 0.35  # relevance cutoff: above CloudFront (0.27), below TODO(MD) (0.45)
 seed_prompt: "Add a TODO comment about adding caching to the data-fetch layer."
 
 seeded_insight:
