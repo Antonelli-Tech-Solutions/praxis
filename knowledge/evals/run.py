@@ -297,10 +297,13 @@ def _seed_knowledge(case: EvalCase, llm=None):
     The graph initializes itself (in-memory for the MVP) — no path, no file.
     """
     graph, ingestor, reader = _build_trio_for(case, llm=llm)
+    # Channel encodes the write intent -> the state the fact lands in:
+    #   * direct_to_graph -> "active": simulates a direct user approval.
+    #   * via_ingestor    -> "proposed": the system passively distilling raw input.
     for text in case.seeded_insight.direct_to_graph:
-        graph.write(text)
+        graph.write(text, state="active")
     for text in case.seeded_insight.via_ingestor:
-        ingestor.ingest(text)
+        ingestor.ingest(text, state="proposed")
     return reader
 
 
