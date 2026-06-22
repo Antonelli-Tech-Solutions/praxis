@@ -17,6 +17,7 @@ The CLI invocation is injected (``run_cli``) so harness tests stay offline.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -26,7 +27,15 @@ import tempfile
 from pathlib import Path
 from typing import Callable
 
-from knowledge.evals.eval_def import EvalContext, JudgeResult, Rubric
+from knowledge.evals.eval_def import (
+    Artifact,
+    EvalContext,
+    JudgeResult,
+    Rubric,
+    align_per_item,
+    rubric_score_schema,
+    weighted_overall,
+)
 from knowledge.observability import tracing
 
 # Tools the boxed agent may use. Bash / WebSearch / WebFetch are explicitly
@@ -112,6 +121,37 @@ def _extract_json(text: str) -> dict:
         raise
 
 
+def _hash_tree(workdir: Path) -> dict[str, str]:
+    """Map every non-dotfile in the box to a hash of its bytes (box-relative posix).
+
+    Hashing raw bytes (not decoded text) means binary and unreadable files diff
+    correctly. Dotfile paths (``.git`` etc.) are skipped, matching the sweep.
+    """
+    tree: dict[str, str] = {}
+    for path in sorted(workdir.rglob("*")):
+        if not path.is_file():
+            continue
+        rel = path.relative_to(workdir)
+        if any(seg.startswith(".") for seg in rel.parts):
+            continue
+        try:
+            tree[rel.as_posix()] = hashlib.sha256(path.read_bytes()).hexdigest()
+        except OSError:
+            continue
+    return tree
+
+
+def _diff_artifacts(start: dict[str, str], end: dict[str, str]) -> list[Artifact]:
+    """Files the agent produced: created (new) or modified (hash changed)."""
+    artifacts: list[Artifact] = []
+    for path in sorted(end):
+        if path not in start:
+            artifacts.append(Artifact(path=path, status="created"))
+        elif start[path] != end[path]:
+            artifacts.append(Artifact(path=path, status="modified"))
+    return artifacts
+
+
 def mount_fixtures(case, workdir: Path) -> int:
     """Copy ``<case.source_dir>/fixtures/**`` into ``workdir`` (structure preserved).
 
@@ -142,9 +182,10 @@ class ClaudeCodeRunner:
     file is absent.
     """
 
-    # Mounts fixtures into a real working dir and grades the files the agent
-    # writes — so it can faithfully run cases that need a sandbox.
-    provides = frozenset({"sandbox"})
+    # A real working dir: mounts fixtures (sandbox) AND grades the files the agent
+    # writes (file_io). file_io is also offered by the structured single-shot runner,
+    # so file-writing cases without a fixture run on both.
+    provides = frozenset({"sandbox", "file_io"})
 
     @staticmethod
     def serves_model(model: str) -> bool:
@@ -179,6 +220,7 @@ class ClaudeCodeRunner:
             mount_fixtures(case, workdir)
             if getattr(case, "fixture_path", None):
                 shutil.copytree(case.fixture_path, workdir, dirs_exist_ok=True)
+            start_tree = _hash_tree(workdir)  # snapshot the mounted start state
             args = ["-p", case.seed_prompt, "--output-format", "json"]
             model = getattr(case, "model", None) or self.model  # case pin > env/default
             if model:
@@ -200,7 +242,9 @@ class ClaudeCodeRunner:
                 input_value=case.seed_prompt,
             ) as span:
                 stdout = self.run_cli(args, workdir, _subscription_env(), self.timeout)
-                output, source = self._collect_output(workdir, stdout)
+                out_name = getattr(case, "output_file", None) or self.output_file
+                output, source = self._collect_output(workdir, stdout, out_name)
+                artifacts = _diff_artifacts(start_tree, _hash_tree(workdir))
                 usage = _claude_usage(stdout)
                 tracing.record_output(
                     span,
@@ -221,18 +265,20 @@ class ClaudeCodeRunner:
                     raw_response=stdout,
                     output_source=source,
                     injected_knowledge=knowledge,
+                    artifacts=artifacts,
                 )
 
-    def _collect_output(self, workdir: Path, stdout: str) -> tuple[str, str]:
+    def _collect_output(self, workdir: Path, stdout: str, output_file: str) -> tuple[str, str]:
         """The graded output plus which artifact it came from.
 
-        The named artifact if present, else everything the agent wrote into the
-        box, else the assistant's final text. Reading the box's files keeps the
-        runner case-agnostic — a poem case yields poem.txt, a code case yields
-        the source files — so one runner drives every case. The source tag is
-        recorded on the transcript so a graded result is traceable to its origin.
+        ``output_file`` (the case's, falling back to the runner default) is graded
+        if present, else everything the agent wrote into the box, else the
+        assistant's final text. Reading the box's files keeps the runner
+        case-agnostic — a poem case yields poem.txt, a code case yields the source
+        files — so one runner drives every case. The source tag is recorded on the
+        transcript so a graded result is traceable to its origin.
         """
-        preferred = workdir / self.output_file
+        preferred = workdir / output_file
         if preferred.exists():
             return preferred.read_text(encoding="utf-8"), "named_file"
 
@@ -266,15 +312,17 @@ class ClaudeCodeJudge:
         self.timeout = timeout
 
     def __call__(self, rubric: Rubric, ctx: EvalContext) -> JudgeResult:
-        items = "\n".join(f"- ({it.weight}) {it.id}: {it.criterion}" for it in rubric.items)
+        items = "\n".join(f"- {it.id}: {it.criterion}" for it in rubric.items)
         prompt = (
-            "You are grading an artifact against a rubric. Score each criterion "
-            "from 0.0 to 1.0, then return ONLY a JSON object of the form "
-            '{\"per_item\": {\"<id>\": <score>}, \"overall\": <weighted average 0..1>}. '
-            "No prose.\n\n"
+            "You are grading an artifact against a rubric. Score each criterion from "
+            "0.0 to 1.0, keyed by its exact id (the token before its colon). Do not "
+            "compute an overall — the harness applies the weights.\n\n"
             f"RUBRIC:\n{items}\n\n"
             f"ARTIFACT:\n{ctx.output}\n"
         )
+        # Constrained decoding: the schema-conforming object lands in the envelope's
+        # `structured_output` field (NOT `result`, which stays prose).
+        schema = json.dumps(rubric_score_schema(rubric))
         with tracing.llm_span(
             "claude_code.judge", kind="LLM", model="claude-code", input_value=prompt
         ) as span:
@@ -284,15 +332,17 @@ class ClaudeCodeJudge:
                     prompt,
                     "--output-format",
                     "json",
+                    "--json-schema",
+                    schema,
                     "--disallowedTools",
                     *_ALLOWED_TOOLS,
                     *_DISALLOWED_TOOLS,
                 ]
                 stdout = self.run_cli(args, Path(tmp), _subscription_env(), self.timeout)
 
-            parsed = _extract_json(_result_text(stdout))
-            overall = max(0.0, min(1.0, float(parsed.get("overall", 0.0))))
-            per_item = {k: float(v) for k, v in (parsed.get("per_item") or {}).items()}
+            structured = (json.loads(stdout) if stdout.strip() else {}).get("structured_output") or {}
+            per_item = align_per_item(rubric, structured.get("per_item"))
+            overall = weighted_overall(rubric, per_item)
             usage = _claude_usage(stdout)
             tracing.record_output(
                 span,

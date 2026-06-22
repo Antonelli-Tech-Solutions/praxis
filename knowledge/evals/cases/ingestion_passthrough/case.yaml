@@ -1,0 +1,18 @@
+# Component eval: ingestion only. Feeds raw input through Ingestor.ingest
+# (synthesis -> write) and reads the resulting graph — no agent. Offline the
+# ingestor is a no-LLM passthrough (stores the line verbatim), so this is a smoke
+# test that an ingested lesson lands in the graph — NOT a test of distillation
+# (that needs a real LLM; see ingestion_strip_noise_keep_signal, the distillation
+# red spec).
+id: ingestion_passthrough
+component: ingestion
+
+seeded_insight:
+  via_ingestor:
+    - "The test suite runs with `uv run pytest`."
+
+deterministic_checks:
+  - name: ingested_lesson
+    ref: "knowledge.evals.deterministic_checks.builds:contains_text"
+    params:
+      text: "uv run pytest"

@@ -8,6 +8,11 @@
 # check requires all three facts to be present, which the whole-file reader
 # satisfies. When Phase-2 filtering lands, this case should start FAILING and be
 # revisited.
+#
+# This is the PASS-side mirror of the reader red specs: lost_in_middle_reader and
+# decayed_lesson_ignored_reader assert the *desired* filtered behavior and XFAIL
+# today. Same "no FilteredReader" gap, opposite direction — when filtering lands,
+# those flip to XPASS and this one flips to FAIL. Revisit all three together.
 id: reader_returns_all
 component: graph_reader
 seed_prompt: "Where is the config file?"  # narrow hint; MVP reader ignores it

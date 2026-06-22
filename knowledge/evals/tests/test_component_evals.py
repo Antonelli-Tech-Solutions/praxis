@@ -76,7 +76,7 @@ def test_run_case_routes_component_and_ignores_runner():
     "case_id",
     [
         "kg_roundtrip",
-        "ingestion_distill",
+        "ingestion_passthrough",
         "reader_retrieval",
     ],
 )

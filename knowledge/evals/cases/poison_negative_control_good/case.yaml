@@ -27,7 +27,7 @@ deterministic_checks:
   - name: has_test
     ref: "knowledge.evals.deterministic_checks.builds:contains_text"
     params:
-      text: "test"
+      text: "def test"
   - name: produced_output
     ref: "knowledge.evals.deterministic_checks.builds:output_nonempty"
 

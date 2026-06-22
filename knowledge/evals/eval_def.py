@@ -39,6 +39,63 @@ class Rubric(BaseModel):
     items: list[RubricItem]
 
 
+def align_per_item(rubric: "Rubric", raw_per_item: dict | None) -> dict[str, float]:
+    """Map a judge's returned scores onto the rubric's item ids.
+
+    Prefers exact-id keys; falls back to positional mapping when the model returned
+    different keys (e.g. ``"1"``, ``"2"`` — it scores in the order presented) but the
+    right count. Returns a score for every rubric item (missing -> 0.0), so the
+    keys always match the ids ``weighted_overall`` expects.
+    """
+    ids = [it.id for it in rubric.items]
+    scores = {k: float(v) for k, v in (raw_per_item or {}).items()}
+    if any(i in scores for i in ids):  # the model used the real ids
+        return {i: scores.get(i, 0.0) for i in ids}
+    if ids and len(scores) == len(ids):  # positional fallback (wrong/numeric keys)
+        return dict(zip(ids, scores.values()))
+    return {i: scores.get(i, 0.0) for i in ids}
+
+
+def weighted_overall(rubric: "Rubric", per_item: dict[str, float]) -> float:
+    """Weighted average of per-item scores using the rubric's declared weights.
+
+    Computed in the harness, never asked of the judge model — the LLM only returns
+    per-criterion scores, so the declared weights are authoritative (an LLM left to
+    "compute the weighted average" returns the unweighted mean). Missing items count
+    as 0; zero total weight yields 0. Clamped to [0, 1].
+    """
+    total = sum(it.weight for it in rubric.items)
+    if not total:
+        return 0.0
+    weighted = sum(per_item.get(it.id, 0.0) * it.weight for it in rubric.items)
+    return max(0.0, min(1.0, weighted / total))
+
+
+def rubric_score_schema(rubric: "Rubric") -> dict:
+    """JSON Schema forcing a judge to return ``{per_item: {<id>: number, ...}}`` with
+    exactly the rubric's ids as keys.
+
+    Used by both judges for structured output (OpenRouter ``response_format`` and the
+    Claude CLI ``--json-schema``), so the model can't drift to positional keys. No
+    ``minimum``/``maximum`` — strict structured outputs reject range keywords; the
+    0..1 range is asked in the prompt and clamped downstream.
+    """
+    ids = [it.id for it in rubric.items]
+    return {
+        "type": "object",
+        "properties": {
+            "per_item": {
+                "type": "object",
+                "properties": {i: {"type": "number"} for i in ids},
+                "required": ids,
+                "additionalProperties": False,
+            }
+        },
+        "required": ["per_item"],
+        "additionalProperties": False,
+    }
+
+
 class SeededInsight(BaseModel):
     """Knowledge pre-loaded before the run."""
 
@@ -71,6 +128,7 @@ class EvalCase(BaseModel):
     needs: list[str] = Field(default_factory=list)  # runner capabilities required (e.g. "sandbox"); a backend that can't provide them skips the case
     xfail: str | None = None  # if set, the case is expected to fail (reason = the unbuilt capability); a real fail reports XFAIL, an unexpected pass reports XPASS
     model: str | None = None  # pin the runner's model (e.g. "openai/gpt-4o-mini", "sonnet"); None => the backend's default. NB: model ids are backend-specific
+    output_file: str | None = None  # box-relative artifact whose content is graded; None => runner default. Only sandbox runners honor it
     seeded_insight: SeededInsight = Field(default_factory=SeededInsight)
     deterministic_checks: list[DeterministicCheckRef] = Field(default_factory=list)
     rubric: Rubric | None = None
@@ -92,12 +150,23 @@ class EvalCase(BaseModel):
 # --- the contracts a registered check and a run must satisfy ---
 
 
+class Artifact(BaseModel):
+    """A file the agent produced in the box, relative to its root.
+
+    ``status`` is computed against the start state mounted before the run, so a
+    runner without a real working dir (single-shot, fake) reports no artifacts.
+    """
+
+    path: str  # box-relative, posix ("calculator.py")
+    status: Literal["created", "modified"]  # vs the mounted start state
+
+
 class EvalContext(BaseModel):
     """What graders see: the agent's produced output and where it ran.
 
     The trailing fields are *provenance* for the run transcript — they don't
     affect grading. A runner with nothing to report (e.g. ``FakeRunner``) leaves
-    them ``None``.
+    them ``None`` / empty.
     """
 
     case_id: str
@@ -106,6 +175,7 @@ class EvalContext(BaseModel):
     raw_response: str | None = None  # full agent CLI stdout (json: result + cost/usage/turns)
     output_source: str | None = None  # which artifact `output` came from
     injected_knowledge: str | None = None  # what the graph reader fed into the system prompt
+    artifacts: list[Artifact] = Field(default_factory=list)  # files the agent created/modified (sandbox runners only)
 
 
 class CheckResult(BaseModel):
@@ -140,6 +210,7 @@ class AgentRun(BaseModel):
     raw_response: str | None = None
     output: str = ""
     output_source: str | None = None
+    artifacts: list[Artifact] = Field(default_factory=list)  # files created/modified in the box
 
 
 class RunTranscript(BaseModel):

@@ -169,15 +169,80 @@ def test_default_run_cli_surfaces_stdout_on_failure(monkeypatch):
     assert "model may not exist" in str(ei.value)  # stdout surfaced, not swallowed
 
 
-def test_judge_parses_overall_score():
-    raw = json.dumps({"result": '{"per_item": {"on_topic": 1.0}, "overall": 0.83}'})
+def test_runner_records_created_artifact():
+    def fake_cli(args, cwd, env, timeout):
+        (Path(cwd) / "answer.txt").write_text("hello", encoding="utf-8")
+        return json.dumps({"result": "done"})
+
+    _, _, reader = build_trio()
+    ctx = ClaudeCodeRunner(run_cli=fake_cli).run(_case(), reader)
+    assert [(a.path, a.status) for a in ctx.artifacts] == [("answer.txt", "created")]
+
+
+def test_runner_records_modified_artifact(tmp_path):
+    fixture = tmp_path / "fixture"
+    fixture.mkdir()
+    (fixture / "calculator.py").write_text("def sub(a, b):\n    return a - b\n", encoding="utf-8")
 
     def fake_cli(args, cwd, env, timeout):
+        calc = Path(cwd) / "calculator.py"
+        calc.write_text(calc.read_text(encoding="utf-8") + "\ndef add(a, b):\n    return a + b\n", encoding="utf-8")
+        return json.dumps({"result": "done"})
+
+    case = _case().model_copy(update={"fixture_path": str(fixture)})
+    _, _, reader = build_trio()
+    ctx = ClaudeCodeRunner(run_cli=fake_cli).run(case, reader)
+    assert [(a.path, a.status) for a in ctx.artifacts] == [("calculator.py", "modified")]
+
+
+def test_runner_omits_unchanged_fixture_files(tmp_path):
+    fixture = tmp_path / "fixture"
+    fixture.mkdir()
+    (fixture / "calculator.py").write_text("def sub(a, b):\n    return a - b\n", encoding="utf-8")
+
+    def fake_cli(args, cwd, env, timeout):
+        (Path(cwd) / "answer.txt").write_text("new", encoding="utf-8")  # touch a different file
+        return json.dumps({"result": "done"})
+
+    case = _case().model_copy(update={"fixture_path": str(fixture)})
+    _, _, reader = build_trio()
+    ctx = ClaudeCodeRunner(run_cli=fake_cli).run(case, reader)
+    assert ("answer.txt", "created") in {(a.path, a.status) for a in ctx.artifacts}
+    assert not any(a.path == "calculator.py" for a in ctx.artifacts)  # untouched -> omitted
+
+
+def test_runner_honors_case_output_file():
+    def fake_cli(args, cwd, env, timeout):
+        (Path(cwd) / "answer.py").write_text("ANSWER", encoding="utf-8")
+        (Path(cwd) / "other.py").write_text("OTHER", encoding="utf-8")
+        return json.dumps({"result": "done"})
+
+    case = _case().model_copy(update={"output_file": "answer.py"})
+    _, _, reader = build_trio()
+    ctx = ClaudeCodeRunner(run_cli=fake_cli).run(case, reader)
+    assert ctx.output == "ANSWER"  # graded the named file alone, not OTHER / a box-sweep
+    assert ctx.output_source == "named_file"
+
+
+def test_judge_reads_structured_output_and_weights():
+    # Constrained decoding -> scores land in `structured_output`, not `result`.
+    # Two items, weights 2 and 1; only the light one passes -> (0*2 + 1*1)/3 = 1/3.
+    seen = {}
+    raw = json.dumps({"structured_output": {"per_item": {"meter": 0.0, "topic": 1.0}}})
+
+    def fake_cli(args, cwd, env, timeout):
+        seen["args"] = args
         return raw
 
-    rubric = Rubric(id="r", items=[RubricItem(id="on_topic", criterion="about the sea")])
-    judge = ClaudeCodeJudge(run_cli=fake_cli)
-    result = judge(rubric, EvalContext(case_id="c", output="some poem"))
-    assert result.overall == 0.83
-    assert result.per_item == {"on_topic": 1.0}
-    assert result.raw_response == raw  # raw response captured for the transcript
+    rubric = Rubric(
+        id="r",
+        items=[
+            RubricItem(id="meter", criterion="iambic", weight=2.0),
+            RubricItem(id="topic", criterion="about the sea", weight=1.0),
+        ],
+    )
+    result = ClaudeCodeJudge(run_cli=fake_cli)(rubric, EvalContext(case_id="c", output="some poem"))
+    assert "--json-schema" in seen["args"]  # constrained decoding requested
+    assert result.overall == pytest.approx(1 / 3)
+    assert result.per_item == {"meter": 0.0, "topic": 1.0}
+    assert result.raw_response == raw  # raw envelope captured for the transcript
