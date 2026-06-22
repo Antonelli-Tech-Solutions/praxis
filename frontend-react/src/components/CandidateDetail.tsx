@@ -12,6 +12,8 @@ interface CandidateDetailProps {
   candidates: Candidate[];
   selectedId: string | null;
   onSelect: (id: string) => void;
+  onRefreshCandidate: (id: string) => Promise<void>;
+  refreshingId?: string | null;
   onResolve: (
     contradictionId: string,
     resolution: "keep_primary" | "keep_rival",
@@ -27,6 +29,8 @@ export function CandidateDetail({
   candidates,
   selectedId,
   onSelect,
+  onRefreshCandidate,
+  refreshingId,
   onResolve,
   onDefer,
   dataSourceMode = "mock",
@@ -59,7 +63,19 @@ export function CandidateDetail({
       aria-labelledby="detail-title"
     >
       <div className="detail-head">
-        <p className="detail-panel__label">Candidate detail</p>
+        <div>
+          <p className="detail-panel__label">Candidate detail</p>
+          <button
+            type="button"
+            className="btn secondary"
+            disabled={refreshingId === candidate.id}
+            onClick={() => void onRefreshCandidate(candidate.id)}
+            aria-label={`Refresh only ${candidate.title}`}
+            title="Refresh only this candidate from the current data source"
+          >
+            {refreshingId === candidate.id ? "Refreshing item" : "Refresh item"}
+          </button>
+        </div>
         <label className="detail-select">
           Inspect candidate
           <select

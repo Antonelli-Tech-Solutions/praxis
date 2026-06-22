@@ -2,6 +2,8 @@
 
 Code polish for this phase is in place (reject reason, refresh, low-confidence promote warning, contract tests, React dashboard, expanded pytest, Vitest, mock export script). Complete these manually before presentation:
 
+Execution plan: [MONICA_COMPLETION_PATH.md](MONICA_COMPLETION_PATH.md)
+
 ## Automated gate (run before each rehearsal)
 
 ```powershell

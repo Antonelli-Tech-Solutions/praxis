@@ -49,6 +49,7 @@ export default function App() {
     lastAction,
     clearLastAction,
     refresh,
+    refreshCandidate,
     promote,
     reject,
     resolveContradiction,
@@ -70,6 +71,9 @@ export default function App() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [deferMessage, setDeferMessage] = useState<string | null>(null);
   const [infoMessage, setInfoMessage] = useState<string | null>(null);
+  const [refreshingCandidateId, setRefreshingCandidateId] = useState<string | null>(
+    null,
+  );
   const [editorState, setEditorState] = useState<
     { mode: "add" } | { mode: "edit"; candidate: Candidate } | null
   >(null);
@@ -154,14 +158,25 @@ export default function App() {
     refetchHealth();
   }
 
+  async function handleRefreshCandidate(id: string) {
+    setActionError(null);
+    setRefreshingCandidateId(id);
+    try {
+      await refreshCandidate(id);
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setRefreshingCandidateId(null);
+    }
+  }
+
   async function handlePromote(id: string) {
     setActionError(null);
     try {
       await promote(id);
-      bumpGraphRefresh();
     } catch (err) {
       if (err instanceof ApiConflictError) {
-        setActionError("Conflict (409) — refresh and retry.");
+        setActionError("Conflict (409) — refresh this candidate and retry.");
         return;
       }
       setActionError(err instanceof Error ? err.message : String(err));
@@ -172,7 +187,6 @@ export default function App() {
     setActionError(null);
     try {
       await reject(id, reason);
-      bumpGraphRefresh();
     } catch (err) {
       setActionError(err instanceof Error ? err.message : String(err));
     }
@@ -193,10 +207,8 @@ export default function App() {
       if (editorState?.mode === "add") {
         const created = await createCandidate(input);
         setSelectedId(created.id);
-        bumpGraphRefresh();
       } else if (editorState?.mode === "edit") {
         await updateCandidate(editorState.candidate.id, input);
-        bumpGraphRefresh();
       }
       setEditorState(null);
     } catch (err) {
@@ -211,7 +223,6 @@ export default function App() {
     setActionError(null);
     try {
       await deleteCandidate(id);
-      bumpGraphRefresh();
     } catch (err) {
       setActionError(err instanceof Error ? err.message : String(err));
     }
@@ -231,7 +242,6 @@ export default function App() {
     setActionError(null);
     try {
       await resolveContradiction(contradictionId, resolution, keepId, rivalTitle);
-      bumpGraphRefresh();
     } catch (err) {
       setActionError(err instanceof Error ? err.message : String(err));
     }
@@ -245,6 +255,8 @@ export default function App() {
         onSelect={setSelectedId}
         onPromote={handlePromote}
         onReject={handleReject}
+        onRefreshCandidate={handleRefreshCandidate}
+        refreshingId={refreshingCandidateId}
         onEdit={handleEditCandidate}
         onDelete={handleDelete}
       />
@@ -255,6 +267,8 @@ export default function App() {
         onSelect={setSelectedId}
         onPromote={handlePromote}
         onReject={handleReject}
+        onRefreshCandidate={handleRefreshCandidate}
+        refreshingId={refreshingCandidateId}
         onEdit={handleEditCandidate}
         onDelete={handleDelete}
       />
@@ -349,6 +363,8 @@ export default function App() {
           filteredCandidates={filtered}
           selectedId={selectedId}
           onSelectNode={setSelectedId}
+          onRefreshCandidate={handleRefreshCandidate}
+          refreshingId={refreshingCandidateId}
           onResolve={handleResolve}
           onDefer={handleDefer}
           dataSourceMode={mode}
@@ -361,6 +377,8 @@ export default function App() {
               candidates={filtered}
               selectedId={selectedId}
               onSelect={setSelectedId}
+              onRefreshCandidate={handleRefreshCandidate}
+              refreshingId={refreshingCandidateId}
               onResolve={handleResolve}
               onDefer={handleDefer}
               dataSourceMode={mode}

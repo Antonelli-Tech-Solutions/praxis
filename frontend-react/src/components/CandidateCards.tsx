@@ -16,6 +16,8 @@ interface CandidateCardsProps {
   onSelect: (id: string) => void;
   onPromote: (id: string) => Promise<void>;
   onReject: (id: string, reason?: string) => Promise<void>;
+  onRefreshCandidate: (id: string) => Promise<void>;
+  refreshingId?: string | null;
   onEdit: (candidate: Candidate) => void;
   onDelete: (id: string) => Promise<void>;
 }
@@ -26,6 +28,8 @@ export function CandidateCards({
   onSelect,
   onPromote,
   onReject,
+  onRefreshCandidate,
+  refreshingId,
   onEdit,
   onDelete,
 }: CandidateCardsProps) {
@@ -76,6 +80,18 @@ export function CandidateCards({
     setPendingId(id);
     try {
       await onDelete(id);
+    } finally {
+      setPendingId(null);
+      setConfirmPromote(null);
+      setConfirmReject(null);
+      setConfirmDelete(null);
+    }
+  }
+
+  async function runRefresh(id: string) {
+    setPendingId(id);
+    try {
+      await onRefreshCandidate(id);
     } finally {
       setPendingId(null);
       setConfirmPromote(null);
@@ -257,6 +273,19 @@ export function CandidateCards({
                       aria-label={`Edit ${candidate.title}`}
                     >
                       Edit
+                    </button>
+                    <button
+                      type="button"
+                      className="btn secondary"
+                      disabled={pendingId === candidate.id || refreshingId === candidate.id}
+                      onClick={() => {
+                        onSelect(candidate.id);
+                        void runRefresh(candidate.id);
+                      }}
+                      aria-label={`Refresh only ${candidate.title}`}
+                      title="Refresh only this candidate from the current data source"
+                    >
+                      {refreshingId === candidate.id ? "Refreshing" : "Refresh"}
                     </button>
                     <button
                       type="button"

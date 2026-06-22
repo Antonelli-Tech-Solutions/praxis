@@ -208,6 +208,7 @@ export function mergeGraphWithCandidates(
   candidates: Candidate[],
 ): KnowledgeGraphSnapshot {
   const byId = new Map(candidates.map((c) => [c.id, c]));
+  const derived = deriveGraphFromCandidates(candidates);
   const nodes = snapshot.nodes.map((node) => {
     const candidate = byId.get(node.id);
     if (!candidate) {
@@ -229,10 +230,34 @@ export function mergeGraphWithCandidates(
           : node.category,
     };
   });
+  const nodeIds = new Set(nodes.map((node) => node.id));
+  for (const node of derived.nodes) {
+    if (!nodeIds.has(node.id)) {
+      nodes.push(node);
+      nodeIds.add(node.id);
+    }
+  }
+
+  const derivedContradictions = new Set(
+    derived.edges
+      .filter((edge) => edge.kind === "contradiction")
+      .map((edge) => canonicalEdgeKey(edge.src, edge.dst, edge.kind)),
+  );
+  const reconciledEdges = snapshot.edges.filter((edge) => {
+    if (edge.kind !== "contradiction") {
+      return true;
+    }
+    const touchesLoadedCandidate = byId.has(edge.src) || byId.has(edge.dst);
+    if (!touchesLoadedCandidate) {
+      return true;
+    }
+    return derivedContradictions.has(canonicalEdgeKey(edge.src, edge.dst, edge.kind));
+  });
 
   return {
     ...snapshot,
     nodes,
+    edges: dedupeEdges([...reconciledEdges, ...derived.edges]),
   };
 }
 

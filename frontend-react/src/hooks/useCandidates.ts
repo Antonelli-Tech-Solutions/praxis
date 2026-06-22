@@ -32,6 +32,33 @@ export function useCandidates(options: UseCandidatesOptions) {
   const [error, setError] = useState<string | null>(null);
   const [lastAction, setLastAction] = useState<string | null>(null);
 
+  const applyCandidate = useCallback((candidate: Candidate) => {
+    setCandidates((prev) => {
+      const found = prev.some((row) => row.id === candidate.id);
+      if (!found) {
+        return [...prev, candidate];
+      }
+      return prev.map((row) => (row.id === candidate.id ? candidate : row));
+    });
+  }, []);
+
+  const removeCandidate = useCallback((id: string) => {
+    setCandidates((prev) => prev.filter((candidate) => candidate.id !== id));
+  }, []);
+
+  const refreshCandidateFromProvider = useCallback(
+    async (id: string) => {
+      const updated = await provider.getCandidate(id);
+      if (updated) {
+        applyCandidate(updated);
+      } else {
+        removeCandidate(id);
+      }
+      return updated;
+    },
+    [provider, applyCandidate, removeCandidate],
+  );
+
   const refresh = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -57,20 +84,20 @@ export function useCandidates(options: UseCandidatesOptions) {
   const promote = useCallback(
     async (id: string) => {
       const updated = await provider.promote(id);
-      setCandidates((prev) => prev.map((c) => (c.id === id ? updated : c)));
+      applyCandidate(updated);
       setLastAction(`Promoted ${updated.title} to ${updated.displayState}.`);
     },
-    [provider],
+    [provider, applyCandidate],
   );
 
   const reject = useCallback(
     async (id: string, reason?: string) => {
       await provider.reject(id, reason);
-      await refresh();
+      const updated = await refreshCandidateFromProvider(id);
       const note = reason ? ` (reason: ${reason})` : "";
-      setLastAction(`Decayed eval ${id}${note}.`);
+      setLastAction(`Decayed eval "${updated?.title ?? id}"${note}.`);
     },
-    [provider, refresh],
+    [provider, refreshCandidateFromProvider],
   );
 
   const resolveContradiction = useCallback(
@@ -80,41 +107,60 @@ export function useCandidates(options: UseCandidatesOptions) {
       keepId: string,
       rivalTitle: string,
     ) => {
-      await provider.resolveContradiction(contradictionId, resolution, keepId);
-      await refresh();
+      const updated = await provider.resolveContradiction(
+        contradictionId,
+        resolution,
+        keepId,
+      );
+      applyCandidate(updated);
+      const affectedIds = Array.from(new Set(contradictionId.split("__")));
+      await Promise.all(affectedIds.map((id) => refreshCandidateFromProvider(id)));
       setLastAction(`Resolved contradiction — kept ${keepId} over ${rivalTitle}.`);
     },
-    [provider, refresh],
+    [provider, applyCandidate, refreshCandidateFromProvider],
   );
 
   const createCandidate = useCallback(
     async (input: CandidateWriteInput) => {
       const created = await provider.createCandidate(input);
-      await refresh();
+      applyCandidate(created);
       setLastAction(`Added eval "${created.title}".`);
       return created;
     },
-    [provider, refresh],
+    [provider, applyCandidate],
   );
 
   const updateCandidate = useCallback(
     async (id: string, input: CandidateWriteInput) => {
       const updated = await provider.updateCandidate(id, input);
-      setCandidates((prev) => prev.map((c) => (c.id === id ? updated : c)));
+      applyCandidate(updated);
       setLastAction(`Updated eval "${updated.title}".`);
       return updated;
     },
-    [provider],
+    [provider, applyCandidate],
   );
 
   const deleteCandidate = useCallback(
     async (id: string) => {
       const existing = candidates.find((c) => c.id === id);
       await provider.deleteCandidate(id);
-      await refresh();
+      removeCandidate(id);
       setLastAction(`Deleted eval "${existing?.title ?? id}".`);
     },
-    [provider, refresh, candidates],
+    [provider, candidates, removeCandidate],
+  );
+
+  const refreshCandidate = useCallback(
+    async (id: string) => {
+      const updated = await refreshCandidateFromProvider(id);
+      if (updated) {
+        setLastAction(`Refreshed eval "${updated.title}".`);
+      } else {
+        setLastAction(`Removed eval ${id}; it no longer exists in this data source.`);
+      }
+      return updated;
+    },
+    [refreshCandidateFromProvider],
   );
 
   return {
@@ -125,6 +171,7 @@ export function useCandidates(options: UseCandidatesOptions) {
     lastAction,
     clearLastAction: () => setLastAction(null),
     refresh,
+    refreshCandidate,
     promote,
     reject,
     resolveContradiction,
