@@ -13,6 +13,8 @@ interface GraphExplorerProps {
   filteredCandidates: Candidate[];
   selectedId: string | null;
   onSelectNode: (id: string) => void;
+  onRefreshCandidate: (id: string) => Promise<void>;
+  refreshingId?: string | null;
   onResolve: (
     contradictionId: string,
     resolution: "keep_primary" | "keep_rival",
@@ -29,6 +31,8 @@ export function GraphExplorer({
   filteredCandidates,
   selectedId,
   onSelectNode,
+  onRefreshCandidate,
+  refreshingId,
   onResolve,
   onDefer,
   dataSourceMode,
@@ -60,6 +64,8 @@ export function GraphExplorer({
             candidates={filteredCandidates}
             selectedId={selectedId}
             onSelect={onSelectNode}
+            onRefreshCandidate={onRefreshCandidate}
+            refreshingId={refreshingId}
             onResolve={onResolve}
             onDefer={onDefer}
             dataSourceMode={dataSourceMode}

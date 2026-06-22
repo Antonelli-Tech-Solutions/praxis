@@ -16,6 +16,8 @@ interface CandidateTableProps {
   onSelect: (id: string) => void;
   onPromote: (id: string) => Promise<void>;
   onReject: (id: string, reason?: string) => Promise<void>;
+  onRefreshCandidate: (id: string) => Promise<void>;
+  refreshingId?: string | null;
   onEdit: (candidate: Candidate) => void;
   onDelete: (id: string) => Promise<void>;
 }
@@ -26,6 +28,8 @@ export function CandidateTable({
   onSelect,
   onPromote,
   onReject,
+  onRefreshCandidate,
+  refreshingId,
   onEdit,
   onDelete,
 }: CandidateTableProps) {
@@ -83,6 +87,16 @@ export function CandidateTable({
     setPendingId(id);
     try {
       await onDelete(id);
+    } finally {
+      setPendingId(null);
+      clearConfirmations();
+    }
+  }
+
+  async function runRefresh(id: string) {
+    setPendingId(id);
+    try {
+      await onRefreshCandidate(id);
     } finally {
       setPendingId(null);
       clearConfirmations();
@@ -312,6 +326,20 @@ export function CandidateTable({
                             aria-label={`Edit ${candidate.title}`}
                           >
                             Edit
+                          </button>
+                          <button
+                            type="button"
+                            className="btn secondary"
+                            disabled={pendingId === candidate.id || refreshingId === candidate.id}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              onSelect(candidate.id);
+                              void runRefresh(candidate.id);
+                            }}
+                            aria-label={`Refresh only ${candidate.title}`}
+                            title="Refresh only this candidate from the current data source"
+                          >
+                            {refreshingId === candidate.id ? "Refreshing" : "Refresh"}
                           </button>
                           <button
                             type="button"

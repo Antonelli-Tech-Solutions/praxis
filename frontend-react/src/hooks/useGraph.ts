@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { DataProvider } from "../api/dataProvider";
 import {
   deriveGraphFromCandidates,
@@ -12,7 +12,7 @@ export function useGraph(
   candidates: Candidate[],
   refreshKey: number,
 ) {
-  const [graph, setGraph] = useState<KnowledgeGraphSnapshot | null>(null);
+  const [graphSnapshot, setGraphSnapshot] = useState<KnowledgeGraphSnapshot | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -21,18 +21,23 @@ export function useGraph(
     setError(null);
     try {
       const snapshot = await provider.getGraph();
-      setGraph(mergeGraphWithCandidates(snapshot, candidates));
+      setGraphSnapshot(snapshot);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
-      setGraph(mergeGraphWithCandidates(deriveGraphFromCandidates(candidates), candidates));
+      setGraphSnapshot(null);
     } finally {
       setLoading(false);
     }
-  }, [provider, candidates]);
+  }, [provider]);
 
   useEffect(() => {
     void refreshGraph();
   }, [refreshGraph, refreshKey]);
+
+  const graph = useMemo(() => {
+    const base = graphSnapshot ?? deriveGraphFromCandidates(candidates);
+    return mergeGraphWithCandidates(base, candidates);
+  }, [graphSnapshot, candidates]);
 
   return {
     graph,

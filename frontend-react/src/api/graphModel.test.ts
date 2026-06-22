@@ -100,4 +100,57 @@ describe("graphModel", () => {
     expect(merged.nodes[0].state).toBe("suggested");
     expect(merged.nodes[0].scope).toBe("frontend/react");
   });
+
+  it("removes stale contradiction edges when candidates no longer reference them", () => {
+    const snapshot = parseGraphPayload(
+      {
+        nodes: [
+          { id: "cand_9", label: "A", state: "proposed", confidence: 0.7 },
+          { id: "cand_16", label: "B", state: "proposed", confidence: 0.7 },
+        ],
+        edges: [{ src: "cand_9", dst: "cand_16", kind: "contradiction" }],
+      },
+      "mock",
+    );
+    const candidates = [
+      candidateFromMapping({
+        id: "cand_9",
+        title: "A",
+        content: "a",
+        state: "proposed",
+        confidence: 0.7,
+        provenance: "logs/test.jsonl:1",
+        createdAt: "2026-06-01T00:00:00Z",
+        contradiction_ids: [],
+      }),
+      candidateFromMapping({
+        id: "cand_16",
+        title: "B",
+        content: "b",
+        state: "decayed",
+        confidence: 0.7,
+        provenance: "logs/test.jsonl:2",
+        createdAt: "2026-06-01T00:00:00Z",
+        contradiction_ids: [],
+      }),
+    ];
+    const merged = mergeGraphWithCandidates(snapshot, candidates);
+    expect(merged.edges).toHaveLength(0);
+  });
+
+  it("adds candidate nodes that are missing from the last graph snapshot", () => {
+    const snapshot = parseGraphPayload({ nodes: [], edges: [] }, "mock");
+    const candidate = candidateFromMapping({
+      id: "cand_new",
+      title: "New candidate",
+      content: "body",
+      state: "proposed",
+      confidence: 0.6,
+      provenance: "human-gate/manual:1",
+      createdAt: "2026-06-01T00:00:00Z",
+    });
+    const merged = mergeGraphWithCandidates(snapshot, [candidate]);
+    expect(merged.nodes).toHaveLength(1);
+    expect(merged.nodes[0].id).toBe("cand_new");
+  });
 });

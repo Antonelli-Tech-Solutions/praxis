@@ -103,14 +103,15 @@ npm run dev
 | 1 | Confirm live mode banner shows API URL | Not mock banner |
 | 2 | List loads from `GET /candidates` | Same shape as [fixtures/candidates-list.json](../integration/fixtures/candidates-list.json) |
 | 3 | Promote a proposed candidate | `POST /candidates/{id}/promote` returns updated state |
-| 4 | **Refresh data** after mutation | List reflects server state |
-| 5 | Promote same row again (409) | Error message; refresh recovers |
+| 4 | **Refresh only that candidate** after mutation | Row reflects server state without reloading the full list |
+| 5 | Promote same row again (409) | Error message; item refresh recovers |
 | 6 | Reject with optional reason | `POST /candidates/{id}/reject` with body |
 | 7 | Low-confidence promote (&lt;50%) | Warning on confirm step |
 
 Also verify:
 
 - Card view promote/reject matches table behavior
+- Table, card, and detail views can refresh one candidate without **Load data** / **Refresh data**
 - Defer contradiction shows info banner (no mutation)
 
 **Troubleshooting:** See [wire-up.md](../integration/wire-up.md) table (400/422, 409, empty list).
