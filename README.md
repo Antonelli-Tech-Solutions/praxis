@@ -38,6 +38,10 @@ Claude Code's auto-memory saves a few notes between sessions — but it's an unv
 
 ---
 
+## Project History
+
+The original Praxis repository and its pre-migration commit history—including contributions—are preserved at [labs.gauntletai.com/monicapeters/praxis](https://labs.gauntletai.com/monicapeters/praxis) for provenance and attribution.
+
 ## The loop
 
 ```text
