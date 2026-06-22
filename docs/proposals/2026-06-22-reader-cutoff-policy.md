@@ -66,7 +66,10 @@ nothing**.
 
 ## 3. Criteria a good policy must meet
 
-1. **Keep the relevant facts** (TODO + caching above).
+1. **Keep *all* the relevant facts, even of varying strength.** Not just the single
+   best — an aggregation query (`scattered_multifact`, §7) needs several genuinely-relevant
+   facts of different scores to all survive. This bounds how aggressive the relative
+   cutoff can be (§5).
 2. **Drop the irrelevant-but-present** (CloudFront/X-Ray/SES) — this is what `top_k`
    alone can't do.
 3. **Return nothing when nothing is relevant** (the negative-control / no-leak family).
@@ -113,7 +116,11 @@ hits = hits[:TOP_K]                                   # 3. volume cap
   result → no leak. Coarse and only mildly model-tied (it sits in the unrelated band,
   not on the precise separating line), so far less brittle than today's `0.35`.
 - **`REL_RATIO`** (~0.7–0.8) — keep hits within that fraction of the best score. This is
-  the model-robust precision knob: it adapts per query and per model.
+  the model-robust precision knob: it adapts per query and per model. **Bounded below by
+  `scattered_multifact`** (§7): set it too high and the weakest of several genuinely-relevant
+  facts gets cut. The two reader cases calibrate it from opposite sides — `lost_in_middle_reader`
+  wants it high enough to drop CloudFront, `scattered_multifact` wants it low enough to keep
+  all the conventions.
 - **`TOP_K`** (8) — volume backstop.
 
 On the measured data: floor 0.30 drops everything ≤ 0.27 already (so CloudFront/X-Ray/SES
@@ -128,10 +135,36 @@ and production-proven but degrades when scores are smooth (no clear jump — a d
 no failure mode on smooth curves), with gap as a later refinement. Either way the floor
 and cap stay.
 
-These are **global constants on `RetrievingReader`**, not per-case overrides — per the
-"assert the system's actual behavior" principle, the eval then tests the real policy.
-The existing `reader_min_score`/`reader_top_k` per-case fields can stay as escape
-hatches for exploration but the cases should stop relying on them.
+These are **global constants on `RetrievingReader`** — the system's contract, and the
+defaults the production reader runs. Each also gets a per-case override
+(`reader_top_k`, `reader_abs_floor`, `reader_rel_ratio`; the old `reader_min_score` is
+subsumed by `reader_abs_floor`). These overrides aren't for tuning a pass — they're
+**mechanism-isolation knobs** (§5.1).
+
+### 5.1 Mechanism isolation in the reader tests
+
+The policy has two separable jobs: `abs_floor` answers *"is anything relevant at all"*
+(existence — only the negative-control family needs it), and `rel_ratio` answers *"which
+of the relevant facts to keep"* (precision among relevant). A faithful test isolates one
+by **neutralizing the other**, so a failure points to a specific mechanism:
+
+| test | `abs_floor` | `rel_ratio` | isolates |
+|------|:-----------:|:-----------:|----------|
+| `lost_in_middle_reader` (drop irrelevant-present) | **0** (off) | real | the relative cutoff *alone* drops CloudFront/X-Ray/SES |
+| `scattered_multifact` (keep all relevant) | **0** (off) | real | the relative cutoff keeps all N varying-strength facts |
+| negative-control / existence (return nothing) | real | **0** (off) | the floor *alone* empties a no-relevant-fact query |
+| integration | real | real | the production triple works end-to-end |
+
+**Why `abs_floor=0` in `lost_in_middle_reader` is the key move:** with the real floor
+(0.30) the floor would drop CloudFront (0.27) by itself, so the case would pass *even if
+the relative cutoff were broken* — masking the thing it exists to verify. Disabling the
+floor forces the relative cutoff to do the work, making the test sensitive to it.
+
+**This is isolation, not a fake pass** (cf. the rejected per-case dedup threshold). The
+production config (floor 0.30 + ratio 0.75) would *also* pass these cases — the test
+asserts a narrower *sufficient* condition; it never makes a production-failing behavior
+look green. The `integration` row exercises the real defaults so mechanism-interaction
+bugs are still caught.
 
 ## 6. Prior art
 
@@ -165,10 +198,10 @@ behaviors (the cluster `reader_returns_all` already names "revisit together"):
 
 | case | today | once this policy lands |
 |------|-------|------------------------|
-| `lost_in_middle_reader` | provisional, `min_score=0.35`, PASS | **resolves**: re-expressed via the policy (floor+relative still drop CloudFront/X-Ray/SES); drop the `PROVISIONAL` note |
+| `lost_in_middle_reader` | provisional, `min_score=0.35`, PASS | **resolves**: set `abs_floor=0` so the relative cutoff *alone* drops CloudFront/X-Ray/SES (isolation, §5.1); drop the `PROVISIONAL` note |
 | `lost_in_middle_reader_before` | XFAIL control | unchanged (whole_file control) |
 | `reader_returns_all` | PASS (asserts dump-all) | **flips to FAIL** → rewrite/retire: a ranking reader no longer returns the whole graph |
-| `scattered_multifact` | PASS (needs all 3 facts) | **at risk**: retrieval may not surface all three for its query → needs a high `top_k`, an explicit whole-file reader, or redesign |
+| `scattered_multifact` | PASS but trivial (3 facts, all relevant — retrieval has nothing to filter) | **redesign into a recall-under-noise test**: seed the 3 + N distractors, assert the reader surfaces *exactly* the 3 (all 3 = recall, distractors dropped = precision). Becomes a **constraint** on the cutoff (§5): the relative ratio must not drop the weakest of the 3 relevant facts |
 | `context_budget_overload`, `negative_control_irrelevant` | PASS (agent ignores injected junk) | **become floor tests**: retrieval never injects the irrelevant facts (top score < `ABS_FLOOR`) → empty/clean injection; honest no-leak |
 | `decayed_lesson_ignored_reader` | XFAIL | **orthogonal**: decay is a metadata/recency filter, not a similarity cutoff — unaffected by this proposal |
 
@@ -181,13 +214,20 @@ decision from defining the policy here.
 
 1. `RetrievingReader.__init__(graph, *, top_k=8, abs_floor=0.30, rel_ratio=0.75)`;
    `read` applies floor → relative → cap (§5). Defaults are the system contract.
-2. Remove the per-case `min_score=0.35` from `lost_in_middle_reader`; it now rides the
-   reader defaults. Re-confirm PASS from the committed cache; drop its `PROVISIONAL` note.
-3. Rewrite/retire `reader_returns_all` (it asserts the now-falsified dump-all behavior).
-4. Decide `scattered_multifact`'s fate (high `top_k` / whole-file / redesign).
-5. Tests: a stub-embedder reader test asserting floor (no-relevant → empty), relative
-   (drop the weak-but-present), and cap; plus the no-empty-leak negative-control path.
-6. Calibrate `ABS_FLOOR`/`REL_RATIO` against the committed cache the same way `min_score`
+2. `EvalCase`: add `reader_abs_floor` / `reader_rel_ratio` overrides (mirroring
+   `reader_top_k`); the old `reader_min_score` is subsumed by `reader_abs_floor`. Thread
+   both into `build_trio` → `RetrievingReader`.
+3. `lost_in_middle_reader`: drop `reader_min_score=0.35`; set **`reader_abs_floor: 0`** so
+   the relative cutoff alone drops the distractors (§5.1). Re-confirm PASS from the
+   committed cache; drop its `PROVISIONAL` note.
+4. Rewrite/retire `reader_returns_all` (it asserts the now-falsified dump-all behavior).
+5. Redesign `scattered_multifact`: add N distractors, `reader_abs_floor: 0`, and assert
+   the reader surfaces exactly the 3 conventions (recall) and none of the distractors
+   (precision). Calibrates `rel_ratio` from the keep-all-relevant side.
+6. Tests follow the isolation matrix (§5.1): a stub-embedder reader test per mechanism
+   — relative-drop (floor off), relative-keep-all (floor off), floor-empties (ratio off)
+   — plus an integration case on the production defaults.
+7. Calibrate `abs_floor`/`rel_ratio` against the committed cache the same way `min_score`
    was, and document the values + model on the reader.
 
 ## 9. Open questions
@@ -198,9 +238,11 @@ decision from defining the policy here.
    the one remaining model-tied constant (coarse). Recompute on a model change; consider
    whether a normalized floor is even meaningful (probably not — existence is inherently
    absolute).
-3. **`scattered_multifact`.** Genuinely conflicts with ranked retrieval. Keep it on an
-   explicit whole-file reader (aggregation is a different contract), or raise `top_k`
-   enough to always surface its facts?
+3. **`scattered_multifact` redesign — how many / which distractors?** Decided: redesign
+   it as a recall-under-noise test (3 relevant + N distractors, surface exactly the 3).
+   Open: how many distractors, and how *near* (loosely-related distractors stress the
+   cutoff more than obviously-unrelated ones). It then doubles as the keep-all-relevant
+   calibration witness for `REL_RATIO`.
 4. **Does deciding the policy imply deploying the reader?** No — this fixes the contract
    so the evals are honest; wiring `RetrievingReader` into the serve path is a separate
    proposal.
