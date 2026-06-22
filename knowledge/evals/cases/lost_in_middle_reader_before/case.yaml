@@ -1,27 +1,16 @@
-# Component eval: graph_reader — the AFTER of the deterministic reader pair, and
-# the CI-verified contract that retrieval ranks. Same ~18-fact noisy graph as the
-# control lost_in_middle_reader_before; the only variable is the reader.
+# Component eval: graph_reader — the BEFORE control of the deterministic reader
+# pair. Same ~18-fact graph and same checks as lost_in_middle_reader; the only
+# variable is the reader.
 #
-# RetrievingReader (vector substrate + real embeddings, replayed from the
-# committed cache) searches the graph for "add a caching TODO" and returns only
-# the relevant facts: the TODO(MD) rule and the caching rule survive, while the
-# irrelevant facts (X-Ray, SES, CloudFront) fall below the relevance cutoff and
-# are dropped -> the excludes_* checks pass. The before-control proves the dumb
-# reader fails the same checks. Model-free and agent-free, so this pair is the
-# robust, CI-runnable contract; the lost_in_middle pair is the end-to-end demo.
-#
-# `embedder: cached` => replays the committed real-vector fixture, so it runs in
-# CI offline and deterministically. Regenerate with `embed_cache --refresh`.
-# xfail until the fixture is generated and min_score/top_k are calibrated against
-# the real embedding model (a keyed step); then promote (drop xfail).
-id: lost_in_middle_reader
+# WholeFileReader returns the WHOLE graph unranked, so the irrelevant facts
+# (X-Ray, SES, CloudFront) are still present and the excludes_* checks FAIL ->
+# XFAIL. This control proves the checks discriminate: the RetrievingReader after
+# (lost_in_middle_reader) drops those facts and passes. `embedder: fake` keeps
+# this fully offline (whole_file never ranks, so it needs no real vectors).
+id: lost_in_middle_reader_before
 component: graph_reader
 substrate: vector
-reader: retrieving
-embedder: cached
-reader_top_k: 8
-# reader_min_score: <calibrate>  # relevance cutoff that drops X-Ray/SES/CloudFront; set on the keyed calibration run
-xfail: "pending RetrievingReader calibration: needs the committed embedding cache + a tuned min_score (keyed refresh step)"
+xfail: "before-control: WholeFileReader returns the whole graph unranked, so the irrelevant facts are not dropped; the RetrievingReader after is the fix"
 seed_prompt: "Add a TODO comment about adding caching to the data-fetch layer."
 
 seeded_insight:
