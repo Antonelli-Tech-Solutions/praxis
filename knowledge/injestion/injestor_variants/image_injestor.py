@@ -21,10 +21,10 @@ with neither, each file becomes its own deterministic card.
 
 from __future__ import annotations
 
-import hashlib
 from pathlib import Path
 from typing import Callable
 
+from knowledge.injestion.image import hashing
 from knowledge.injestion.image.cards import build_card
 from knowledge.injestion.image.normalize import NormalizedAsset, normalize
 from knowledge.injestion.injestion_def import Insight
@@ -33,10 +33,6 @@ from knowledge.knowledge_graph.parent_knowledge_graph import KnowledgeGraph
 
 # Optional VLM caption hook: canonical PNG bytes -> caption text (or None on miss/failure).
 Captioner = Callable[[bytes], str | None]
-
-
-def _content_hash(png_bytes: bytes) -> str:
-    return hashlib.sha256(png_bytes).hexdigest()
 
 
 class WalkedAsset:
@@ -48,7 +44,7 @@ class WalkedAsset:
         self.relpath = relpath
         self.folder = folder
         self.asset = asset
-        self.content_hash = _content_hash(asset.png_bytes)
+        self.content_hash = hashing.content_hash(asset.png_bytes)
 
 
 def walk_assets(folder: Path) -> list[WalkedAsset]:
@@ -67,9 +63,20 @@ def walk_assets(folder: Path) -> list[WalkedAsset]:
 class ImageIngestor(Ingestor):
     """Distill a folder of visual assets into derived text cards."""
 
-    def __init__(self, graph: KnowledgeGraph, *, captioner: Captioner | None = None) -> None:
+    def __init__(
+        self,
+        graph: KnowledgeGraph,
+        *,
+        captioner: Captioner | None = None,
+        seen_hashes: set[str] | None = None,
+        threshold: int = hashing.DEFAULT_THRESHOLD,
+    ) -> None:
         super().__init__(graph)
         self.captioner = captioner
+        # Content hashes already in the graph; assets matching these are skipped
+        # (idempotent reconcile). The caller owns and may mutate this set.
+        self.seen_hashes = seen_hashes if seen_hashes is not None else set()
+        self.threshold = threshold
 
     def ingest(self, raw_input: str, *, state: str = "active") -> str:
         """Ingest the folder at ``raw_input``. Image adds are active by default."""
@@ -77,21 +84,79 @@ class ImageIngestor(Ingestor):
 
     def synthesis(self, raw_input: str) -> list[Insight]:
         folder = Path(raw_input)
+
+        # Reconcile: drop assets whose exact content is already in the graph.
+        fresh = [w for w in walk_assets(folder) if w.content_hash not in self.seen_hashes]
+        if not fresh:
+            return []
+
+        # Exact-dedup: identical bytes collapse to one representative; the rest
+        # become variant aliases. Preserves first-seen (sorted) order.
+        reps: list[WalkedAsset] = []
+        exact_aliases: dict[str, list[str]] = {}
+        seen_exact: dict[str, WalkedAsset] = {}
+        for w in fresh:
+            if w.content_hash in seen_exact:
+                exact_aliases[seen_exact[w.content_hash].relpath].append(w.relpath)
+            else:
+                seen_exact[w.content_hash] = w
+                exact_aliases[w.relpath] = []
+                reps.append(w)
+
+        # Perceptual cluster the representatives (near-dups: PSD + exported PNG, @2x…).
+        phashes = [hashing.perceptual_hash(w.asset.png_bytes) for w in reps]
+        clusters = hashing.cluster(phashes, threshold=self.threshold)
+
         insights: list[Insight] = []
-        for walked in walk_assets(folder):
-            caption = self.captioner(walked.asset.png_bytes) if self.captioner else None
+        for members in clusters:
+            cluster_reps = [reps[i] for i in members]
+            canonical = self._pick_canonical(cluster_reps)
+            variants = self._variant_paths(canonical, cluster_reps, exact_aliases)
+            caption = self.captioner(canonical.asset.png_bytes) if self.captioner else None
             card = build_card(
-                asset_path=f"assets/{walked.relpath}",
-                folder=walked.folder,
-                dims=walked.asset.dims,
-                layer_names=walked.asset.layer_names,
+                asset_path=f"assets/{canonical.relpath}",
+                folder=canonical.folder,
+                dims=canonical.asset.dims,
+                layer_names=canonical.asset.layer_names,
                 caption=caption,
+                variants=variants,
             )
+            self.seen_hashes.add(canonical.content_hash)
             insights.append(
                 Insight(
                     raw_text=card,
-                    source=f"asset:{walked.content_hash}:{walked.relpath}",
+                    source=f"asset:{canonical.content_hash}:{canonical.relpath}",
                     category="asset",
                 )
             )
         return insights
+
+    @staticmethod
+    def _pick_canonical(members: list[WalkedAsset]) -> WalkedAsset:
+        """Pick the cluster's canonical: richest signal wins, deterministically.
+
+        Prefer an asset with layer names (a PSD describes itself), then larger
+        pixel area, then the lexically-first relpath.
+        """
+        return min(
+            members,
+            key=lambda w: (
+                not w.asset.layer_names,
+                -(w.asset.dims[0] * w.asset.dims[1]),
+                w.relpath,
+            ),
+        )
+
+    @staticmethod
+    def _variant_paths(
+        canonical: WalkedAsset,
+        members: list[WalkedAsset],
+        exact_aliases: dict[str, list[str]],
+    ) -> list[str]:
+        """All non-canonical relpaths in the cluster (near-dup reps + exact aliases)."""
+        paths: list[str] = []
+        for w in members:
+            if w.relpath != canonical.relpath:
+                paths.append(w.relpath)
+            paths.extend(exact_aliases.get(w.relpath, []))
+        return sorted(paths)

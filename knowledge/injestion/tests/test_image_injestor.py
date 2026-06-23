@@ -26,6 +26,20 @@ def _png(path, size=(8, 6), color=(10, 20, 30)):
     return path
 
 
+def _distinct_png(path, seed, size=(32, 32)):
+    """A structurally-distinct image (solid colors share a pHash; structure differs)."""
+    from PIL import Image, ImageDraw
+
+    img = Image.new("RGB", size, (255, 255, 255))
+    d = ImageDraw.Draw(img)
+    x = (seed * 7) % (size[0] - 8)
+    y = (seed * 11) % (size[1] - 8)
+    d.rectangle([x, y, x + 8, y + 8], fill=(0, 0, 0))
+    d.line([0, seed % size[1], size[0], (seed * 3) % size[1]], fill=(0, 0, 0), width=2)
+    img.save(path, format="PNG")
+    return path
+
+
 # --- card builder ---------------------------------------------------------- #
 def test_build_card_includes_path_token_and_fields():
     card = build_card(
@@ -50,8 +64,8 @@ def test_build_card_omits_empty_fields():
 
 # --- ingestor synthesis ---------------------------------------------------- #
 def test_two_pngs_yield_two_cards_with_provenance(tmp_path):
-    _png(tmp_path / "a.png")
-    _png(tmp_path / "b.png")
+    _distinct_png(tmp_path / "a.png", seed=1)
+    _distinct_png(tmp_path / "b.png", seed=2)
     ing = ImageIngestor(SpyGraph())
     insights = ing.synthesis(str(tmp_path))
 
