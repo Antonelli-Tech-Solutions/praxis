@@ -1,34 +1,35 @@
-# Negative control / NO-HARM case. The seeded graph is entirely about CSS color
-# variables, which has nothing to do with the task (write a Python `add(a, b)`).
-# We assert the agent produces a correct function AND does NOT leak the
-# irrelevant "color" knowledge into its answer.
+# FLOOR TEST (no-leak / existence). The seeded graph is entirely about CSS color
+# variables; the query is a Python task (write add(a, b)). Nothing in the graph is
+# relevant, so the RetrievingReader's absolute floor empties the result — retrieval
+# injects NOTHING, so the irrelevant "color" knowledge can never leak downstream.
 #
-# Offline expectation: the deterministic checks (contains_text + forbids_substring)
-# run against the artifact. Under the offline FakeRunner the agent does not
-# actually run, so this is EXPECTED to FAIL offline (no real output). With the
-# real Claude Code agent it should PASS.
+# This is the existence-floor half of the cutoff (§5.1): with a no-relevant-fact
+# query every hit sits below abs_floor, so the honest answer is to return nothing.
+# Converted from the old full-pipeline no-leak case — the reader-level guarantee
+# (junk is filtered before it ever reaches an agent) is the more fundamental one.
+#
+# embedder: cached -> committed real-vector fixture; offline/CI.
 id: negative_control_irrelevant
-seed_prompt: |
-  Write a Python function `add(a, b)` that returns the sum of its two arguments.
-  Write the complete function definition to a file named answer.txt and nothing else.
-target_commit: "0000000000000000000000000000000000000000"  # placeholder reference
-start_commit: null
-repo: null
+component: graph_reader
+substrate: vector
+reader: retrieving
+embedder: cached
+reader_top_k: 8
+seed_prompt: "Write a Python function add(a, b) that returns the sum of its two arguments."
 
 seeded_insight:
-  via_ingestor:
+  direct_to_graph:
     - "Define the brand primary color as the CSS variable --color-primary: #1d4ed8."
     - "Use --color-bg: #ffffff for light backgrounds and --color-bg-dark: #0f172a for dark mode."
-  direct_to_graph:
     - "All CSS color variables live in :root and are named with a --color- prefix."
     - "Never hardcode hex colors in component styles; reference the --color-* custom properties instead."
 
 deterministic_checks:
-  - name: defines_add
-    ref: "knowledge.evals.deterministic_checks.builds:contains_text"
-    params:
-      text: "def add"
   - name: no_color_leak
     ref: "knowledge.evals.deterministic_checks.text:forbids_substring"
     params:
       text: "color"
+  - name: empties_on_no_relevant_fact
+    ref: "knowledge.evals.deterministic_checks.builds:not_contains_text"
+    params:
+      text: "--color-"

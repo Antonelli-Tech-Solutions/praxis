@@ -22,5 +22,10 @@ class Llm(ABC):
         *,
         temperature: float = 0.0,
         max_tokens: int = 1024,
+        response_format: dict | None = None,
     ) -> str:
-        """Return the assistant's reply text for ``messages``."""
+        """Return the assistant's reply text for ``messages``.
+
+        ``response_format`` is an optional OpenAI-style structured-output spec (e.g.
+        a ``json_schema`` object); when set, the reply is constrained to that schema.
+        """

@@ -1,0 +1,36 @@
+# Component eval: graph_reader — the BEFORE control of the reader-cutoff contract.
+# Seeds three distinct facts; the query asks only about the config file. The
+# model-robust RetrievingReader (floor -> relative -> cap) ranks and trims,
+# returning only the relevant config fact and dropping the migrations/CI facts. The
+# legacy "return everything" assertion (all three present) therefore FAILS -> XFAIL:
+# this documents that a ranking reader no longer dumps the whole graph.
+#
+# The AFTER (ranking keeps relevant / drops irrelevant) is already asserted by
+# lost_in_middle_reader, so no separate `after` case is added here — it would be
+# redundant (noted per FR-028).
+#
+# embedder: cached -> replays the committed real-vector fixture, so it runs in CI
+# offline and deterministically. Regenerate with `embed_cache --refresh`.
+id: reader_returns_all_before
+component: graph_reader
+substrate: vector
+reader: retrieving
+embedder: cached
+reader_top_k: 8
+seed_prompt: "Where is the config file?"  # narrow query; the ranking reader keeps only the config fact
+xfail: "ranking reader returns only the relevant config fact; the dump-all assertion fails (retrieval no longer returns the whole graph)"
+
+seeded_insight:
+  direct_to_graph:
+    - "The application config lives at config/settings.toml."
+    - "Database migrations are stored in db/migrations/ and run via 'make migrate'."
+    - "CI runs on GitHub Actions defined in .github/workflows/ci.yml."
+
+deterministic_checks:
+  - name: returns_all_three_facts
+    ref: "knowledge.evals.deterministic_checks.text:requires_all_substrings"
+    params:
+      texts:
+        - "config/settings.toml"
+        - "db/migrations/"
+        - ".github/workflows/ci.yml"

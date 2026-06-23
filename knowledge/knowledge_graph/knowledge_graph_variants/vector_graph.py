@@ -23,6 +23,7 @@ from knowledge.knowledge_graph.write_policy.parent_write_step import WriteStep
 from knowledge.knowledge_graph.write_policy.write_policy_def import WriteDecision
 from knowledge.knowledge_graph.write_policy.write_step_variants import (
     ConflictFlagger,
+    ConflictJudge,
     Deduper,
     Redactor,
 )
@@ -46,7 +47,7 @@ def default_write_policy(llm: Llm | None = None) -> list[WriteStep]:
     best-effort — ``ConflictFlagger`` skips silently if the LLM is unavailable
     (e.g. no API key offline), so this is safe to leave on by default.
     """
-    return [Redactor(), Deduper(), ConflictFlagger(llm=llm or OpenRouterLlm())]
+    return [Redactor(), Deduper(), ConflictFlagger(judge=ConflictJudge(llm=llm or OpenRouterLlm()))]
 
 
 class VectorGraph(SearchableGraph):
@@ -56,10 +57,17 @@ class VectorGraph(SearchableGraph):
         self,
         embedder: Embedder | None = None,
         policy: list[WriteStep] | None = None,
+        *,
+        recall_floor: float = 0.45,
+        recall_k: int = 5,
     ) -> None:
         # Deterministic offline default; inject OpenRouterEmbedder for real runs.
         self.embedder = embedder or FakeEmbedder()
         self.policy = policy if policy is not None else default_write_policy()
+        # One shared recall gate for both judges (loose, high-recall): the single
+        # per-write candidate pass keeps facts scoring >= recall_floor (top recall_k).
+        self.recall_floor = recall_floor
+        self.recall_k = recall_k
         self._facts: list[Fact] = []
 
     # --- KnowledgeGraph contract -------------------------------------------
@@ -83,9 +91,15 @@ class VectorGraph(SearchableGraph):
             return
         decision = WriteDecision(text=content, state="active" if state == "active" else "proposed")
         for step in self.policy:
-            step.apply(decision, self)
+            if step.consumes_candidates and decision.embedding is None:
+                self._recall(decision)  # embed once + one shared candidate pass
+            step.apply(decision)
         if decision.dropped:
             return
+        if decision.embedding is None:
+            # No candidate-consuming step ran (e.g. a redact-only policy); still
+            # embed once for persistence.
+            decision.embedding = self.embedder.embed_one(decision.text)
         if decision.action == "update" and decision.update_target_id:
             self._merge(decision)
             return
@@ -139,11 +153,25 @@ class VectorGraph(SearchableGraph):
                         pairs.append(Contradiction(flagged=fact, conflicting=other))
         return pairs
 
-    # --- StoreView (used by write steps) -----------------------------------
-    def most_similar(self, text: str, k: int = 5) -> list[SearchHit]:
-        # Dedup/conflict detection must see pending facts too, so search all
-        # states (not just the retrievable "active" default).
-        return self.search(text, top_k=k, state=None)
+    # --- shared per-write recall (feeds the write steps) -------------------
+    def _recall(self, decision: WriteDecision) -> None:
+        """Embed the incoming text once and run the single candidate pass.
+
+        Fills ``decision.embedding`` and ``decision.candidates`` (existing facts
+        scoring >= ``recall_floor``, best first, capped at ``recall_k``). Dedup
+        and conflict both see pending facts, so this searches all states. An empty
+        graph embeds once and issues no candidate search.
+        """
+        decision.embedding = self.embedder.embed_one(decision.text)
+        if not self._facts:
+            return
+        hits = [
+            SearchHit(fact=f, score=_cosine(decision.embedding, f.embedding))
+            for f in self._facts
+            if f.embedding is not None
+        ]
+        hits.sort(key=lambda h: h.score, reverse=True)
+        decision.candidates = [h for h in hits if h.score >= self.recall_floor][: self.recall_k]
 
     @property
     def facts(self) -> list[Fact]:
@@ -157,7 +185,7 @@ class VectorGraph(SearchableGraph):
                 id=uuid.uuid4().hex,
                 text=decision.text,
                 state=decision.state,
-                embedding=self.embedder.embed_one(decision.text),
+                embedding=decision.embedding,  # reuse the vector embedded in _recall
                 flags=list(decision.flags),
             )
         )
@@ -182,6 +210,6 @@ class VectorGraph(SearchableGraph):
                 fact.state = decision.state
                 fact.observation_count += 1
                 fact.confidence = 1.0
-                fact.embedding = self.embedder.embed_one(decision.text)
+                fact.embedding = decision.embedding  # reuse the vector from _recall
             elif fact.id in targets:
                 fact.state = "decayed"

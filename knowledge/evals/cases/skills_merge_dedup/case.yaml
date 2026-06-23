@@ -35,7 +35,8 @@
 id: skills_merge_dedup
 component: ingestion
 substrate: vector
-xfail: "no paraphrase-level semantic merge: Deduper threshold (0.95) only collapses near-exact dups"
+embedder: cached  # real vectors so the recall gate surfaces the shared-idea paraphrase
+merge_model: openai/gpt-4o-mini  # MergeJudge merges the shared idea, keeps distinct ideas verbatim
 
 seeded_insight:
   via_ingestor:

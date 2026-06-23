@@ -22,6 +22,7 @@ class FakeLlm(Llm):
         *,
         temperature: float = 0.0,
         max_tokens: int = 1024,
+        response_format: dict | None = None,  # accepted for parity; scripted replies ignore it
     ) -> str:
         self.calls.append(messages)
         last_user = next(
