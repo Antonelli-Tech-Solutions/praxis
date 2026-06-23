@@ -2,12 +2,12 @@
 # contradictory engineering preferences phrased with DISJOINT vocabulary and NO
 # shared key noun, so they sit below the cosine recall floor (cosine << 0.45) and
 # cosine recall never pairs them. The AspectTagger assigns both the controlled-vocab
-# aspect "testing-rigor-vs-speed"; the conflict path's same-tag recall surfaces the pair for the
-# ConflictJudge. Replays offline from the committed aspect + conflict cassettes.
+# aspect "documentation-policy"; the conflict path's same-tag recall surfaces the
+# pair for the ConflictJudge. Replays offline from the committed cassettes.
 #
 # xfail = provisional: kept ONLY if the owner judges the Tier-B gate cleared
 # (FR-022). A working experiment XPASSes here; an unrecalled pair stays XFAIL.
-id: implicit_conflict_testing_speed
+id: implicit_conflict_documentation_policy
 component: knowledge_graph
 substrate: vector
 embedder: cached  # real vectors; the pair sits below the cosine floor by design
@@ -18,8 +18,8 @@ xfail: "Tier-B gate pending (FR-022): implicit-contradiction recall via aspect t
 seeded_insight:
   via_ingestor: []
   direct_to_graph:
-    - "Ship features quickly and iterate based on user feedback."
-    - "Every change must land with full automated test coverage."
+    - "Capture the reasoning behind each module in a written guide before shipping."
+    - "Lean on expressive naming so the source needs no extra hand-holding."
 
 deterministic_checks:
   - name: implicit_contradiction_flagged
