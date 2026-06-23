@@ -1,4 +1,4 @@
-import type { Candidate, CandidateWriteInput, EvalMetrics } from "../types/candidate";
+import type { Candidate, CandidateWriteInput } from "../types/candidate";
 import type { KnowledgeGraphSnapshot } from "../types/graph";
 import type { ParsedLogSession } from "../types/transcript";
 
@@ -15,7 +15,15 @@ export interface DataProvider {
     resolution: "keep_primary" | "keep_rival",
     keepId: string,
   ): Promise<Candidate>;
-  getEvalMetrics(): Promise<EvalMetrics>;
+  /**
+   * Resolve a contradiction with a brand-new, user-authored fact that is neither
+   * side. Optional: offline fixture providers may not support it. Returns the
+   * newly created candidate (both original sides are decayed server-side).
+   */
+  resolveContradictionCustom?(
+    contradictionId: string,
+    customText: string,
+  ): Promise<Candidate>;
   getGraph(): Promise<KnowledgeGraphSnapshot>;
   getTranscript(): Promise<ParsedLogSession | null>;
 }

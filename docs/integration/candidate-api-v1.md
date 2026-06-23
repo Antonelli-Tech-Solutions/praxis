@@ -171,4 +171,3 @@ See also [`wire-up.md`](wire-up.md).
 
 - [monica-wireframes.md](../monica/monica-wireframes.md) — as-built UI spec
 - [ARCHITECTURE_MONICA.md](../monica/ARCHITECTURE_MONICA.md) §17 — pillar integration architecture
-- [eval-metrics-v1.md](eval-metrics-v1.md) — Dominic eval JSON contract

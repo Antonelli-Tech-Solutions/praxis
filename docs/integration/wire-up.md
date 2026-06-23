@@ -1,6 +1,6 @@
 # Dashboard wire-up — self-serve (no pairing)
 
-Validate Matthew's candidate API and Dominic's eval metrics without a sync call.
+Validate Matthew's candidate API without a sync call.
 
 ## Prerequisites
 
@@ -52,30 +52,19 @@ npm run dev
 
 Use **Refresh** in the dashboard after mutations if the list looks stale.
 
-## 4. Eval metrics (when Dominic's endpoint is up)
-
-```powershell
-# frontend-react/.env.local
-# VITE_PRAXIS_EVAL_METRICS_URL=http://localhost:9000/metrics
-cd frontend-react
-npm run dev
-```
-
-Expand **Eval metrics — compounding curve** and confirm live chart + before/after scoreboard.
-
-## 5. Render deploy (mock-only, portfolio)
+## 4. Render deploy (mock-only, portfolio)
 
 No `VITE_PRAXIS_API_BASE_URL` in Render env vars. See [`../monica/RENDER_DEPLOY.md`](../monica/RENDER_DEPLOY.md).
 
-## 6. Postgres-backed API setup (Matthew)
+## 5. Postgres-backed API setup (Matthew)
 
 Stand up RDS PostgreSQL 16 + pgvector, bootstrap schema, and configure the candidate API to use `PostgresCandidateStore` instead of the JSON file store: [`../monica/RDS_KG_DEPLOY.md`](../monica/RDS_KG_DEPLOY.md).
 
 Requires AWS CLI credentials to pull DB secrets from Secrets Manager (or set `PRAXIS_DB_URL` explicitly).
 
-## 7. Integration smoke checklist
+## 6. Integration smoke checklist
 
-Full pass/fail tables for mock + live API + eval metrics: [`../monica/INTEGRATION_SMOKE.md`](../monica/INTEGRATION_SMOKE.md).
+Full pass/fail tables for mock + live API: [`../monica/INTEGRATION_SMOKE.md`](../monica/INTEGRATION_SMOKE.md).
 
 ## Troubleshooting
 

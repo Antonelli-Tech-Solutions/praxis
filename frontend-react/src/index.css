@@ -287,67 +287,38 @@ code,
   outline-offset: -2px;
 }
 
-.view-toggle__group {
-  position: relative;
-}
-
-/* Inline view tabs flow into the pill on wide screens; the compact "View ▾"
-   trigger is hidden. Below the breakpoint this flips (see media query). */
-.view-toggle__inline {
-  display: contents;
-}
-.view-toggle__compact {
-  display: none;
-}
-
-@media (max-width: 900px) {
-  .view-toggle__inline {
-    display: none;
-  }
-  .view-toggle__compact {
-    display: inline-flex;
-  }
-}
-
-/* The dropdown menu only exists in the compact layout. */
-@media (min-width: 901px) {
-  .view-toggle__menu {
-    display: none;
-  }
-}
-
-.view-toggle__menu {
-  position: absolute;
-  top: calc(100% + 6px);
-  left: 0;
-  z-index: 100;
-  background: #fff;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.10);
+.knowledge-view-toggle {
+  grid-column: 1 / -1;
   display: flex;
-  flex-direction: column;
-  min-width: 120px;
+  flex-wrap: wrap;
+  align-items: center;
+  width: fit-content;
+  max-width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 999px;
   overflow: hidden;
+  background: #f8fafc;
 }
 
-.view-toggle__menu-item {
+.knowledge-view-toggle__tab {
   border: none;
   background: transparent;
-  padding: 0.5rem 1rem;
-  text-align: left;
-  cursor: pointer;
+  padding: 0.45rem 0.9rem;
+  font: inherit;
   font-size: 0.85rem;
-  color: var(--text-muted);
+  font-weight: 500;
+  color: var(--muted);
+  cursor: pointer;
 }
 
-.view-toggle__menu-item:hover {
-  background: #f0f4ff;
-}
-
-.view-toggle__menu-item.active {
+.knowledge-view-toggle__tab.active {
   background: var(--accent);
   color: #fff;
+}
+
+.knowledge-view-toggle__tab:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
 }
 
 .count-chip {
@@ -365,7 +336,7 @@ code,
 
 .content-split {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1.35fr);
+  grid-template-columns: minmax(0, 2fr) minmax(320px, 1fr);
   gap: var(--space-4);
   align-items: start;
 }
@@ -464,9 +435,19 @@ code,
 }
 
 .data-table td:first-child {
+  /* Let the title wrap across a few lines instead of truncating to one. */
+  white-space: normal;
+}
+
+/* Clamp the title to a few lines, then ellipsize — the row never grows past this,
+   and selecting the row shows the full text in the detail pane on the right. */
+.title-cell {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  -webkit-box-orient: vertical;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 
 .actions-cell {
@@ -525,6 +506,12 @@ code,
 .candidate-card--selected {
   border-color: var(--accent);
   box-shadow: 0 0 0 1px var(--accent), var(--shadow-panel);
+}
+
+/* Long, space-less values (provenance ids like pipeline/fact:<hash>) must wrap
+   inside the card instead of overflowing its width. */
+.candidate-card .mono {
+  overflow-wrap: anywhere;
 }
 
 .card-head {
@@ -1178,16 +1165,28 @@ code,
 
 .compare-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  /* minmax(0, 1fr) lets each column shrink below its content's intrinsic
+     width; without it a long unbroken provenance token overflows the page. */
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: var(--space-3);
 }
 
 .compare-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
   padding: var(--space-3);
   background: #fafbfc;
   font-size: 0.88rem;
+  min-width: 0;
+}
+
+/* Long provenance ids / unbroken tokens must wrap rather than overflow. */
+.compare-card code,
+.compare-card p {
+  overflow-wrap: anywhere;
 }
 
 .compare-card.rival {
@@ -1195,10 +1194,95 @@ code,
   border-color: #fed7aa;
 }
 
+/* "Choice A" / "Choice B" as a proper card title: own line, larger, bold. */
+.choice-label {
+  display: block;
+  font-size: 1.05rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  padding-bottom: var(--space-2);
+  margin-bottom: var(--space-1);
+  border-bottom: 1px solid var(--line);
+}
+
+.choice-head {
+  line-height: 1.3;
+}
+
+/* Keep button: centered in the card, pinned to the bottom so both cards' actions
+   line up regardless of content length. */
+.choice-keep {
+  align-self: center;
+  margin-top: auto;
+  min-width: 60%;
+}
+
+.defer-row {
+  justify-content: center;
+}
+
 .contradiction-pair {
   margin-top: var(--space-4);
   padding-top: var(--space-4);
   border-top: 1px dashed var(--line);
+}
+
+.deferred-section {
+  margin-top: var(--space-5);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--line);
+}
+
+.deferred-heading {
+  font-size: 0.95rem;
+  font-weight: 600;
+  margin: 0 0 var(--space-3);
+  color: #64748b;
+}
+
+.deferred-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  margin-bottom: var(--space-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: #f8fafc;
+}
+
+.deferred-titles {
+  font-size: 0.85rem;
+}
+
+.custom-resolution {
+  margin-top: var(--space-3);
+  padding: var(--space-3);
+  border: 1px dashed var(--line);
+  border-radius: var(--radius-md);
+  background: #f8fafc;
+}
+
+.custom-hint {
+  margin: var(--space-1) 0 var(--space-2);
+  font-size: 0.82rem;
+}
+
+.custom-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: var(--space-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm, 6px);
+  font: inherit;
+  font-size: 0.88rem;
+  resize: vertical;
+}
+
+.custom-actions {
+  justify-content: center;
+  margin-top: var(--space-2);
 }
 
 .metric-card {
@@ -1718,7 +1802,7 @@ code,
 
 .graph-explorer__body {
   display: grid;
-  grid-template-columns: 200px minmax(0, 1fr) minmax(280px, 360px);
+  grid-template-columns: 200px minmax(0, 1fr);
   gap: var(--space-4);
   min-height: 520px;
 }
@@ -2134,9 +2218,11 @@ code,
 
 .graph-legend--overlay {
   position: absolute;
+  /* Anchored bottom-left so it never overlaps the top-center nodes (Controls
+     occupy top-right). Expanding grows the panel upward from the corner. */
   left: var(--space-3);
-  top: var(--space-3);
-  bottom: auto;
+  top: auto;
+  bottom: var(--space-3);
   z-index: 5;
   max-width: min(300px, calc(100% - var(--space-6)));
   /* Cap height so the header (with the Hide toggle) stays in view and the

@@ -21,17 +21,16 @@ export function resolveDataProvider(
   }
 
   if (config.mode === "mock") {
-    return createMockDataProvider(config.evalMetricsUrl, config.apiToken);
+    return createMockDataProvider();
   }
 
   if (!config.apiBaseUrl) {
-    return createMockDataProvider(config.evalMetricsUrl, config.apiToken);
+    return createMockDataProvider();
   }
 
   return createApiDataProvider(
     config.apiBaseUrl,
     auth ?? { getToken: async () => config.apiToken },
-    config.evalMetricsUrl,
   );
 }
 

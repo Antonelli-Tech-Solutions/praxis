@@ -15,9 +15,7 @@ Run: uv run python -m knowledge.serve   (serves on http://localhost:8000)
 
 from __future__ import annotations
 
-import json
 import os
-from pathlib import Path
 from typing import Any
 
 from fastapi import Body, Depends, FastAPI, Header, HTTPException
@@ -43,9 +41,6 @@ from knowledge.serve.regenerate import (
 from knowledge.serve.store import CandidateStore, PromotionError, contradiction_ids
 from knowledge.wiring import build_trio
 
-METRICS_FIXTURE = (
-    Path(__file__).resolve().parents[2] / "docs" / "integration" / "fixtures" / "eval-metrics.json"
-)
 _DEFAULT_CORS_REGEX = (
     r"(http://(localhost|127\.0\.0\.1):\d+|https://[\w-]+\.onrender\.com"
     r"|https://[\w-]+\.cloudfront\.net|https://[\w-]+\.awsapprunner\.com"
@@ -288,9 +283,18 @@ def create_app(store: Any | None = None) -> FastAPI:
         principal: Principal = Depends(current_user),
         org: str = Depends(active_org),
     ) -> dict[str, Any]:
+        # A custom resolution supersedes BOTH sides with new, user-authored text.
+        custom_text = body.get("customText")
+        if custom_text is not None and str(custom_text).strip():
+            try:
+                return store.resolve_custom(org, principal.sub, pair_id, str(custom_text))
+            except KeyError:
+                raise HTTPException(status_code=404, detail=f"unknown contradiction {pair_id}")
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc))
         keep_id = body.get("keepId")
         if not keep_id:
-            raise HTTPException(status_code=400, detail="keepId required")
+            raise HTTPException(status_code=400, detail="keepId or customText required")
         try:
             return store.resolve(org, principal.sub, pair_id, str(keep_id))
         except KeyError:
@@ -452,15 +456,6 @@ def create_app(store: Any | None = None) -> FastAPI:
                 {"id": h.fact.id, "text": h.fact.text, "score": h.score} for h in hits
             ],
         }
-
-    @app.get("/metrics")
-    def eval_metrics(
-        principal: Principal = Depends(current_user),
-    ) -> dict[str, Any]:
-        """Eval metrics contract v1 — fixture until Dominic's harness endpoint ships."""
-        if not METRICS_FIXTURE.exists():
-            raise HTTPException(status_code=503, detail="metrics fixture unavailable")
-        return json.loads(METRICS_FIXTURE.read_text(encoding="utf-8"))
 
     return app
 

@@ -167,6 +167,38 @@ def _resolve_cases_dir(relative: str) -> Path:
     return target
 
 
+def _seed_write_graph() -> tuple[VectorGraph, Any]:
+    """The graph that seed-loading writes into, plus the ingest LLM (None offline).
+
+    With ``OPENROUTER_API_KEY`` set, use the real embedder (so semantically-related
+    seeds clear the recall floor and reach the judge) and a ``ConflictFlagger`` on
+    ``gpt-4o-mini`` -- mirroring the vector store's ``default_write_policy``. The
+    contradiction flags it records become the candidates' ``contradiction_ids``,
+    which is exactly what the dashboard's Contradictions tab renders. Without a key,
+    fall back to the deterministic offline ``FakeEmbedder`` and no judge (no network,
+    and hence no contradiction flags -- fake vectors can't surface recall candidates).
+    """
+    from knowledge.knowledge_graph.write_policy.write_step_variants import (
+        ConflictFlagger,
+        ConflictJudge,
+    )
+
+    if os.getenv("OPENROUTER_API_KEY"):
+        from knowledge.llm.embedder_variants.openrouter_embedder import OpenRouterEmbedder
+        from knowledge.llm.llm_variants.openrouter_llm import OpenRouterLlm
+
+        llm = OpenRouterLlm(model="openai/gpt-4o-mini")
+        graph = VectorGraph(
+            embedder=OpenRouterEmbedder(),
+            policy=[Redactor(), Deduper(), ConflictFlagger(judge=ConflictJudge(llm=llm))],
+        )
+        return graph, llm
+
+    from knowledge.llm.embedder_variants.fake_embedder import FakeEmbedder
+
+    return VectorGraph(embedder=FakeEmbedder(), policy=[Redactor(), Deduper()]), None
+
+
 def _regenerate_from_cases(relative_dirs: list[str], config: PipelineConfig) -> RegenerationResult:
     """Build the graph from every case under the selected folders.
 
@@ -210,28 +242,27 @@ def _regenerate_from_cases(relative_dirs: list[str], config: PipelineConfig) -> 
                     seen.add(normalized)
                     seeds.append((text, state))
 
+    # One graph-construction path for both modes: real embedder + ConflictFlagger
+    # when a key is present (so contradictions actually land on the candidates the
+    # UI reads), else the offline FakeEmbedder. ``distill`` only changes how the
+    # seed *text* enters the graph (LLM-distilled vs. verbatim line-split).
+    graph, ingest_llm = _seed_write_graph()
     if config.distill:
-        if not os.getenv("OPENROUTER_API_KEY"):
+        if ingest_llm is None:
             raise RegenerateUnavailableError(
                 "distillation needs OPENROUTER_API_KEY set on the API"
             )
-        from knowledge.llm.embedder_variants.openrouter_embedder import OpenRouterEmbedder
         from knowledge.llm.llm_def import ChatMessage
-        from knowledge.llm.llm_variants.openrouter_llm import OpenRouterLlm
 
-        ingest_model = OpenRouterLlm(model="openai/gpt-4o-mini")
-        graph = VectorGraph(embedder=OpenRouterEmbedder(), policy=[Redactor(), Deduper()])
         ingestor = PromptIngestor(
             graph,
-            llm=lambda prompt: ingest_model.complete([ChatMessage(role="user", content=prompt)]),
+            llm=lambda prompt: ingest_llm.complete([ChatMessage(role="user", content=prompt)]),
         )
         for source, state in seeds:
             ingestor.ingest(source, state=state)
     else:
         from knowledge.knowledge_graph.knowledge_graph_variants.in_memory_graph import InMemoryGraph
-        from knowledge.llm.embedder_variants.fake_embedder import FakeEmbedder
 
-        graph = VectorGraph(embedder=FakeEmbedder(), policy=[Redactor(), Deduper()])
         # Passthrough split, but drop header/fragment lines (e.g. "Cohorts:",
         # "Relevant Skills") so the graph holds real facts, not section headers.
         splitter = PromptIngestor(InMemoryGraph())  # no llm => line split

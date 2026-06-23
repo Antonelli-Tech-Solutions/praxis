@@ -92,6 +92,14 @@ export function buildResolveBody(
   return { resolution: mapped, keepId };
 }
 
+export function buildCustomResolveBody(customText: string): { customText: string } {
+  const text = customText.trim();
+  if (!text) {
+    throw new Error("Custom resolution text is required");
+  }
+  return { customText: text };
+}
+
 export function contradictionPairId(primaryId: string, rivalId: string): string {
   return `${primaryId}__${rivalId}`;
 }

@@ -15,7 +15,6 @@ import {
   uniqueContradictionPairs,
 } from "./components/ContradictionsReview";
 import { GraphExplorer } from "./components/graph/GraphExplorer";
-import { EvalMetricsEmbed } from "./components/EvalMetricsEmbed";
 import { McpSetupGuide } from "./components/McpSetupGuide";
 import { AppShell } from "./components/layout/AppShell";
 import { ContentSplit } from "./components/layout/ContentSplit";
@@ -59,6 +58,7 @@ export default function App() {
     promote,
     reject,
     resolveContradiction,
+    resolveContradictionCustom,
     createCandidate,
     updateCandidate,
     deleteCandidate,
@@ -287,8 +287,28 @@ export default function App() {
     }
   }
 
-  const listView =
-    viewTab === "table" ? (
+  async function handleResolveCustom(contradictionId: string, customText: string) {
+    setActionError(null);
+    try {
+      await resolveContradictionCustom(contradictionId, customText);
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  const knowledgeView =
+    viewTab === "graph" ? (
+      graph ? (
+        <GraphExplorer
+          graph={graph}
+          candidates={candidates}
+          selectedId={selectedId}
+          onSelectNode={setSelectedId}
+        />
+      ) : (
+        <p className="muted">No graph snapshot is available.</p>
+      )
+    ) : viewTab === "table" ? (
       <CandidateTable
         candidates={filtered}
         selectedId={selectedId}
@@ -405,24 +425,12 @@ export default function App() {
         <ContradictionsReview
           candidates={candidates}
           onResolve={handleResolve}
+          onResolveCustom={handleResolveCustom}
           onDefer={handleDefer}
-        />
-      ) : viewTab === "graph" && graph ? (
-        <GraphExplorer
-          graph={graph}
-          candidates={candidates}
-          filteredCandidates={filtered}
-          selectedId={selectedId}
-          onSelectNode={setSelectedId}
-          onRefreshCandidate={handleRefreshCandidate}
-          refreshingId={refreshingCandidateId}
-          onResolve={handleResolve}
-          onDefer={handleDefer}
-          dataSourceMode={mode}
         />
       ) : (
         <ContentSplit
-          list={listView}
+          list={knowledgeView}
           detail={
             <CandidateDetail
               candidates={filtered}
@@ -437,8 +445,6 @@ export default function App() {
           }
         />
       )}
-
-      {viewTab !== "setup" ? <EvalMetricsEmbed provider={provider} /> : null}
 
       <CandidateEditorModal
         mode={editorState?.mode ?? "add"}

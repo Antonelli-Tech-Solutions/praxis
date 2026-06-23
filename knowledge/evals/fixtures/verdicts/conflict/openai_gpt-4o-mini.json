@@ -23,6 +23,9 @@
 "59627e66e1eae0b2ccf655f1561e2f212986cc9144bc7b83cab7af6b01b601fa": {
 "contradicts": true
 },
+"6d7852e660ba207ad22e55111f50ba2da7974a8aafa8473d605ef54f06860e4d": {
+"contradicts": true
+},
 "9e181ee03cb576f96758296d2eaac4634669236d052dcc490b5ca3977bb15d14": {
 "contradicts": true
 },
@@ -37,6 +40,9 @@
 },
 "be5f64bee40631996e86e5f6abd842c554a5c4c5ed4c50c2e417d32cce7a0223": {
 "contradicts": true
+},
+"cfb729d856a532f85cddb5ebee47d5f0b7471ab0699c04ea442bf21e3eb334df": {
+"contradicts": false
 },
 "da8b3b76660601272c2120554bcfef604b749a53a3828f2e4e0ab0ee2cfab763": {
 "contradicts": true

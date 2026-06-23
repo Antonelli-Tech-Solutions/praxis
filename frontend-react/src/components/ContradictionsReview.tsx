@@ -32,10 +32,6 @@ export function uniqueContradictionPairs(candidates: Candidate[]): Contradiction
   return pairs;
 }
 
-function trunc(text: string, max = 32): string {
-  return text.length > max ? `${text.slice(0, max)}…` : text;
-}
-
 interface ContradictionsReviewProps {
   candidates: Candidate[];
   onResolve: (
@@ -44,15 +40,24 @@ interface ContradictionsReviewProps {
     keepId: string,
     rivalTitle: string,
   ) => Promise<void>;
+  /** Resolve with a brand-new, user-authored answer (neither side). */
+  onResolveCustom?: (contradictionId: string, customText: string) => Promise<void>;
   onDefer: (primaryTitle: string, rivalTitle: string) => void;
 }
 
 export function ContradictionsReview({
   candidates,
   onResolve,
+  onResolveCustom,
   onDefer,
 }: ContradictionsReviewProps) {
   const [pending, setPending] = useState<string | null>(null);
+  // Per-pair draft text for the "write your own resolution" box.
+  const [customDrafts, setCustomDrafts] = useState<Record<string, string>>({});
+  // Deferred pair ids live in the tab itself: deferring moves a pair into the
+  // Deferred section (no decision made, nothing persisted server-side) and
+  // restoring moves it straight back into the review queue.
+  const [deferred, setDeferred] = useState<Set<string>>(new Set());
   const pairs = useMemo(() => uniqueContradictionPairs(candidates), [candidates]);
 
   if (pairs.length === 0) {
@@ -63,69 +68,151 @@ export function ContradictionsReview({
     );
   }
 
-  return (
-    <div className="contradiction-review">
-      <p className="muted">
-        {pairs.length} contradiction{pairs.length === 1 ? "" : "s"} awaiting review. Keep one
-        side or defer to leave both in the queue.
-      </p>
-      {pairs.map(({ primary, rival }) => {
-        const pairId = contradictionPairId(primary.id, rival.id);
-        return (
-          <div key={pairId} className="contradiction-pair">
-            <div className="compare-grid">
-              <div className="compare-card">
-                <strong>{primary.title}</strong>
-                <span className="muted"> · {primary.displayState}</span>
-                <p>{primary.content}</p>
-                <code>{primary.provenance}</code>
-              </div>
-              <div className="compare-card rival">
-                <strong>{rival.title}</strong>
-                <span className="muted"> · {rival.displayState}</span>
-                <p>{rival.content}</p>
-                <code>{rival.provenance}</code>
-              </div>
-            </div>
-            <div className="action-buttons">
+  const pairKey = (p: ContradictionPair) => contradictionPairId(p.primary.id, p.rival.id);
+  const activePairs = pairs.filter((p) => !deferred.has(pairKey(p)));
+  const deferredPairs = pairs.filter((p) => deferred.has(pairKey(p)));
+
+  const defer = (pairId: string, primaryTitle: string, rivalTitle: string) => {
+    setDeferred((prev) => new Set(prev).add(pairId));
+    onDefer(primaryTitle, rivalTitle);
+  };
+  const restore = (pairId: string) =>
+    setDeferred((prev) => {
+      const next = new Set(prev);
+      next.delete(pairId);
+      return next;
+    });
+
+  const renderPair = ({ primary, rival }: ContradictionPair) => {
+    const pairId = contradictionPairId(primary.id, rival.id);
+    const busy = pending === pairId;
+    const choice = (
+      candidate: Candidate,
+      label: string,
+      resolution: "keep_primary" | "keep_rival",
+      discardedTitle: string,
+      accent: boolean,
+    ) => (
+      <div className={`compare-card${accent ? " rival" : ""}`}>
+        <span className="choice-label">{label}</span>
+        <div className="choice-head">
+          <strong>{candidate.title}</strong>
+          <span className="muted"> · {candidate.displayState}</span>
+        </div>
+        {/* Many notes have no distinct title — the title IS the full text. Only show
+            the body when it actually adds something beyond the title. */}
+        {candidate.content.trim() !== candidate.title.trim() && <p>{candidate.content}</p>}
+        <code>{candidate.provenance}</code>
+        <button
+          type="button"
+          className="btn primary choice-keep"
+          disabled={busy}
+          onClick={() => {
+            setPending(pairId);
+            void onResolve(pairId, resolution, candidate.id, discardedTitle).finally(() =>
+              setPending(null),
+            );
+          }}
+        >
+          Keep {label}
+        </button>
+      </div>
+    );
+    const draft = customDrafts[pairId] ?? "";
+    const submitCustom = () => {
+      const text = draft.trim();
+      if (!text || !onResolveCustom) return;
+      setPending(pairId);
+      void onResolveCustom(pairId, text).finally(() => setPending(null));
+    };
+    return (
+      <div key={pairId} className="contradiction-pair">
+        <div className="compare-grid">
+          {choice(primary, "Choice A", "keep_primary", rival.title, false)}
+          {choice(rival, "Choice B", "keep_rival", primary.title, true)}
+        </div>
+        {onResolveCustom && (
+          <div className="custom-resolution">
+            <label className="choice-label" htmlFor={`custom-${pairId}`}>
+              Your own resolution
+            </label>
+            <p className="muted custom-hint">
+              Neither choice fits? Write a fact that settles the dispute — it replaces both
+              sides.
+            </p>
+            <textarea
+              id={`custom-${pairId}`}
+              className="custom-input"
+              rows={2}
+              placeholder="e.g. Run migrations automatically on deploy in staging, but require manual approval in production."
+              value={draft}
+              disabled={busy}
+              onChange={(e) =>
+                setCustomDrafts((prev) => ({ ...prev, [pairId]: e.target.value }))
+              }
+            />
+            <div className="action-buttons custom-actions">
               <button
                 type="button"
                 className="btn primary"
-                disabled={pending === pairId}
-                onClick={() => {
-                  setPending(pairId);
-                  void onResolve(pairId, "keep_primary", primary.id, rival.title).finally(() =>
-                    setPending(null),
-                  );
-                }}
+                disabled={busy || !draft.trim()}
+                onClick={submitCustom}
               >
-                Keep {trunc(primary.title)}
-              </button>
-              <button
-                type="button"
-                className="btn"
-                disabled={pending === pairId}
-                onClick={() => {
-                  setPending(pairId);
-                  void onResolve(pairId, "keep_rival", rival.id, rival.title).finally(() =>
-                    setPending(null),
-                  );
-                }}
-              >
-                Keep {trunc(rival.title)}
-              </button>
-              <button
-                type="button"
-                className="btn ghost"
-                onClick={() => onDefer(primary.title, rival.title)}
-                title="Leave both candidates in the queue for later review"
-              >
-                Defer
+                Resolve with my answer
               </button>
             </div>
           </div>
-        );
-      })}
+        )}
+        <div className="action-buttons defer-row">
+          <button
+            type="button"
+            className="btn ghost"
+            disabled={busy}
+            onClick={() => defer(pairId, primary.title, rival.title)}
+            title="Move this contradiction to the Deferred list to decide later"
+          >
+            Defer — decide later
+          </button>
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <div className="contradiction-review">
+      <p className="muted">
+        {activePairs.length} contradiction{activePairs.length === 1 ? "" : "s"} awaiting review.
+        Keep one side or defer to decide later.
+      </p>
+      {activePairs.length === 0 ? (
+        <p className="muted">All contradictions deferred — restore one below to review it.</p>
+      ) : (
+        activePairs.map(renderPair)
+      )}
+
+      {deferredPairs.length > 0 && (
+        <div className="deferred-section">
+          <h3 className="deferred-heading">Deferred ({deferredPairs.length})</h3>
+          {deferredPairs.map((p) => {
+            const pairId = pairKey(p);
+            return (
+              <div key={pairId} className="deferred-row">
+                <span className="deferred-titles">
+                  {p.primary.title} <span className="muted">vs</span> {p.rival.title}
+                </span>
+                <button
+                  type="button"
+                  className="btn"
+                  onClick={() => restore(pairId)}
+                  title="Move this contradiction back into the review queue"
+                >
+                  Move back to review
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
