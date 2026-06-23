@@ -17,10 +17,12 @@ interface ScopePickerProps {
   scopes: EvalScope[];
   selected: string[];
   onChange: (next: string[]) => void;
+  /** Case ids (file scopes) that currently have cached eval data. */
+  cached?: Set<string>;
 }
 
 /** A file-tree style folder browser with multi-select (folders and/or cases). */
-export function ScopePicker({ scopes, selected, onChange }: ScopePickerProps) {
+export function ScopePicker({ scopes, selected, onChange, cached }: ScopePickerProps) {
   const [scope, setScope] = useState("."); // navigation cursor (current folder)
 
   const currentCount = useMemo(
@@ -119,6 +121,13 @@ export function ScopePicker({ scopes, selected, onChange }: ScopePickerProps) {
                       {isDir ? "📁" : "📄"}
                     </span>
                     <span className="eval-runner__entry-name">{leafName(c.scope)}</span>
+                    {!isDir && cached ? (
+                      <span
+                        className={`eval-runner__cache-dot${cached.has(c.scope) ? " is-cached" : ""}`}
+                        title={cached.has(c.scope) ? "cached" : "not cached"}
+                        aria-label={cached.has(c.scope) ? "cached" : "not cached"}
+                      />
+                    ) : null}
                     {isDir ? <span className="eval-runner__entry-count">{c.caseCount}</span> : null}
                     {isDir ? <span className="eval-runner__entry-caret">›</span> : null}
                   </button>
