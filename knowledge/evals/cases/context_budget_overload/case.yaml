@@ -17,7 +17,10 @@ reader_top_k: 8
 seed_prompt: "Write a Python function add(a, b) that returns the sum of its two arguments."
 
 seeded_insight:
-  via_ingestor:
+  # All seeded as direct_to_graph (active) so the reader's FLOOR — not the active
+  # gating — is what keeps the irrelevant facts (incl. ZEBRA_RULE) out. This is a
+  # floor test, not an ingestion test, so via_ingestor would be gratuitous.
+  direct_to_graph:
     - "Indent Python code with 4 spaces; never use tabs."
     - "Wrap all source lines at 88 characters to match the Black formatter."
     - "Run the linter with `uv run ruff check` before opening a pull request."
@@ -43,7 +46,6 @@ seeded_insight:
     - "Unit tests must not make real network calls; stub the HTTP layer."
     - "Use semantic versioning; breaking changes bump the major version."
     - "Pull requests require one approving review before merge."
-  direct_to_graph:
     - "The checkout service charges in the customer's local currency."
     - "Refunds over $500 require manager approval in the admin console."
     - "Inventory counts sync from the warehouse every 15 minutes."

@@ -404,20 +404,33 @@ def _produce_full(case: EvalCase, runner: Runner, llm=None) -> EvalContext:
     return runner.run(case, reader)
 
 
+def _all_facts_text(graph) -> str:
+    """All stored fact texts, regardless of lifecycle state.
+
+    Retrieval is gated to ``active`` facts, but the knowledge_graph/ingestion
+    component tests inspect what was *stored* (writes land as ``proposed``), so they
+    look at every fact rather than the active-gated ``read`` view.
+    """
+    facts = getattr(graph, "facts", None)
+    if facts is not None:
+        return "\n\n".join(f.text for f in facts)
+    return graph.read()
+
+
 def _produce_knowledge_graph(case: EvalCase, runner: Runner, llm=None) -> EvalContext:
-    """Component: write the seeded ``direct_to_graph`` lines, read them back."""
+    """Component: write the seeded ``direct_to_graph`` lines, inspect stored facts."""
     graph, _, _ = _build_trio_for(case, llm=llm)
     for text in case.seeded_insight.direct_to_graph:
         graph.write(text)
-    return EvalContext(case_id=case.id, output=graph.read())
+    return EvalContext(case_id=case.id, output=_all_facts_text(graph))
 
 
 def _produce_ingestion(case: EvalCase, runner: Runner, llm=None) -> EvalContext:
-    """Component: ingest the seeded ``via_ingestor`` lines, read the graph."""
+    """Component: ingest the seeded ``via_ingestor`` lines, inspect stored facts."""
     graph, ingestor, _ = _build_trio_for(case, llm=llm)
     for text in case.seeded_insight.via_ingestor:
         ingestor.ingest(text)
-    return EvalContext(case_id=case.id, output=graph.read())
+    return EvalContext(case_id=case.id, output=_all_facts_text(graph))
 
 
 def _produce_graph_reader(case: EvalCase, runner: Runner, llm=None) -> EvalContext:
@@ -429,9 +442,9 @@ def _produce_graph_reader(case: EvalCase, runner: Runner, llm=None) -> EvalConte
     """
     graph, ingestor, reader = _build_trio_for(case, llm=llm)
     for text in case.seeded_insight.via_ingestor:
-        ingestor.ingest(text)
+        ingestor.ingest(text)  # staged (proposed) -> gated out of retrieval by design
     for text in case.seeded_insight.direct_to_graph:
-        graph.write(text)
+        graph.write(text, state="active")  # pre-curated: retrievable, so the cutoff (not gating) filters
     return EvalContext(case_id=case.id, output=reader.read(case.seed_prompt))
 
 
