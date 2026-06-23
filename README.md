@@ -594,7 +594,7 @@ Agent and editor guidance for contributors lives in [`.cursor/rules/`](.cursor/r
 
 ## License
 
-TBD — Gauntlet AI capstone project (2026).
+This project is licensed under the [MIT License](LICENSE).
 
 ---
 
