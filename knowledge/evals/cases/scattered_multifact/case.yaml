@@ -1,52 +1,55 @@
-# AGGREGATION eval: three SEPARATE graph lines together define one coding
-# convention. The agent must synthesize all three when writing a helper:
-#   (1) snake_case names, (2) one function per file, (3) trailing newline.
-# Full-pipeline (real Claude Code). Offline this is JUDGE-only: the rubric
-# runs through Claude Code and does NOT execute in the offline verify pass,
-# so the deterministic checks (output present, no PascalCase def) are what
-# gate offline. Expected: deterministic checks PASS; rubric is JUDGE.
+# RECALL-UNDER-NOISE eval: graph_reader. Three relevant facts (the conventions for
+# writing a Python helper) are seeded alongside clearly-unrelated FAR distractors.
+# The query is the task; the RetrievingReader must surface ALL THREE conventions
+# (recall — even the weakest) and drop every distractor (precision).
+#
+# This is the FAR-only version (clearly-unrelated distractors) — expected to PASS.
+# Its sibling scattered_multifact_near uses adjacent same-topic distractors to probe
+# the relative-cutoff boundary (provisional).
+#
+# Isolation (§5.1): reader_abs_floor=0 disables the floor so the RELATIVE cutoff
+# alone must (a) keep all three relevant conventions and (b) drop the distractors —
+# this is the constraint that the relative ratio must not cut the weakest relevant.
+#
+# embedder: cached -> committed real-vector fixture; offline/CI. Regenerate with
+# `embed_cache --refresh`.
 id: scattered_multifact
-seed_prompt: |
-  Write a small Python helper function that takes a list of integers and
-  returns only the even ones. Save it to a file named answer.txt in the
-  current directory. Output only the Python source — no commentary, no
-  surrounding prose, no markdown fences.
-target_commit: "0000000000000000000000000000000000000000"  # placeholder reference
-start_commit: null
-repo: null
+component: graph_reader
+substrate: vector
+reader: retrieving
+embedder: cached
+reader_top_k: 8
+reader_abs_floor: 0  # floor OFF — isolate the relative cutoff (recall-under-noise)
+seed_prompt: "What are the code style and file conventions for a Python source file?"
 
 seeded_insight:
   direct_to_graph:
-    - "Naming convention: all Python functions and variables use snake_case (e.g. filter_even_numbers, not filterEvenNumbers or FilterEvenNumbers)."
-    - "Module convention: keep exactly one top-level function per file — never define a second function or class alongside it."
-    - "File convention: every source file must end with a single trailing newline character."
+    # relevant: the three conventions — all must survive (recall). Uniformly framed
+    # as "source file convention" so all three cluster clearly above the cutoff.
+    - "Source file convention: use snake_case for all function and variable names."
+    - "Source file convention: define exactly one top-level function per file."
+    - "Source file convention: end every source file with a single trailing newline."
+    # FAR distractors: clearly unrelated — must be dropped (precision)
+    - "Static assets are served from CloudFront with a 24-hour cache header."
+    - "Email is sent through SES with templated messages."
+    - "The default AWS region for all stacks is us-east-1."
+    - "The brand primary color is the CSS variable --color-primary."
 
 deterministic_checks:
-  - name: produced_output
-    ref: "knowledge.evals.deterministic_checks.builds:output_nonempty"
-  - name: defines_a_function
-    ref: "knowledge.evals.deterministic_checks.text:requires_all_substrings"
-    params:
-      texts:
-        - "def "
-  - name: at_most_one_function
-    ref: "knowledge.evals.deterministic_checks.text:occurs_at_most"
-    params:
-      text: "def "
-      n: 1
-
-rubric:
-  id: scattered_multifact_v1
-  items:
-    - id: snake_case
-      criterion: "The function name and all variable names use snake_case (no camelCase or PascalCase)."
-      weight: 1.0
-    - id: one_function_per_file
-      criterion: "The file defines exactly one top-level function and no additional functions or classes."
-      weight: 1.0
-    - id: trailing_newline
-      criterion: "The file content ends with a single trailing newline character."
-      weight: 1.0
-    - id: correctness
-      criterion: "The function correctly returns only the even integers from the input list."
-      weight: 1.0
+  # recall — all three conventions surface
+  - name: recalls_snake_case
+    ref: "knowledge.evals.deterministic_checks.builds:contains_text"
+    params: {text: "snake_case"}
+  - name: recalls_one_function
+    ref: "knowledge.evals.deterministic_checks.builds:contains_text"
+    params: {text: "one top-level function"}
+  - name: recalls_trailing_newline
+    ref: "knowledge.evals.deterministic_checks.builds:contains_text"
+    params: {text: "trailing newline"}
+  # precision — far distractors dropped
+  - name: drops_cloudfront
+    ref: "knowledge.evals.deterministic_checks.builds:not_contains_text"
+    params: {text: "CloudFront"}
+  - name: drops_ses
+    ref: "knowledge.evals.deterministic_checks.builds:not_contains_text"
+    params: {text: "SES"}

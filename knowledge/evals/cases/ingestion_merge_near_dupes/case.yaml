@@ -1,17 +1,17 @@
-# Component eval: ingestion only (no agent). Feeds the SAME lesson TWICE,
-# phrased differently (trivial wording variation) but sharing the identical
-# load-bearing phrase "use uv run pytest". Runs on the vector substrate so it
-# exercises the real write policy (Redactor -> Deduper -> ConflictFlagger).
-# EXPECTED-FAIL offline: the Deduper does collapse near-duplicates by cosine
-# similarity, but only with a real embedder. The deterministic FakeEmbedder used
-# offline gives identical vectors only for byte-identical text, so these two
-# differently-phrased lines are NOT merged -> "use uv run pytest" appears twice
-# and occurs_at_most(n=1) FAILS. With a real embedder the paraphrases merge and
-# this PASSES. (Pairs with ingestion_dedup, the exact-match arm that passes offline.)
+# Component eval: ingestion only (no agent). Feeds the SAME lesson TWICE, phrased
+# differently (trivial wording variation) but sharing the load-bearing phrase
+# "use uv run pytest". Runs on the vector substrate, so it exercises the real
+# write policy (Redactor -> Deduper). The two phrasings sit at ~0.65 cosine
+# (text-embedding-3-small): the loose recall gate (recall_floor 0.45) surfaces the
+# paraphrase as a candidate, and the MergeJudge confirms "same lesson" -> the two
+# merge into one verbatim survivor, so "use uv run pytest" appears once and
+# occurs_at_most(n=1) PASSES. Replays from the committed merge cassette offline.
+# (Pairs with ingestion_dedup, the exact-match arm.)
 id: ingestion_merge_near_dupes
 component: ingestion
 substrate: vector
-xfail: "offline FakeEmbedder only detects exact-match dups; paraphrase merge needs a real embedder"
+embedder: cached  # real vectors so the recall gate finds the ~0.65 paraphrase candidate
+merge_model: openai/gpt-4o-mini  # MergeJudge decides same-lesson; replayed from the committed cassette
 
 seeded_insight:
   via_ingestor:

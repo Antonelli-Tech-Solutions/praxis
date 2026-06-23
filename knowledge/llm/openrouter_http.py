@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import json
 import os
+import time
+import urllib.error
 import urllib.request
 from typing import Callable
 
@@ -22,13 +24,41 @@ DEFAULT_EMBED_MODEL = "openai/text-embedding-3-small"
 # A POST seam: (url, payload, headers, timeout) -> raw response body (str).
 Poster = Callable[[str, dict, dict, int], str]
 
+# Transient-failure retry policy for the default network POST. Connection resets,
+# timeouts, and 429/5xx are flaky, not fatal — retry with exponential backoff so a
+# single hiccup mid-run (e.g. WinError 10054) doesn't abort the whole eval. Client
+# errors (4xx other than 429) fail fast. The POST seam is injectable, so tests bypass
+# this loop entirely.
+_RETRYABLE_STATUS = {429, 500, 502, 503, 504}
+_MAX_ATTEMPTS = 3
+_BACKOFF_BASE = 0.5  # seconds; doubles each retry (0.5, 1.0, ...)
 
-def default_post(url: str, payload: dict, headers: dict, timeout: int) -> str:
+
+def _request_once(url: str, payload: dict, headers: dict, timeout: int) -> str:
     req = urllib.request.Request(
         url, data=json.dumps(payload).encode("utf-8"), headers=headers, method="POST"
     )
     with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310 - fixed host
         return resp.read().decode("utf-8")
+
+
+def default_post(
+    url: str, payload: dict, headers: dict, timeout: int, *, attempts: int = _MAX_ATTEMPTS
+) -> str:
+    last_exc: Exception | None = None
+    for attempt in range(attempts):
+        try:
+            return _request_once(url, payload, headers, timeout)
+        except urllib.error.HTTPError as exc:
+            if exc.code not in _RETRYABLE_STATUS:
+                raise  # client error (e.g. 400/401) — not transient
+            last_exc = exc
+        except (urllib.error.URLError, OSError) as exc:
+            last_exc = exc  # connection reset / timeout / DNS — transient
+        if attempt + 1 < attempts:
+            time.sleep(_BACKOFF_BASE * 2**attempt)
+    assert last_exc is not None  # only reached after a caught failure
+    raise last_exc
 
 
 def _headers(api_key: str) -> dict:
@@ -54,10 +84,15 @@ def chat_complete(
     api_key: str | None = None,
     temperature: float = 0.0,
     max_tokens: int = 1024,
+    response_format: dict | None = None,
     post: Poster | None = None,
     timeout: int = 120,
 ) -> str:
-    """Return the assistant text for one chat completion."""
+    """Return the assistant text for one chat completion.
+
+    ``response_format`` is passed through to the API (e.g. an OpenAI-style
+    ``{"type": "json_schema", ...}`` spec) to constrain the reply when set.
+    """
     model_name = model or os.getenv("OPENROUTER_MODEL", DEFAULT_CHAT_MODEL)
     payload = {
         "model": model_name,
@@ -65,6 +100,8 @@ def chat_complete(
         "temperature": temperature,
         "max_tokens": max_tokens,
     }
+    if response_format is not None:
+        payload["response_format"] = response_format
     with tracing.llm_span("openrouter.chat", model=model_name, input_value=messages) as span:
         raw = (post or default_post)(
             f"{BASE_URL}/chat/completions", payload, _headers(_require_key(api_key)), timeout

@@ -9,6 +9,7 @@ CLI:
     uv run python -m knowledge.evals.run                   # real Claude Code over all cases
     uv run python -m knowledge.evals.run <case_id>         # real Claude Code, one case
     uv run python -m knowledge.evals.run --fake <case_id>  # offline FakeRunner (no credit)
+    uv run python -m knowledge.evals.run --workers 4       # run cases concurrently (bound by rate limits)
 """
 
 from __future__ import annotations
@@ -46,6 +47,7 @@ RESULTS_DIR = HERE / "results"
 BASELINE_PATH = RESULTS_DIR / "baseline.jsonl"
 RUNS_DIR = RESULTS_DIR / "runs"  # verbose per-run transcripts (gitignored)
 EMBED_CACHE_DIR = HERE / "fixtures" / "embeddings"  # committed real-vector caches
+VERDICT_CACHE_DIR = HERE / "fixtures" / "verdicts"  # committed judge-verdict cassettes
 
 # Overall verdict threshold for a rubric-only case.
 PASS_THRESHOLD = 0.5
@@ -165,6 +167,16 @@ def harness_capabilities() -> set[str]:
         caps.add("real_embeddings")
     if os.getenv("OPENROUTER_API_KEY"):
         caps |= {"real_embeddings", "live_embeddings"}
+    # Merge-judge verdicts: a committed merge cassette replays offline; a live key
+    # can compute them. Either way the dedup cases can run faithfully.
+    merge_dir = VERDICT_CACHE_DIR / "merge"
+    if os.getenv("OPENROUTER_API_KEY") or (merge_dir.exists() and any(merge_dir.glob("*.json"))):
+        caps.add("merge_verdicts")
+    # Conflict-judge verdicts: same shape as merge — a committed conflict cassette
+    # replays offline; a live key can compute them.
+    conflict_dir = VERDICT_CACHE_DIR / "conflict"
+    if os.getenv("OPENROUTER_API_KEY") or (conflict_dir.exists() and any(conflict_dir.glob("*.json"))):
+        caps.add("conflict_verdicts")
     return caps
 
 
@@ -197,6 +209,14 @@ def case_needs(case: EvalCase) -> set[str]:
         needs.add("real_embeddings")
     elif case.embedder == "live":
         needs.add("live_embeddings")
+    # Semantic-merge cases need a merge verdict source (committed cassette or a key),
+    # else they'd silently fall back to exact-dedup and mis-grade -> SKIP instead.
+    if case.merge_model:
+        needs.add("merge_verdicts")
+    # Conflict cases need a conflict verdict source (committed cassette or a key),
+    # else the ConflictFlagger can't decide and the case mis-grades -> SKIP instead.
+    if case.conflict_model:
+        needs.add("conflict_verdicts")
     return needs
 
 
@@ -267,19 +287,79 @@ def _ingest_llm_for(case: EvalCase, llm):
     return lambda prompt: model.complete([ChatMessage(role="user", content=prompt)])
 
 
+def _merge_judge_for(case: EvalCase):
+    """Build the dedup ``MergeJudge`` for a case's ``merge_model`` axis (None => none).
+
+    Mirrors the embedder wiring: a live OpenRouter judge when a key is set, plus a
+    committed verdict cassette for offline replay. With neither, returns None so the
+    ``Deduper`` falls back to exact-dedup only (the case SKIPs via ``merge_verdicts``).
+    """
+    if not case.merge_model:
+        return None
+    from knowledge.knowledge_graph.write_policy.write_step_variants import MergeJudge
+    from knowledge.llm.llm_variants.openrouter_llm import OpenRouterLlm
+    from knowledge.llm.verdict_cassette import VerdictCassette
+
+    has_key = bool(os.getenv("OPENROUTER_API_KEY"))
+    llm = OpenRouterLlm(model=case.merge_model) if has_key else None
+    cache = VERDICT_CACHE_DIR / "merge" / f"{_slug(case.merge_model)}.json"
+    cassette = (
+        VerdictCassette(cache, model_id=case.merge_model, allow_compute=has_key)
+        if (cache.exists() or has_key)
+        else None
+    )
+    if llm is None and cassette is None:
+        return None
+    return MergeJudge(llm=llm, cassette=cassette)
+
+
+def _conflict_judge_for(case: EvalCase):
+    """Build the ``ConflictJudge`` for a case's ``conflict_model`` axis (None => none).
+
+    Mirrors ``_merge_judge_for``: a live OpenRouter judge when a key is set, plus a
+    committed conflict verdict cassette for offline replay. With neither, returns
+    None so the ``ConflictFlagger`` is inert (the case SKIPs via ``conflict_verdicts``).
+    """
+    if not case.conflict_model:
+        return None
+    from knowledge.knowledge_graph.write_policy.write_step_variants import ConflictJudge
+    from knowledge.llm.llm_variants.openrouter_llm import OpenRouterLlm
+    from knowledge.llm.verdict_cassette import VerdictCassette
+
+    has_key = bool(os.getenv("OPENROUTER_API_KEY"))
+    llm = OpenRouterLlm(model=case.conflict_model) if has_key else None
+    cache = VERDICT_CACHE_DIR / "conflict" / f"{_slug(case.conflict_model)}.json"
+    cassette = (
+        VerdictCassette(cache, model_id=case.conflict_model, allow_compute=has_key)
+        if (cache.exists() or has_key)
+        else None
+    )
+    if llm is None and cassette is None:
+        return None
+    return ConflictJudge(llm=llm, cassette=cassette)
+
+
 def _build_trio_for(case: EvalCase, llm=None):
-    """Wire the trio honoring the case's reader/embedder/ingest_model axes."""
+    """Wire the trio honoring reader/embedder/ingest_model/merge_model/conflict_model axes."""
     llm = _ingest_llm_for(case, llm)
     embedder = _eval_embedder(case)
     graph = None
     if case.substrate == "vector" and case.embedder != "fake":
-        # Real-embedder cases seed with a minimal policy: keep redact + dedup (the
-        # dedup cases test it), drop the per-write ConflictFlagger LLM call so
-        # seeding a large graph stays cheap. Fake vector cases keep the default.
+        # Real-embedder cases seed with redact + dedup, plus the ConflictFlagger only
+        # when the case opts into a conflict_model (its cassette replays offline);
+        # otherwise the per-write conflict LLM call is dropped so seeding stays cheap.
         from knowledge.knowledge_graph.knowledge_graph_variants.vector_graph import VectorGraph
-        from knowledge.knowledge_graph.write_policy.write_step_variants import Deduper, Redactor
+        from knowledge.knowledge_graph.write_policy.write_step_variants import (
+            ConflictFlagger,
+            Deduper,
+            Redactor,
+        )
 
-        graph = VectorGraph(embedder=embedder, policy=[Redactor(), Deduper()])
+        policy = [Redactor(), Deduper(judge=_merge_judge_for(case))]
+        conflict_judge = _conflict_judge_for(case)
+        if conflict_judge is not None:
+            policy.append(ConflictFlagger(judge=conflict_judge))
+        graph = VectorGraph(embedder=embedder, policy=policy)
     return build_trio(
         substrate=case.substrate,
         graph=graph,
@@ -287,8 +367,50 @@ def _build_trio_for(case: EvalCase, llm=None):
         reader=case.reader,
         embedder=embedder,
         reader_top_k=case.reader_top_k,
-        reader_min_score=case.reader_min_score,
+        reader_abs_floor=case.reader_abs_floor,
+        reader_rel_ratio=case.reader_rel_ratio,
     )
+
+
+# Optional seed cache: many cases share the exact same seeded knowledge (e.g.
+# every matt/applications case ingests the same resume/LinkedIn/degree docs), and
+# ingestion can be expensive (real LLM distillation + embeddings). When enabled,
+# the seeded reader is cached by a signature of everything that affects the graph,
+# so shared-seed cases reuse one ingestion instead of repeating it.
+_SEED_CACHE: dict[str, object] = {}
+_SEED_CACHE_ENABLED = False
+
+
+def set_seed_cache(enabled: bool) -> None:
+    """Toggle reuse of seeded readers across cases with identical seeds."""
+    global _SEED_CACHE_ENABLED
+    _SEED_CACHE_ENABLED = enabled
+
+
+def clear_seed_cache() -> None:
+    _SEED_CACHE.clear()
+
+
+def _seed_signature(case: EvalCase) -> str:
+    import hashlib
+    import json
+
+    payload = {
+        "substrate": case.substrate,
+        "embedder": case.embedder,
+        "ingest_model": case.ingest_model,
+        "reader": case.reader,
+        "reader_top_k": case.reader_top_k,
+        "reader_abs_floor": case.reader_abs_floor,
+        "reader_rel_ratio": case.reader_rel_ratio,
+        # Judge axes change the seeded graph (merge collapses dups; conflict flags),
+        # so two cases differing only in a judge model must not share a cached seed.
+        "merge_model": case.merge_model,
+        "conflict_model": case.conflict_model,
+        "via_ingestor": list(case.seeded_insight.via_ingestor),
+        "direct_to_graph": list(case.seeded_insight.direct_to_graph),
+    }
+    return hashlib.sha256(json.dumps(payload, sort_keys=True).encode("utf-8")).hexdigest()
 
 
 def _seed_knowledge(case: EvalCase, llm=None):
@@ -296,6 +418,12 @@ def _seed_knowledge(case: EvalCase, llm=None):
 
     The graph initializes itself (in-memory for the MVP) — no path, no file.
     """
+    if _SEED_CACHE_ENABLED:
+        sig = _seed_signature(case)
+        cached = _SEED_CACHE.get(sig)
+        if cached is not None:
+            return cached
+
     graph, ingestor, reader = _build_trio_for(case, llm=llm)
     # Channel encodes the write intent -> the state the fact lands in:
     #   * direct_to_graph -> "active": simulates a direct user approval.
@@ -304,6 +432,9 @@ def _seed_knowledge(case: EvalCase, llm=None):
         graph.write(text, state="active")
     for text in case.seeded_insight.via_ingestor:
         ingestor.ingest(text, state="proposed")
+
+    if _SEED_CACHE_ENABLED:
+        _SEED_CACHE[sig] = reader
     return reader
 
 
@@ -321,20 +452,50 @@ def _produce_full(case: EvalCase, runner: Runner, llm=None) -> EvalContext:
     return runner.run(case, reader)
 
 
+def _all_facts_text(graph) -> str:
+    """All stored fact texts, regardless of lifecycle state.
+
+    Retrieval is gated to ``active`` facts, but the knowledge_graph/ingestion
+    component tests inspect what was *stored* (writes land as ``proposed``), so they
+    look at every fact rather than the active-gated ``read`` view.
+    """
+    facts = getattr(graph, "facts", None)
+    if facts is not None:
+        return "\n\n".join(f.text for f in facts)
+    return graph.read()
+
+
+def _contradictions_summary(graph) -> str:
+    """Render the graph's flagged contradictions as greppable lines (empty if none).
+
+    Conflict cases assert the ConflictFlagger fired; the flag lives on a fact, not
+    in its text, so surface ``graph.contradictions()`` into the graded output. A
+    pure superset: graphs with no flagged pair add nothing.
+    """
+    pairs = graph.contradictions() if hasattr(graph, "contradictions") else []
+    if not pairs:
+        return ""
+    lines = [
+        f"CONTRADICTION: {p.flagged.text!r} contradicts {p.conflicting.text!r}" for p in pairs
+    ]
+    return "\n\n" + "\n".join(lines)
+
+
 def _produce_knowledge_graph(case: EvalCase, runner: Runner, llm=None) -> EvalContext:
-    """Component: write the seeded ``direct_to_graph`` lines, read them back."""
+    """Component: write the seeded ``direct_to_graph`` lines, inspect stored facts."""
     graph, _, _ = _build_trio_for(case, llm=llm)
     for text in case.seeded_insight.direct_to_graph:
         graph.write(text)
-    return EvalContext(case_id=case.id, output=graph.read())
+    output = _all_facts_text(graph) + _contradictions_summary(graph)
+    return EvalContext(case_id=case.id, output=output)
 
 
 def _produce_ingestion(case: EvalCase, runner: Runner, llm=None) -> EvalContext:
-    """Component: ingest the seeded ``via_ingestor`` lines, read the graph."""
+    """Component: ingest the seeded ``via_ingestor`` lines, inspect stored facts."""
     graph, ingestor, _ = _build_trio_for(case, llm=llm)
     for text in case.seeded_insight.via_ingestor:
         ingestor.ingest(text)
-    return EvalContext(case_id=case.id, output=graph.read())
+    return EvalContext(case_id=case.id, output=_all_facts_text(graph))
 
 
 def _produce_graph_reader(case: EvalCase, runner: Runner, llm=None) -> EvalContext:
@@ -346,9 +507,9 @@ def _produce_graph_reader(case: EvalCase, runner: Runner, llm=None) -> EvalConte
     """
     graph, ingestor, reader = _build_trio_for(case, llm=llm)
     for text in case.seeded_insight.via_ingestor:
-        ingestor.ingest(text)
+        ingestor.ingest(text)  # staged (proposed) -> gated out of retrieval by design
     for text in case.seeded_insight.direct_to_graph:
-        graph.write(text)
+        graph.write(text, state="active")  # pre-curated: retrievable, so the cutoff (not gating) filters
     return EvalContext(case_id=case.id, output=reader.read(case.seed_prompt))
 
 
@@ -596,6 +757,14 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="OpenRouter via structured file output — grades file artifacts (file_io) on the cheap backend",
     )
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=1,
+        metavar="N",
+        help="run N cases concurrently (default 1, serial). Cases are independent; "
+        "bound this to respect API rate limits.",
+    )
     args = parser.parse_args(argv)
 
     # Load .env (PHOENIX_*, OPENROUTER_*) and light up tracing if configured.
@@ -633,11 +802,24 @@ def main(argv: list[str] | None = None) -> int:
     print(f"running {len(cases)} case(s) through {_BACKEND_LABEL[kind]}...")
 
     run_id = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
-    results = []
-    for case in cases:
+
+    def _run_one(case: EvalCase) -> CaseResult:
         ctx, judge_result, run_result = run_case_full(case, runner, judge=judge)
-        results.append(run_result)
+        # Transcripts are per-case files, so writing them as each case finishes is
+        # safe under concurrency and preserves partial progress if a later case dies.
         write_transcript(build_transcript(case, ctx, judge_result, run_result, run_id))
+        return run_result
+
+    if args.workers > 1:
+        from concurrent.futures import ThreadPoolExecutor
+
+        # Cases are independent (own sandbox + own in-process graph); they're
+        # I/O-bound on the agent/judge/embed calls, so threads give real overlap.
+        # pool.map preserves input order, keeping the scoreboard stable.
+        with ThreadPoolExecutor(max_workers=args.workers) as pool:
+            results = list(pool.map(_run_one, cases))
+    else:
+        results = [_run_one(case) for case in cases]
     write_baseline(results)
 
     tally: dict[str, int] = {}

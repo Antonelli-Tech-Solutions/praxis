@@ -1,0 +1,35 @@
+# Component eval: write policy only (no agent). Writes two flatly contradictory,
+# equally-authoritative indentation rules directly to the graph. Runs on the
+# vector substrate, so it exercises the real write policy (Redactor -> Deduper ->
+# ConflictFlagger). The two rules sit at high cosine (~0.8+, text-embedding-3-small)
+# and share no exact text, so the loose recall gate (recall_floor 0.45) surfaces
+# the first as a candidate when the second is written; the ConflictJudge confirms
+# the contradiction and the ConflictFlagger records a contradiction:<id> flag, so
+# graph.contradictions() is non-empty and "CONTRADICTION" appears in the output.
+# Replays from the committed conflict cassette offline (no live calls).
+#
+# This is the structured-output, offline-deterministic arm for the conflict path
+# (the negation case): it pins the ConflictFlagger's {contradicts} verdict, where
+# the full-pipeline contradiction_should_flag / scoped_conflict cases instead grade
+# the live agent's prose handling of a seeded conflict.
+id: conflict_should_flag
+component: knowledge_graph
+substrate: vector
+embedder: cached  # real vectors so the recall gate finds the contradictory candidate
+conflict_model: openai/gpt-4o-mini  # ConflictJudge decides contradicts; replayed from the committed cassette
+
+seeded_insight:
+  via_ingestor: []
+  direct_to_graph:
+    - "Always use tabs for indentation in this project. Spaces are forbidden."
+    - "Always use spaces for indentation in this project. Tabs are forbidden."
+
+deterministic_checks:
+  - name: contradiction_flagged
+    ref: "knowledge.evals.deterministic_checks.text:regex_matches"
+    params:
+      pattern: "(?i)CONTRADICTION"
+  - name: both_rules_kept
+    ref: "knowledge.evals.deterministic_checks.text:requires_all_substrings"
+    params:
+      texts: ["tabs", "spaces"]

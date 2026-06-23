@@ -1,14 +1,16 @@
 """Shapes for the write-policy pipeline.
 
 A ``WriteDecision`` flows through the ordered steps (each mutating it); the store
-then enacts the final decision. ``StoreView`` is the read-only window a step gets
-onto the existing facts plus similarity search.
+then enacts the final decision. The store does **one** candidate-recall pass per
+write (embed once, search once) and hands the result to the steps on
+``WriteDecision.candidates`` — steps read that shared set rather than searching
+themselves, so the incoming text is embedded exactly once (SC-007).
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Literal, Protocol
+from typing import Literal
 
 from knowledge.knowledge_graph.knowledge_graph_def import SearchHit
 
@@ -28,6 +30,11 @@ class WriteDecision:
     ``state`` is the lifecycle state the new fact lands in; it is decided by the
     caller (direct approval -> "active", passive add -> "proposed") and the steps
     leave it alone — they only decide add/dedup/conflict, not endorsement.
+
+    ``embedding`` and ``candidates`` are filled once by the store before the steps
+    run: the incoming text's vector and the single recall pass (existing facts
+    above the shared ``recall_floor``, best first). Persistence reuses
+    ``embedding`` so the write embeds the text exactly once.
     """
 
     text: str
@@ -39,10 +46,6 @@ class WriteDecision:
     supersede_ids: list[str] = field(default_factory=list)
     flags: list[str] = field(default_factory=list)  # e.g. ["contradiction:<id>"]
     dropped: bool = False  # a step suppressed this write entirely
-
-
-class StoreView(Protocol):
-    """The read-only window a write step has onto the store."""
-
-    def most_similar(self, text: str, k: int = 5) -> list[SearchHit]:
-        """Top-k existing facts most similar to ``text`` (best first)."""
+    # Shared per-write recall (filled by the store before the steps run).
+    embedding: list[float] | None = None
+    candidates: list[SearchHit] = field(default_factory=list)

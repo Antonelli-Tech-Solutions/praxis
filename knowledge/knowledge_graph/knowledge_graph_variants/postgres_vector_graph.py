@@ -23,9 +23,10 @@ from pgvector import Vector
 from knowledge.knowledge_graph.knowledge_graph_def import Fact, SearchHit
 from knowledge.knowledge_graph.parent_searchable_graph import SearchableGraph
 from knowledge.knowledge_graph.write_policy.parent_write_step import WriteStep
-from knowledge.knowledge_graph.write_policy.write_policy_def import StoreView, WriteDecision
+from knowledge.knowledge_graph.write_policy.write_policy_def import WriteDecision
 from knowledge.knowledge_graph.write_policy.write_step_variants import (
     ConflictFlagger,
+    ConflictJudge,
     Deduper,
     Redactor,
 )
@@ -51,7 +52,7 @@ def default_write_policy(llm: Llm | None = None) -> list[WriteStep]:
     Mirrors ``VectorGraph``'s default; the forced-overwrite add path injects a
     ``ConflictOverwriter`` policy instead.
     """
-    return [Redactor(), Deduper(), ConflictFlagger(llm=llm or OpenRouterLlm())]
+    return [Redactor(), Deduper(), ConflictFlagger(judge=ConflictJudge(llm=llm or OpenRouterLlm()))]
 
 
 def _fit(vec: list[float]) -> Vector:
@@ -79,6 +80,8 @@ class PostgresVectorGraph(SearchableGraph):
         *,
         embedder: Embedder | None = None,
         policy: list[WriteStep] | None = None,
+        recall_floor: float = 0.45,
+        recall_k: int = 5,
     ) -> None:
         self._conn = conn
         self.org_id = org_id
@@ -86,6 +89,10 @@ class PostgresVectorGraph(SearchableGraph):
         # Real defaults for production; tests inject deterministic fakes.
         self.embedder = embedder or OpenRouterEmbedder()
         self.policy = policy if policy is not None else default_write_policy()
+        # One shared recall gate for both judges (loose, high-recall): the single
+        # per-write candidate pass keeps facts scoring >= recall_floor (top recall_k).
+        self.recall_floor = recall_floor
+        self.recall_k = recall_k
 
     # --- KnowledgeGraph contract -------------------------------------------
     def read(self, context: str | None = None) -> str:
@@ -119,9 +126,14 @@ class PostgresVectorGraph(SearchableGraph):
             return
         decision = WriteDecision(text=content, state="active" if state == "active" else "proposed")
         for step in self.policy:
-            step.apply(decision, self)
+            if step.consumes_candidates and decision.embedding is None:
+                self._recall(decision)  # embed once + one shared candidate pass
+            step.apply(decision)
         if decision.dropped:
             return
+        if decision.embedding is None:
+            # No candidate-consuming step ran; still embed once for persistence.
+            decision.embedding = self._embed(decision.text)
         if decision.action == "update" and decision.update_target_id:
             self._merge(decision)
             return
@@ -138,8 +150,25 @@ class PostgresVectorGraph(SearchableGraph):
         top_k: int = 10,
         filters: dict | None = None,
         scope: str | None = None,
+        state: str | None = "active",
     ) -> list[SearchHit]:
-        qvec = _fit(self._embed(query))
+        return self._search_vec(
+            _fit(self._embed(query)),
+            top_k=top_k,
+            filters=filters,
+            scope=scope,
+            state=state,
+        )
+
+    def _search_vec(
+        self,
+        qvec: Vector,
+        *,
+        top_k: int = 10,
+        filters: dict | None = None,
+        scope: str | None = None,
+        state: str | None = "active",
+    ) -> list[SearchHit]:
         sql = (
             "SELECT id, text, source, confidence, scope, category, "
             "observation_count, state, 1 - (embedding <=> %s) AS score "
@@ -148,6 +177,9 @@ class PostgresVectorGraph(SearchableGraph):
             "AND embedding IS NOT NULL"
         )
         params: list[object] = [qvec, self.org_id, self.user_id]
+        if state is not None:
+            sql += " AND state = %s"
+            params.append(state)
         if scope is not None:
             sql += " AND scope = %s"
             params.append(scope)
@@ -174,9 +206,17 @@ class PostgresVectorGraph(SearchableGraph):
             for r in rows
         ]
 
-    # --- StoreView (used by write steps) -----------------------------------
-    def most_similar(self, text: str, k: int = 5) -> list[SearchHit]:
-        return self.search(text, top_k=k)
+    # --- shared per-write recall (feeds the write steps) -------------------
+    def _recall(self, decision: WriteDecision) -> None:
+        """Embed the incoming text once and run the single candidate pass.
+
+        Fills ``decision.embedding`` and ``decision.candidates`` (existing facts
+        scoring >= ``recall_floor``, best first, capped at ``recall_k``). Dedup and
+        conflict both see pending facts, so this searches all states.
+        """
+        decision.embedding = self._embed(decision.text)
+        hits = self._search_vec(_fit(decision.embedding), top_k=self.recall_k, state=None)
+        decision.candidates = [h for h in hits if h.score >= self.recall_floor]
 
     # --- internals ----------------------------------------------------------
     def _embed(self, text: str) -> list[float]:
@@ -186,9 +226,12 @@ class PostgresVectorGraph(SearchableGraph):
         return vec
 
     def _recent(self, limit: int) -> list[Fact]:
+        # Backs the no-context ``read`` path, so it surfaces only retrievable
+        # ("active") facts, matching ``search``'s gating.
         rows = self._conn.execute(
             "SELECT id, text, source, confidence, scope, category, observation_count, state "
             "FROM facts WHERE org_id = %s AND (shared OR user_id = %s) "
+            "AND state = 'active' "
             "ORDER BY created_at DESC LIMIT %s",
             (self.org_id, self.user_id, limit),
         ).fetchall()
@@ -208,7 +251,7 @@ class PostgresVectorGraph(SearchableGraph):
 
     def _add(self, decision: WriteDecision) -> None:
         # Human-approved adds enter at full credibility (confidence default 1.0).
-        embedding = _fit(self._embed(decision.text))
+        embedding = _fit(decision.embedding)  # reuse the vector from _recall
         self._conn.execute(
             "INSERT INTO facts (id, org_id, user_id, text, source, confidence, "
             "scope, category, state, embedding) "
@@ -240,7 +283,7 @@ class PostgresVectorGraph(SearchableGraph):
         # Forced upsert: the new approved truth replaces the nearest conflicting
         # fact in place (landing at the decision's state), then any other
         # contradictions decay, so no contradictory pair lingers.
-        embedding = _fit(self._embed(decision.text))
+        embedding = _fit(decision.embedding)  # reuse the vector from _recall
         self._conn.execute(
             "UPDATE facts SET text = %s, embedding = %s, source = %s, state = %s, "
             "confidence = 1.0, observation_count = observation_count + 1 "

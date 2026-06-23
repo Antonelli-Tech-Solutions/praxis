@@ -47,10 +47,12 @@ def _trio(conn, org, user):
         user,
         embedder=FakeEmbedder(),
         # FakeEmbedder only scores identical text as similar, so cross-text
-        # contradictions sit at ~0 similarity; floor=0 lets the overwriter (whose
-        # FakeLlm always says "yes") fire deterministically offline. Real runs use
-        # the default floor with semantic embeddings.
-        policy=[Redactor(), Deduper(), ConflictOverwriter(llm=FakeLlm(default="yes"), similarity_floor=-1.0)],
+        # contradictions sit at ~0 similarity; recall_floor=-1.0 opts them into the
+        # shared recall pass so the overwriter (whose FakeLlm always says "yes")
+        # fires deterministically offline. Real runs use the default floor with
+        # semantic embeddings.
+        recall_floor=-1.0,
+        policy=[Redactor(), Deduper(), ConflictOverwriter(llm=FakeLlm(default="yes"))],
     )
     return build_trio(graph=graph, llm=None)
 
@@ -58,7 +60,8 @@ def _trio(conn, org, user):
 def test_persist_and_retrieve(unique_org):
     conn = db.connect()
     graph, ingestor, reader = _trio(conn, unique_org, "u1")
-    ingestor.ingest("use uv, not pip, in this repo")
+    # Retrieval only surfaces "active" facts, so ingest as a direct approval.
+    ingestor.ingest("use uv, not pip, in this repo", state="active")
     assert _count(conn, unique_org, "u1") == 1
     out = reader.read("how do I install dependencies?")
     assert "uv" in out

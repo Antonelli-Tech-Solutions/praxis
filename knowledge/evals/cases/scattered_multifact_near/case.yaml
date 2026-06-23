@@ -1,0 +1,53 @@
+# RECALL-UNDER-NOISE eval (NEAR variant): graph_reader. Same three relevant
+# conventions as scattered_multifact, but the distractors are ADJACENT same-topic
+# Python code-style rules (4-space indent, 88-char wrap, type annotations). They
+# sit close to the relevant conventions in embedding space, so this probes whether
+# the relative cutoff can separate "the asserted conventions" from "other code
+# conventions".
+#
+# PROVISIONAL (xfail): we expect the near distractors to NOT separate cleanly — the
+# relative cutoff likely keeps them too (same topic), so the precision checks fail.
+# Either outcome is informative: XFAIL = the cutoff can't split same-topic facts (the
+# documented boundary); XPASS = it's sharper than expected (promote). Asserts real
+# behavior, not a tuned pass (see eval-assert-actual-behavior).
+#
+# embedder: cached -> committed real-vector fixture; offline/CI.
+id: scattered_multifact_near
+component: graph_reader
+substrate: vector
+reader: retrieving
+embedder: cached
+reader_top_k: 8
+reader_abs_floor: 0  # floor OFF — isolate the relative cutoff (boundary probe)
+seed_prompt: "What are the code style and file conventions for a Python source file?"
+xfail: "boundary: near same-topic distractors likely aren't separable from the relevant conventions by the relative cutoff — provisional"
+
+seeded_insight:
+  direct_to_graph:
+    # relevant: the three conventions — all must survive (recall)
+    - "Source file convention: use snake_case for all function and variable names."
+    - "Source file convention: define exactly one top-level function per file."
+    - "Source file convention: end every source file with a single trailing newline."
+    # NEAR distractors: adjacent same-topic code style — boundary; may survive
+    - "Indent Python code with 4 spaces, never tabs."
+    - "Wrap source lines at 88 characters to match Black."
+    - "Type-annotate every public function signature."
+
+deterministic_checks:
+  # recall — all three conventions surface
+  - name: recalls_snake_case
+    ref: "knowledge.evals.deterministic_checks.builds:contains_text"
+    params: {text: "snake_case"}
+  - name: recalls_one_function
+    ref: "knowledge.evals.deterministic_checks.builds:contains_text"
+    params: {text: "one top-level function"}
+  - name: recalls_trailing_newline
+    ref: "knowledge.evals.deterministic_checks.builds:contains_text"
+    params: {text: "trailing newline"}
+  # precision — near distractors dropped (the boundary; may fail)
+  - name: drops_indent_rule
+    ref: "knowledge.evals.deterministic_checks.builds:not_contains_text"
+    params: {text: "4 spaces"}
+  - name: drops_linewrap_rule
+    ref: "knowledge.evals.deterministic_checks.builds:not_contains_text"
+    params: {text: "88 characters"}

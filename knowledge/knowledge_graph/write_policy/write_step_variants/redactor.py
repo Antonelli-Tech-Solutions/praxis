@@ -10,7 +10,7 @@ from __future__ import annotations
 import re
 
 from knowledge.knowledge_graph.write_policy.parent_write_step import WriteStep
-from knowledge.knowledge_graph.write_policy.write_policy_def import StoreView, WriteDecision
+from knowledge.knowledge_graph.write_policy.write_policy_def import WriteDecision
 
 _PLACEHOLDER = "[REDACTED]"
 
@@ -23,7 +23,7 @@ _PATTERNS = [
 
 
 class Redactor(WriteStep):
-    def apply(self, decision: WriteDecision, store: StoreView) -> None:
+    def apply(self, decision: WriteDecision) -> None:
         text = decision.text
         for pattern in _PATTERNS:
             text = pattern.sub(_PLACEHOLDER, text)
