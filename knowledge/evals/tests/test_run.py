@@ -298,6 +298,7 @@ def test_key_provides_both_embedding_capabilities(monkeypatch, tmp_path):
         "live_embeddings",
         "merge_verdicts",
         "conflict_verdicts",
+        "tag_verdicts",
     }
 
 
