@@ -72,18 +72,18 @@ Single Python package at repo root: `knowledge/...`. Tests live in per-package `
 
 ### Shared cassette infrastructure (delivered here, reused by US3)
 
-- [ ] T017 [US2] Implement `VerdictCassette` in `knowledge/llm/verdict_cassette.py` (keyed `sha256(model+payload)→verdict`, replay/record/loud-miss/skip, merge-on-save under a process lock) per `contracts/verdict-cassette.md`
-- [ ] T018 [P] [US2] Cassette tests: replay hit, record-on-miss-with-key, loud-miss-when-disabled, skip-when-no-key, concurrent-save merge, in `knowledge/llm/tests/test_verdict_cassette.py`
+- [X] T017 [US2] Implement `VerdictCassette` in `knowledge/llm/verdict_cassette.py` (keyed `sha256(model+payload)→verdict`, replay/record/loud-miss, merge-on-save under a process lock)
+- [X] T018 [P] [US2] Cassette tests (5): replay hit, record-on-miss, loud-miss-when-disabled, model-id-in-key, concurrent-save merge, in `knowledge/tests/test_verdict_cassette.py`
 
 ### Tests for User Story 2 (write first, ensure they FAIL)
 
-- [ ] T019 [P] [US2] `MergeJudge` stub-judge tests: `same_lesson` true/false, `keep_id` selects an existing verbatim survivor, distinct ideas preserved, in `knowledge/knowledge_graph/write_policy/tests/test_merge_judge.py`
-- [ ] T020 [P] [US2] `Deduper` tests: exact-match short-circuit unchanged; recall-gate→judge ordering; below-floor candidates skip the judge, in `knowledge/knowledge_graph/write_policy/tests/test_deduper.py`
+- [X] T019 [P] [US2] `MergeJudge` tests (5): same_lesson true/false, skip-when-no-source, cassette replay, verbatim-survivor, in `knowledge/knowledge_graph/write_policy/tests/test_merge_judge.py`
+- [X] T020 [P] [US2] `Deduper` tests (added to `knowledge/tests/test_write_policy.py`): exact short-circuit unchanged, semantic-merge-on-yes, no-merge-on-no, below-floor skips the judge, no-judge=exact-only
 
 ### Implementation for User Story 2
 
-- [ ] T021 [US2] Implement `MergeJudge` in `knowledge/knowledge_graph/write_policy/write_step_variants/merge_judge.py` (structured `{same_lesson, keep_id}` over `OpenRouterLlm`, backed by `VerdictCassette`) per `contracts/judge-schemas.md`
-- [ ] T022 [US2] Update `Deduper` in `knowledge/knowledge_graph/write_policy/write_step_variants/deduper.py`: rename `threshold`→`recall_floor`; keep exact short-circuit; replace `score>=threshold` with recall-gate + `MergeJudge`
+- [X] T021 [US2] Implement `MergeJudge` in `knowledge/knowledge_graph/write_policy/write_step_variants/merge_judge.py` (yes/no same-lesson over `OpenRouterLlm`, backed by `VerdictCassette`; existing note is the verbatim survivor; skip when no source)
+- [X] T022 [US2] Update `Deduper`: `threshold`→`recall_floor`; exact short-circuit kept; recall-gate → `MergeJudge`; no-judge = exact-only (backward compatible — all existing `Deduper()` callers still work)
 - [ ] T023 [US2] Wire the merge cassette into `knowledge/evals/run.py` (graceful skip when no key/cassette)
 - [ ] T024 [US2] Add merge/conflict cassette regenerator `knowledge/evals/verdict_cache.py` (mirrors `embed_cache.py`, `--refresh`)
 - [ ] T025 [US2] Generate + commit the merge verdict cassette `knowledge/evals/fixtures/verdicts/merge/<model-slug>.json`

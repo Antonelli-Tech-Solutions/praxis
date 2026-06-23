@@ -7,6 +7,7 @@ from knowledge.knowledge_graph.write_policy.write_step_variants.conflict_overwri
     ConflictOverwriter,
 )
 from knowledge.knowledge_graph.write_policy.write_step_variants.deduper import Deduper
+from knowledge.knowledge_graph.write_policy.write_step_variants.merge_judge import MergeJudge
 from knowledge.knowledge_graph.write_policy.write_step_variants.redactor import Redactor
 
-__all__ = ["Redactor", "Deduper", "ConflictFlagger", "ConflictOverwriter"]
+__all__ = ["Redactor", "Deduper", "MergeJudge", "ConflictFlagger", "ConflictOverwriter"]
