@@ -269,7 +269,11 @@ export function CandidateTable({
                     aria-selected={isSelected}
                     aria-label={`Select ${candidate.title}`}
                   >
-                    <td>{candidate.title}</td>
+                    <td>
+                      <span className="title-cell" title={candidate.title}>
+                        {candidate.title}
+                      </span>
+                    </td>
                     <td>
                       <StateBadge state={candidate.state} label={candidate.displayState} />
                     </td>

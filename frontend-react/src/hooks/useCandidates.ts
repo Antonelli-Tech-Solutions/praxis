@@ -121,6 +121,23 @@ export function useCandidates(options: UseCandidatesOptions) {
     [provider, applyCandidate, refreshCandidateFromProvider],
   );
 
+  const resolveContradictionCustom = useCallback(
+    async (contradictionId: string, customText: string) => {
+      if (!provider.resolveContradictionCustom) {
+        throw new Error("Custom resolution isn't available for this data source.");
+      }
+      const created = await provider.resolveContradictionCustom(contradictionId, customText);
+      applyCandidate(created);
+      // Both original sides are decayed server-side — refresh them so the UI drops
+      // them from the active queue.
+      const affectedIds = Array.from(new Set(contradictionId.split("__")));
+      await Promise.all(affectedIds.map((id) => refreshCandidateFromProvider(id)));
+      setLastAction(`Resolved contradiction with a custom answer: "${created.title}".`);
+      return created;
+    },
+    [provider, applyCandidate, refreshCandidateFromProvider],
+  );
+
   const createCandidate = useCallback(
     async (input: CandidateWriteInput) => {
       const created = await provider.createCandidate(input);
@@ -176,6 +193,7 @@ export function useCandidates(options: UseCandidatesOptions) {
     promote,
     reject,
     resolveContradiction,
+    resolveContradictionCustom,
     createCandidate,
     updateCandidate,
     deleteCandidate,

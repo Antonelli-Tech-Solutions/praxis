@@ -37,6 +37,9 @@ class Fact(BaseModel):
     cluster_label: str | None = None
     embedding: list[float] | None = None
     flags: list[str] = Field(default_factory=list)  # e.g. ["contradiction:<id>"]
+    # Controlled-vocabulary aspect labels assigned at write time (Tier-B gated
+    # experiment): a second, non-similarity recall key for the conflict path.
+    tags: list[str] = Field(default_factory=list)
 
 
 class SearchHit(BaseModel):

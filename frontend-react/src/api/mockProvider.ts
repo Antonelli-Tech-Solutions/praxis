@@ -17,95 +17,10 @@ import {
   type CandidateWriteInput,
 } from "./candidateCrud";
 import type { DataProvider } from "./dataProvider";
-import type { Candidate, EvalMetrics, RawCandidate } from "../types/candidate";
+import type { Candidate, RawCandidate } from "../types/candidate";
 import type {
   KnowledgeGraphSnapshot,
 } from "../types/graph";
-
-const PLACEHOLDER_METRICS: EvalMetrics = {
-  source: "placeholder",
-  correctionRate: [1.0, 0.72, 0.48, 0.35],
-  sessions: ["cold", "run_1", "run_2", "run_3"],
-  correctionsBefore: 12,
-  correctionsAfter: 5,
-};
-
-const MOCK_EVAL_METRICS_URL = "/mock-eval-metrics.json";
-
-function metricsFromPayload(
-  payload: Record<string, unknown>,
-  source: string,
-): EvalMetrics {
-  return {
-    source,
-    correctionRate:
-      (payload.correction_rate as number[]) ??
-      (payload.correctionRate as number[]) ??
-      PLACEHOLDER_METRICS.correctionRate,
-    sessions:
-      (payload.sessions as string[] | undefined) ??
-      PLACEHOLDER_METRICS.sessions,
-    correctionsBefore:
-      (payload.corrections_before as number | undefined) ??
-      (payload.correctionsBefore as number | undefined) ??
-      PLACEHOLDER_METRICS.correctionsBefore,
-    correctionsAfter:
-      (payload.corrections_after as number | undefined) ??
-      (payload.correctionsAfter as number | undefined) ??
-      PLACEHOLDER_METRICS.correctionsAfter,
-  };
-}
-
-function placeholderMetrics(fetchError?: string): EvalMetrics {
-  return fetchError
-    ? { ...PLACEHOLDER_METRICS, fetchError }
-    : PLACEHOLDER_METRICS;
-}
-
-let mockEvalMetricsPromise: Promise<EvalMetrics> | null = null;
-
-function fetchMockEvalMetrics(): Promise<EvalMetrics> {
-  if (!mockEvalMetricsPromise) {
-    mockEvalMetricsPromise = fetch(MOCK_EVAL_METRICS_URL)
-      .then(async (response) => {
-        if (!response.ok) {
-          throw new Error(response.statusText);
-        }
-        const payload = (await response.json()) as Record<string, unknown>;
-        return metricsFromPayload(payload, "mock");
-      })
-      .catch((error: unknown) =>
-        placeholderMetrics(
-          error instanceof Error ? error.message : "Mock eval metrics unavailable",
-        ),
-      );
-  }
-  return mockEvalMetricsPromise;
-}
-
-function fetchEvalMetrics(
-  url: string | undefined,
-  token: string | undefined,
-): Promise<EvalMetrics> {
-  if (!url) {
-    return fetchMockEvalMetrics();
-  }
-  return fetch(url, {
-    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-  })
-    .then(async (response) => {
-      if (!response.ok) {
-        throw new Error(response.statusText);
-      }
-      const payload = (await response.json()) as Record<string, unknown>;
-      return metricsFromPayload(payload, url);
-    })
-    .catch((error: unknown) =>
-      placeholderMetrics(
-        error instanceof Error ? error.message : "Eval metrics unavailable",
-      ),
-    );
-}
 
 function syncGraphNodeState(
   graph: KnowledgeGraphSnapshot,
@@ -121,8 +36,6 @@ function syncGraphNodeState(
 export function createMockDataProviderWithRows(
   rows: RawCandidate[],
   graphSnapshot?: KnowledgeGraphSnapshot,
-  evalMetricsUrl?: string,
-  apiToken?: string,
 ): DataProvider {
   let candidates = rows.map(candidateFromMapping);
   let graph = graphSnapshot
@@ -261,10 +174,6 @@ export function createMockDataProviderWithRows(
       return updated ?? kept;
     },
 
-    async getEvalMetrics() {
-      return fetchEvalMetrics(evalMetricsUrl, apiToken);
-    },
-
     async getGraph() {
       return cloneGraphSnapshot(graph);
     },
@@ -275,10 +184,7 @@ export function createMockDataProviderWithRows(
   };
 }
 
-export function createMockDataProvider(
-  evalMetricsUrl?: string,
-  apiToken?: string,
-): DataProvider {
+export function createMockDataProvider(): DataProvider {
   let delegate: DataProvider | null = null;
 
   async function load(): Promise<DataProvider> {
@@ -300,8 +206,6 @@ export function createMockDataProvider(
       delegate = createMockDataProviderWithRows(
         parseCandidateList(candidatesPayload),
         graphSnapshot,
-        evalMetricsUrl,
-        apiToken,
       );
     }
     return delegate;
@@ -342,10 +246,6 @@ export function createMockDataProvider(
         resolution,
         keepId,
       );
-    },
-
-    async getEvalMetrics() {
-      return fetchEvalMetrics(evalMetricsUrl, apiToken);
     },
 
     async getGraph() {

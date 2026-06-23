@@ -16,7 +16,6 @@ import {
   uniqueContradictionPairs,
 } from "./components/ContradictionsReview";
 import { GraphExplorer } from "./components/graph/GraphExplorer";
-import { EvalMetricsEmbed } from "./components/EvalMetricsEmbed";
 import { McpSetupGuide } from "./components/McpSetupGuide";
 import { AppShell } from "./components/layout/AppShell";
 import { ContentSplit } from "./components/layout/ContentSplit";
@@ -60,6 +59,7 @@ export default function App() {
     promote,
     reject,
     resolveContradiction,
+    resolveContradictionCustom,
     createCandidate,
     updateCandidate,
     deleteCandidate,
@@ -293,6 +293,15 @@ export default function App() {
     }
   }
 
+  async function handleResolveCustom(contradictionId: string, customText: string) {
+    setActionError(null);
+    try {
+      await resolveContradictionCustom(contradictionId, customText);
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : String(err));
+    }
+  }
+
   const knowledgeView =
     viewTab === "graph" ? (
       graph ? (
@@ -418,6 +427,7 @@ export default function App() {
         <ContradictionsReview
           candidates={candidates}
           onResolve={handleResolve}
+          onResolveCustom={handleResolveCustom}
           onDefer={handleDefer}
         />
       ) : (
@@ -439,8 +449,6 @@ export default function App() {
           }
         />
       )}
-
-      {viewTab !== "setup" ? <EvalMetricsEmbed provider={provider} /> : null}
 
       <CandidateEditorModal
         mode={editorState?.mode ?? "add"}

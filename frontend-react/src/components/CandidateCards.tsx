@@ -103,7 +103,9 @@ export function CandidateCards({
               <h3>{candidate.title}</h3>
               <StateBadge state={candidate.state} label={candidate.displayState} />
             </div>
-            <p className="card-excerpt">{candidate.content}</p>
+            {candidate.content.trim() !== candidate.title.trim() && (
+              <p className="card-excerpt">{candidate.content}</p>
+            )}
             <div className="inline-progress">
               <div
                 className="progress-fill"

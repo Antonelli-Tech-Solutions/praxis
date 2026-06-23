@@ -43,16 +43,6 @@ export interface Candidate {
   extra: Record<string, unknown>;
 }
 
-export interface EvalMetrics {
-  correctionRate: number[];
-  sessions?: string[];
-  correctionsBefore?: number;
-  correctionsAfter?: number;
-  source: string;
-  /** Set when a configured metrics URL failed and placeholder data is shown. */
-  fetchError?: string;
-}
-
 export interface ApiConflictError extends Error {
   statusCode: 409;
   candidateId?: string;

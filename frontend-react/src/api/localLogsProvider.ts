@@ -17,21 +17,9 @@ import {
   type CandidateWriteInput,
 } from "./candidateCrud";
 import type { DataProvider } from "./dataProvider";
-import type { Candidate, EvalMetrics } from "../types/candidate";
+import type { Candidate } from "../types/candidate";
 import type { KnowledgeGraphSnapshot } from "../types/graph";
 import type { LocalLogFileInput, ParsedLogSession } from "../types/transcript";
-
-const PLACEHOLDER_METRICS: EvalMetrics = {
-  source: "placeholder",
-  correctionRate: [1.0, 0.72, 0.48, 0.35],
-  sessions: ["cold", "run_1", "run_2", "run_3"],
-  correctionsBefore: 12,
-  correctionsAfter: 5,
-};
-
-function placeholderMetrics(): EvalMetrics {
-  return PLACEHOLDER_METRICS;
-}
 
 function syncGraphNodeState(
   graph: KnowledgeGraphSnapshot,
@@ -186,10 +174,6 @@ export function createLocalLogsDataProvider(session: ParsedLogSession): DataProv
       return updated ?? kept;
     },
 
-    async getEvalMetrics() {
-      return placeholderMetrics();
-    },
-
     async getGraph() {
       return cloneGraphSnapshot(graph);
     },
@@ -233,10 +217,6 @@ export function createEmptyLocalLogsProvider(): DataProvider {
 
     async resolveContradiction() {
       throw new Error("No contradictions in empty local session");
-    },
-
-    async getEvalMetrics() {
-      return placeholderMetrics();
     },
 
     async getGraph() {
