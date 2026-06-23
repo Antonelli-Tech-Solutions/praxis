@@ -69,10 +69,11 @@ def test_contradictions_exporter_surfaces_flagged_pairs():
     from knowledge.knowledge_graph.write_policy.write_step_variants import ConflictFlagger
     from knowledge.llm.llm_variants.fake_llm import FakeLlm
 
-    # Conflict-only policy with a yes-saying judge and no similarity gate, so the
-    # second (contradictory) write is reliably flagged against the first.
-    policy = [ConflictFlagger(llm=FakeLlm(default="yes"), similarity_floor=-1.0)]
-    g = VectorGraph(policy=policy)
+    # Conflict-only policy with a yes-saying judge; recall_floor=-1.0 opts the
+    # low-similarity (FakeEmbedder) candidate into the recall pass, so the second
+    # (contradictory) write is reliably flagged against the first.
+    policy = [ConflictFlagger(llm=FakeLlm(default="yes"))]
+    g = VectorGraph(policy=policy, recall_floor=-1.0)
     g.write("Use tabs for indentation")
     g.write("Use spaces for indentation")
 
@@ -89,7 +90,7 @@ def test_conflict_detection_is_best_effort_when_llm_unavailable():
         def complete(self, messages, **_):
             raise RuntimeError("no API key")
 
-    g = VectorGraph(policy=[ConflictFlagger(llm=_BoomLlm(), similarity_floor=-1.0)])
+    g = VectorGraph(policy=[ConflictFlagger(llm=_BoomLlm())], recall_floor=-1.0)
     g.write("a fact")
     g.write("another fact")  # must not raise despite the failing LLM
     assert g.contradictions() == []  # error swallowed -> nothing flagged

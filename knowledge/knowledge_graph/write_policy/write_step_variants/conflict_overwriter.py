@@ -16,7 +16,7 @@ from __future__ import annotations
 from knowledge.llm.llm_def import ChatMessage
 from knowledge.llm.parent_llm import Llm
 from knowledge.knowledge_graph.write_policy.parent_write_step import WriteStep
-from knowledge.knowledge_graph.write_policy.write_policy_def import StoreView, WriteDecision
+from knowledge.knowledge_graph.write_policy.write_policy_def import WriteDecision
 
 _PROMPT = (
     "Does the NEW note contradict the EXISTING note? "
@@ -27,18 +27,17 @@ _PROMPT = (
 class ConflictOverwriter(WriteStep):
     """On a confirmed contradiction, overwrite the conflicting fact in place."""
 
-    def __init__(self, llm: Llm | None = None, similarity_floor: float = 0.6) -> None:
-        self.llm = llm
-        self.similarity_floor = similarity_floor
+    consumes_candidates = True
 
-    def apply(self, decision: WriteDecision, store: StoreView) -> None:
+    def __init__(self, llm: Llm | None = None) -> None:
+        self.llm = llm
+
+    def apply(self, decision: WriteDecision) -> None:
         # A dedup match already won; don't fight it. No LLM => can't detect.
         if self.llm is None or decision.dropped or decision.action != "add":
             return
         conflicts: list[str] = []
-        for hit in store.most_similar(decision.text, k=3):
-            if hit.score < self.similarity_floor:
-                break
+        for hit in decision.candidates:
             prompt = _PROMPT.format(existing=hit.fact.text, new=decision.text)
             try:
                 answer = self.llm.complete([ChatMessage(role="user", content=prompt)])

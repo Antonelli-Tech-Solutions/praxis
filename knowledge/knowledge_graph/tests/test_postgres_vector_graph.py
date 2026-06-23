@@ -47,10 +47,12 @@ def _trio(conn, org, user):
         user,
         embedder=FakeEmbedder(),
         # FakeEmbedder only scores identical text as similar, so cross-text
-        # contradictions sit at ~0 similarity; floor=0 lets the overwriter (whose
-        # FakeLlm always says "yes") fire deterministically offline. Real runs use
-        # the default floor with semantic embeddings.
-        policy=[Redactor(), Deduper(), ConflictOverwriter(llm=FakeLlm(default="yes"), similarity_floor=-1.0)],
+        # contradictions sit at ~0 similarity; recall_floor=-1.0 opts them into the
+        # shared recall pass so the overwriter (whose FakeLlm always says "yes")
+        # fires deterministically offline. Real runs use the default floor with
+        # semantic embeddings.
+        recall_floor=-1.0,
+        policy=[Redactor(), Deduper(), ConflictOverwriter(llm=FakeLlm(default="yes"))],
     )
     return build_trio(graph=graph, llm=None)
 
