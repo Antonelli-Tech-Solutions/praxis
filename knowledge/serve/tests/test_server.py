@@ -5,6 +5,8 @@ principal. The in-memory store has no OrgsStore, so the X-Praxis-Org header is
 accepted without a membership check; we send one anyway to exercise the path.
 """
 
+import os
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -172,8 +174,11 @@ def test_insights_and_context_require_db(tmp_path):
 
 
 @pytest.mark.skipif(
-    db.resolve_dsn() is None,
-    reason="no Postgres DSN available (set PRAXIS_DB_URL or configure AWS secret)",
+    db.resolve_dsn() is None or not os.getenv("OPENROUTER_API_KEY"),
+    reason=(
+        "needs a Postgres DSN (PRAXIS_DB_URL / AWS secret) AND OPENROUTER_API_KEY — "
+        "POST /insights runs the real ingest, which embeds the insight via OpenRouter"
+    ),
 )
 def test_insight_then_context_round_trips(unique_org):
     # Real Postgres path: seed an org + membership for the dev principal, then
