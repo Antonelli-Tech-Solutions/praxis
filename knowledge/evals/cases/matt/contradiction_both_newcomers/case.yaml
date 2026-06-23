@@ -1,0 +1,24 @@
+# Dashboard demo — SIMULTANEOUS contradiction. Two facts arrive together through
+# the ingestion pipeline (both via_ingestor -> proposed). Neither is an established
+# incumbent, so NEITHER is promoted to active — both reach the graph as proposed and
+# both surface in the Contradictions tab for review.
+#
+# (Write order does NOT make the earlier one "established": establishment is the
+# active state, set only by a direct/approved insert — not by loop position.)
+#
+# Routing is asserted deterministically in pytest:
+#   knowledge/serve/tests/test_pipeline_adapter.py::test_two_newcomers_are_both_held
+# The component below only makes the case a valid, loadable eval; the dashboard
+# seed-load reads the via_ingestor channel directly.
+id: contradiction_both_newcomers
+component: ingestion
+seeded_insight:
+  via_ingestor:
+    - "The API rate limit is 100 requests per minute."
+    - "The API rate limit is 1000 requests per minute."
+
+deterministic_checks:
+  - name: both_present
+    ref: "knowledge.evals.deterministic_checks.text:requires_all_substrings"
+    params:
+      texts: ["100 requests per minute", "1000 requests per minute"]

@@ -1,0 +1,27 @@
+# Dashboard demo — INCUMBENCY (asymmetric). An established fact is inserted
+# directly into the graph (direct_to_graph -> approved/active); a contradicting
+# newcomer arrives later through the ingestion pipeline (via_ingestor -> proposed).
+#
+# Load this via the dashboard's "load seed data": the established fact STAYS active
+# in the graph (it keeps its place), and ONLY the newcomer surfaces in the
+# Contradictions tab for review. Resolving "keep newcomer" promotes it to active and
+# decays the incumbent; "keep incumbent" just decays the newcomer.
+#
+# Routing is asserted deterministically in pytest:
+#   knowledge/serve/tests/test_pipeline_adapter.py
+#     ::test_established_incumbent_stays_active_newcomer_is_held
+# The component below only makes the case a valid, loadable eval; the dashboard
+# seed-load reads BOTH channels directly.
+id: contradiction_incumbent_vs_newcomer
+component: knowledge_graph
+seeded_insight:
+  direct_to_graph:
+    - "The primary production database is PostgreSQL."
+  via_ingestor:
+    - "The primary production database is MySQL."
+
+deterministic_checks:
+  - name: established_present
+    ref: "knowledge.evals.deterministic_checks.text:requires_all_substrings"
+    params:
+      texts: ["PostgreSQL"]

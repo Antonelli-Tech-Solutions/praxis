@@ -464,9 +464,19 @@ code,
 }
 
 .data-table td:first-child {
+  /* Let the title wrap across a few lines instead of truncating to one. */
+  white-space: normal;
+}
+
+/* Clamp the title to a few lines, then ellipsize — the row never grows past this,
+   and selecting the row shows the full text in the detail pane on the right. */
+.title-cell {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  -webkit-box-orient: vertical;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 
 .actions-cell {
@@ -1183,6 +1193,9 @@ code,
 }
 
 .compare-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
   padding: var(--space-3);
@@ -1195,10 +1208,95 @@ code,
   border-color: #fed7aa;
 }
 
+/* "Choice A" / "Choice B" as a proper card title: own line, larger, bold. */
+.choice-label {
+  display: block;
+  font-size: 1.05rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  padding-bottom: var(--space-2);
+  margin-bottom: var(--space-1);
+  border-bottom: 1px solid var(--line);
+}
+
+.choice-head {
+  line-height: 1.3;
+}
+
+/* Keep button: centered in the card, pinned to the bottom so both cards' actions
+   line up regardless of content length. */
+.choice-keep {
+  align-self: center;
+  margin-top: auto;
+  min-width: 60%;
+}
+
+.defer-row {
+  justify-content: center;
+}
+
 .contradiction-pair {
   margin-top: var(--space-4);
   padding-top: var(--space-4);
   border-top: 1px dashed var(--line);
+}
+
+.deferred-section {
+  margin-top: var(--space-5);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--line);
+}
+
+.deferred-heading {
+  font-size: 0.95rem;
+  font-weight: 600;
+  margin: 0 0 var(--space-3);
+  color: #64748b;
+}
+
+.deferred-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  margin-bottom: var(--space-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: #f8fafc;
+}
+
+.deferred-titles {
+  font-size: 0.85rem;
+}
+
+.custom-resolution {
+  margin-top: var(--space-3);
+  padding: var(--space-3);
+  border: 1px dashed var(--line);
+  border-radius: var(--radius-md);
+  background: #f8fafc;
+}
+
+.custom-hint {
+  margin: var(--space-1) 0 var(--space-2);
+  font-size: 0.82rem;
+}
+
+.custom-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: var(--space-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm, 6px);
+  font: inherit;
+  font-size: 0.88rem;
+  resize: vertical;
+}
+
+.custom-actions {
+  justify-content: center;
+  margin-top: var(--space-2);
 }
 
 .metric-card {
@@ -2134,9 +2232,11 @@ code,
 
 .graph-legend--overlay {
   position: absolute;
+  /* Anchored bottom-left so it never overlaps the top-center nodes (Controls
+     occupy top-right). Expanding grows the panel upward from the corner. */
   left: var(--space-3);
-  top: var(--space-3);
-  bottom: auto;
+  top: auto;
+  bottom: var(--space-3);
   z-index: 5;
   max-width: min(300px, calc(100% - var(--space-6)));
   /* Cap height so the header (with the Hide toggle) stays in view and the

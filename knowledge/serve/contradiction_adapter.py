@@ -49,8 +49,20 @@ def detect(candidates: list[Candidate]) -> list[tuple[str, str]]:
     Best-effort: the LLM contradiction check is skipped when no API key is set,
     so this returns [] offline. Maps the flagged facts back to candidate ids by
     matching the stored text.
+
+    With a key, embed with the real OpenRouter embedder so semantically-related
+    candidates actually clear the recall floor and reach the ConflictJudge — the
+    default ``FakeEmbedder`` produces near-zero similarity between distinct texts,
+    so the judge would never be consulted and nothing would ever flag.
     """
-    graph = VectorGraph()
+    import os
+
+    embedder = None
+    if os.getenv("OPENROUTER_API_KEY"):
+        from knowledge.llm.embedder_variants.openrouter_embedder import OpenRouterEmbedder
+
+        embedder = OpenRouterEmbedder()
+    graph = VectorGraph(embedder=embedder)
     text_to_id: dict[str, str] = {}
     for c in candidates:
         content = str(c.get("content", "")).strip()

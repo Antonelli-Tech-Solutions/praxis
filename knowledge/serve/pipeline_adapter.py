@@ -79,7 +79,12 @@ def fact_to_candidate(
         ],
     }
     if rival_ids:
-        candidate["contradiction_ids"] = sorted(set(rival_ids))
+        # Rival ids must be in the SAME namespace as candidate ids (``pipe_<12>``),
+        # not raw fact ids — the dashboard resolves a contradiction's rival by
+        # matching this against another candidate's ``id``. Emitting the raw fact id
+        # here leaves every rival unresolvable, so the Contradictions tab shows
+        # nothing even when links exist.
+        candidate["contradiction_ids"] = sorted({f"pipe_{rid[:12]}" for rid in rival_ids})
     if fact.category:
         candidate["category"] = fact.category
     if fact.scope:
@@ -105,14 +110,16 @@ def candidates_from_graph(graph: VectorGraph) -> list[dict[str, Any]]:
     rivals = _rival_map(graph.contradictions())
     out: list[dict[str, Any]] = []
     for fact in graph.facts:
-        # The fact's own lifecycle state (proposed/active/decayed) is the
-        # candidate state — set at write time by the approval decision.
+        # The fact's own lifecycle state IS the candidate state, and it already
+        # encodes incumbency: a directly-approved fact is ``active`` (an established
+        # incumbent that keeps its place in the graph), while a fact distilled
+        # through ingestion is ``proposed`` (a newcomer, staged for review). When a
+        # newcomer contradicts an incumbent, only the newcomer is ``proposed`` and so
+        # only it surfaces in the Contradictions tab; the incumbent stays active. Two
+        # newcomers that clash are both ``proposed`` — both held. No special-casing
+        # needed here: don't demote, just pass the state through.
         out.append(
-            fact_to_candidate(
-                fact,
-                state=fact.state,
-                rival_ids=rivals.get(fact.id),
-            )
+            fact_to_candidate(fact, state=fact.state, rival_ids=rivals.get(fact.id))
         )
     return out
 

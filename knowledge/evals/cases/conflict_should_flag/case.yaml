@@ -29,7 +29,14 @@ deterministic_checks:
     ref: "knowledge.evals.deterministic_checks.text:regex_matches"
     params:
       pattern: "(?i)CONTRADICTION"
+  # Assert BOTH rules survive as distinct stored facts (not silently merged). Uses the
+  # full rule sentences, not the bare words "tabs"/"spaces": a wrongful dedup-merge keeps
+  # only one fact text AND makes the ConflictFlagger skip (no CONTRADICTION line), so the
+  # second sentence would appear nowhere. Bare words could match incidental text or the
+  # CONTRADICTION line alone; the full sentences pin verbatim storage of both facts.
   - name: both_rules_kept
     ref: "knowledge.evals.deterministic_checks.text:requires_all_substrings"
     params:
-      texts: ["tabs", "spaces"]
+      texts:
+        - "Always use tabs for indentation in this project. Spaces are forbidden."
+        - "Always use spaces for indentation in this project. Tabs are forbidden."

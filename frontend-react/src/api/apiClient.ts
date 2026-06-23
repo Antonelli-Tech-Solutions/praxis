@@ -1,5 +1,6 @@
 import {
   buildCreateBody,
+  buildCustomResolveBody,
   buildPromoteBody,
   buildPromoteBodyImplicit,
   buildRejectBody,
@@ -292,6 +293,15 @@ export function createApiDataProvider(
         "POST",
         `/contradictions/${encodeURIComponent(contradictionId)}/resolve`,
         buildResolveBody(resolution, keepId),
+      );
+      return candidateFromMapping(payload as Record<string, unknown>);
+    },
+
+    async resolveContradictionCustom(contradictionId, customText) {
+      const payload = await request(
+        "POST",
+        `/contradictions/${encodeURIComponent(contradictionId)}/resolve`,
+        buildCustomResolveBody(customText),
       );
       return candidateFromMapping(payload as Record<string, unknown>);
     },

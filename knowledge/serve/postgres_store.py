@@ -20,6 +20,7 @@ from knowledge.serve.store import (
     SEED_FIXTURE,
     Candidate,
     PromotionError,
+    _custom_resolution_candidate,
     _link_id,
     _NEXT_STATE,
     _now,
@@ -151,8 +152,11 @@ class PostgresCandidateStore:
         kept, loser = self.get(org_id, user_id, keep_id), self.get(org_id, user_id, loser_id)
         if kept is None:
             raise KeyError(keep_id)
-        # Drop the a<->b contradiction link from both sides; decay the loser.
+        # Drop the a<->b contradiction link from both sides; decay the loser. The
+        # kept side wins the dispute, so it (re)enters the active graph — it was
+        # demoted to ``proposed`` while contested.
         self._strip_link(kept, loser_id)
+        kept["state"] = "active"
         self._audit(kept, "kept_over_contradiction", note=f"superseded {loser_id}")
         self._upsert(org_id, user_id, kept)
         if loser is not None:
@@ -161,6 +165,30 @@ class PostgresCandidateStore:
             self._audit(loser, "superseded", note=f"lost contradiction to {keep_id}")
             self._upsert(org_id, user_id, loser)
         return kept
+
+    def resolve_custom(
+        self, org_id: str, user_id: str, pair_id: str, custom_text: str
+    ) -> Candidate:
+        """Decay both sides and create a fresh ``active`` candidate from ``custom_text``."""
+        text = (custom_text or "").strip()
+        if not text:
+            raise ValueError("custom_text is required")
+        a, _, b = pair_id.partition("__")
+        sides = {a: self.get(org_id, user_id, a), b: self.get(org_id, user_id, b)}
+        if all(side is None for side in sides.values()):
+            raise KeyError(pair_id)
+        for cid, other in ((a, b), (b, a)):
+            side = sides[cid]
+            if side is None:
+                continue
+            self._strip_link(side, other)
+            side["state"] = "decayed"
+            self._audit(side, "superseded", note="resolved by custom resolution")
+            self._upsert(org_id, user_id, side)
+        new = _custom_resolution_candidate(text, superseded=[a, b])
+        self._audit(new, "created", note=f"custom resolution superseding {a}, {b}")
+        self._upsert(org_id, user_id, new)
+        return new
 
     def create(self, org_id: str, user_id: str, body: dict) -> Candidate:
         import uuid

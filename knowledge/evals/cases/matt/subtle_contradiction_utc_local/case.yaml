@@ -1,0 +1,43 @@
+# HARD-POSITIVE conflict case (subtle contradiction). The two rules genuinely cannot
+# both hold, but the clash is NOT a surface Always/Never negation -- it takes a step of
+# reasoning to see. Rule 1 is a universal: "ALL timestamps ... stored in UTC". Rule 2
+# is a specific carve-out: the events table stores timestamps in local time. The events
+# table is part of "all", so a column cannot be both UTC and America/New_York -- they
+# contradict. A shallow judge sees two plausibly-coexisting facts about timestamps and
+# says "compatible"; a careful one notices the universal subsumes the specific.
+#
+# This is the recall/sensitivity arm of the conflict suite: it asserts the ConflictJudge
+# catches a real contradiction that hides behind quantifier scope rather than an obvious
+# antonym. The sentences share heavy vocabulary (timestamps, stored, table, time zone),
+# so they sit at high cosine and the recall gate surfaces the candidate; the judge is
+# then asked the subtle question. Component eval (no agent); vector substrate exercises
+# the real write policy. Replays from the committed conflict cassette + embedding fixture
+# offline (no live calls).
+#
+# Desired behavior: contradiction flagged -> graph.contradictions() non-empty ->
+# "CONTRADICTION" appears; both rules kept (flag-don't-drop).
+id: subtle_contradiction_utc_local
+component: knowledge_graph
+substrate: vector
+embedder: cached  # real vectors so the recall gate surfaces the related candidate
+conflict_model: openai/gpt-4o-mini  # ConflictJudge decides contradicts; replayed from the committed cassette
+
+seeded_insight:
+  via_ingestor: []
+  direct_to_graph:
+    - "All timestamps across our services are stored in the database in UTC."
+    - "Timestamps in the events table are stored in the server's local time zone, America/New_York."
+
+deterministic_checks:
+  # Sensitivity: the judge must catch the quantifier-scoped contradiction.
+  - name: contradiction_flagged
+    ref: "knowledge.evals.deterministic_checks.text:regex_matches"
+    params:
+      pattern: "(?i)CONTRADICTION"
+  # Flag-don't-drop: both rules survive verbatim as distinct stored facts.
+  - name: both_rules_kept
+    ref: "knowledge.evals.deterministic_checks.text:requires_all_substrings"
+    params:
+      texts:
+        - "All timestamps across our services are stored in the database in UTC."
+        - "Timestamps in the events table are stored in the server's local time zone, America/New_York."

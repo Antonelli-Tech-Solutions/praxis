@@ -57,4 +57,50 @@ def test_candidates_from_graph_links_contradictions():
     candidates = candidates_from_graph(graph)
     assert len(candidates) == 2
     linked = next(c for c in candidates if c["id"] == f"pipe_{flagged.id[:12]}")
-    assert linked["contradiction_ids"]
+    # The rival must be referenced by its candidate id (pipe_<12>), not the raw
+    # fact id — otherwise the dashboard can't resolve the pair and shows nothing.
+    rival_cid = f"pipe_{graph.facts[1].id[:12]}"
+    assert linked["contradiction_ids"] == [rival_cid]
+    assert any(c["id"] == rival_cid for c in candidates)
+
+
+def _contradicting_graph(state_first: str, state_second: str) -> VectorGraph:
+    """Two contradictory facts written at the given lifecycle states.
+
+    ``recall_floor=-1.0`` surfaces every candidate so the FakeLlm conflict judge is
+    always consulted; it always votes "contradicts", flagging the second write.
+    """
+    from knowledge.knowledge_graph.write_policy.write_step_variants import (
+        ConflictFlagger,
+        ConflictJudge,
+    )
+    from knowledge.llm.llm_variants.fake_llm import FakeLlm
+
+    judge = ConflictJudge(llm=FakeLlm(default='{"contradicts": true}'))
+    graph = VectorGraph(policy=[ConflictFlagger(judge=judge)], recall_floor=-1.0)
+    graph.write("All timestamps are stored in UTC.", state=state_first)
+    graph.write("Timestamps in the events table use the server's local time.", state=state_second)
+    return graph
+
+
+def test_established_incumbent_stays_active_newcomer_is_held():
+    # Established fact (direct approval -> active) vs a newcomer that arrives through
+    # ingestion (-> proposed). The incumbent keeps its place in the active graph;
+    # only the newcomer is held for review. Both are still linked so the pair shows.
+    graph = _contradicting_graph("active", "proposed")
+    candidates = candidates_from_graph(graph)
+    by_text = {c["content"][:14]: c for c in candidates}
+    incumbent = by_text["All timestamps"]
+    newcomer = by_text["Timestamps in "]
+    assert incumbent["state"] == "active"  # incumbent stays in the active graph
+    assert newcomer["state"] == "proposed"  # only the newcomer is held
+    assert incumbent["contradiction_ids"] and newcomer["contradiction_ids"]
+
+
+def test_two_newcomers_are_both_held():
+    # Two facts ingested in the same batch (both proposed) clash -> both held; neither
+    # enters the active graph. (Write order doesn't make the earlier one "established".)
+    graph = _contradicting_graph("proposed", "proposed")
+    candidates = candidates_from_graph(graph)
+    assert {c["state"] for c in candidates} == {"proposed"}
+    assert all(c["contradiction_ids"] for c in candidates)

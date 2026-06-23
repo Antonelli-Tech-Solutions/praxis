@@ -59,6 +59,7 @@ export default function App() {
     promote,
     reject,
     resolveContradiction,
+    resolveContradictionCustom,
     createCandidate,
     updateCandidate,
     deleteCandidate,
@@ -287,6 +288,15 @@ export default function App() {
     }
   }
 
+  async function handleResolveCustom(contradictionId: string, customText: string) {
+    setActionError(null);
+    try {
+      await resolveContradictionCustom(contradictionId, customText);
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : String(err));
+    }
+  }
+
   const listView =
     viewTab === "table" ? (
       <CandidateTable
@@ -405,6 +415,7 @@ export default function App() {
         <ContradictionsReview
           candidates={candidates}
           onResolve={handleResolve}
+          onResolveCustom={handleResolveCustom}
           onDefer={handleDefer}
         />
       ) : viewTab === "graph" && graph ? (
