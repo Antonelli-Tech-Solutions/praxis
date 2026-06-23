@@ -9,6 +9,7 @@ CLI:
     uv run python -m knowledge.evals.run                   # real Claude Code over all cases
     uv run python -m knowledge.evals.run <case_id>         # real Claude Code, one case
     uv run python -m knowledge.evals.run --fake <case_id>  # offline FakeRunner (no credit)
+    uv run python -m knowledge.evals.run --workers 4       # run cases concurrently (bound by rate limits)
 """
 
 from __future__ import annotations
@@ -596,6 +597,14 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="OpenRouter via structured file output — grades file artifacts (file_io) on the cheap backend",
     )
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=1,
+        metavar="N",
+        help="run N cases concurrently (default 1, serial). Cases are independent; "
+        "bound this to respect API rate limits.",
+    )
     args = parser.parse_args(argv)
 
     # Load .env (PHOENIX_*, OPENROUTER_*) and light up tracing if configured.
@@ -633,11 +642,24 @@ def main(argv: list[str] | None = None) -> int:
     print(f"running {len(cases)} case(s) through {_BACKEND_LABEL[kind]}...")
 
     run_id = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
-    results = []
-    for case in cases:
+
+    def _run_one(case: EvalCase) -> CaseResult:
         ctx, judge_result, run_result = run_case_full(case, runner, judge=judge)
-        results.append(run_result)
+        # Transcripts are per-case files, so writing them as each case finishes is
+        # safe under concurrency and preserves partial progress if a later case dies.
         write_transcript(build_transcript(case, ctx, judge_result, run_result, run_id))
+        return run_result
+
+    if args.workers > 1:
+        from concurrent.futures import ThreadPoolExecutor
+
+        # Cases are independent (own sandbox + own in-process graph); they're
+        # I/O-bound on the agent/judge/embed calls, so threads give real overlap.
+        # pool.map preserves input order, keeping the scoreboard stable.
+        with ThreadPoolExecutor(max_workers=args.workers) as pool:
+            results = list(pool.map(_run_one, cases))
+    else:
+        results = [_run_one(case) for case in cases]
     write_baseline(results)
 
     tally: dict[str, int] = {}
