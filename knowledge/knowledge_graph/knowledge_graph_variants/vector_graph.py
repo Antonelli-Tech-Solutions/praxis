@@ -23,6 +23,7 @@ from knowledge.knowledge_graph.write_policy.parent_write_step import WriteStep
 from knowledge.knowledge_graph.write_policy.write_policy_def import WriteDecision
 from knowledge.knowledge_graph.write_policy.write_step_variants import (
     ConflictFlagger,
+    ConflictJudge,
     Deduper,
     Redactor,
 )
@@ -46,7 +47,7 @@ def default_write_policy(llm: Llm | None = None) -> list[WriteStep]:
     best-effort — ``ConflictFlagger`` skips silently if the LLM is unavailable
     (e.g. no API key offline), so this is safe to leave on by default.
     """
-    return [Redactor(), Deduper(), ConflictFlagger(llm=llm or OpenRouterLlm())]
+    return [Redactor(), Deduper(), ConflictFlagger(judge=ConflictJudge(llm=llm or OpenRouterLlm()))]
 
 
 class VectorGraph(SearchableGraph):

@@ -106,13 +106,13 @@ Single Python package at repo root: `knowledge/...`. Tests live in per-package `
 
 - [X] T028 [P] [US3] Embed-once test: a single write embeds the incoming text exactly once (merge + conflict + persist share the vector), in `knowledge/knowledge_graph/tests/test_vector_graph.py`
 - [X] T029 [P] [US3] Shared-recall test: one `most_similar` pass feeds both judges; a merged dup (`action==update`) triggers zero conflict checks, in `knowledge/knowledge_graph/tests/test_vector_graph.py` (+ below-floor candidate skipped by the recall gate)
-- [ ] T030 [P] [US3] `ConflictFlagger` structured-output test (stub judge `{contradicts, target_id}`); cassette replay/loud-miss, in `knowledge/knowledge_graph/write_policy/tests/test_conflict_flagger.py`
+- [X] T030 [P] [US3] `ConflictFlagger` structured-output test (stub judge `{contradicts}`, runtime `target_id`); cassette replay/loud-miss, in `knowledge/knowledge_graph/write_policy/tests/test_conflict_flagger.py`
 
 ### Implementation for User Story 3 — Tier A
 
 - [X] T031 [US3] Make `knowledge/knowledge_graph/knowledge_graph_variants/vector_graph.py` (+ `postgres_vector_graph.py`) vector-aware: embed once onto `WriteDecision.embedding`; one shared recall pass (`_recall`) + single `recall_floor`; reuse the vector in `_add`/`_overwrite` (no store-time re-embed); merge-before-conflict, skip-conflict-on-update. Steps now consume `decision.candidates` (dropped `store`/`StoreView`); `consumes_candidates` flag triggers the shared pass.
 - [X] T032 [US3] Update `WriteDecision` in `knowledge/knowledge_graph/write_policy/write_policy_def.py`: add `embedding` + `candidates` fields (the shared per-write recall, consumed by both judges)
-- [ ] T033 [US3] Update `ConflictFlagger` in `knowledge/knowledge_graph/write_policy/write_step_variants/conflict_flagger.py`: consume the shared candidates; structured `{contradicts, target_id}` (replace `startswith("yes")`); back with conflict `VerdictCassette`; keep graceful skip
+- [X] T033 [US3] Structured conflict judge: new `ConflictJudge` (mirror of `MergeJudge`) emits `{contradicts}` over the `Llm` seam, backed by a conflict `VerdictCassette` (replay/loud-miss/graceful-skip); `ConflictFlagger` consumes shared candidates + injected judge and resolves `target_id` to the candidate's runtime id (replaces `startswith("yes")`). `default_write_policy` builds `ConflictFlagger(judge=ConflictJudge(llm=...))`.
 - [ ] T034 [US3] Wire the conflict cassette into `knowledge/evals/run.py`; generate + commit `knowledge/evals/fixtures/verdicts/conflict/<model-slug>.json`
 - [ ] T035 [P] [US3] Harden existing negation-contradiction cases (e.g. `contradiction_should_flag`, `scoped_conflict`) to assert structured-output behavior; confirm unchanged verdicts (`knowledge/evals/cases/`)
 

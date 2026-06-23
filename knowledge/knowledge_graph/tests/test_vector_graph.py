@@ -15,6 +15,7 @@ from __future__ import annotations
 from knowledge.knowledge_graph.knowledge_graph_variants.vector_graph import VectorGraph
 from knowledge.knowledge_graph.write_policy.write_step_variants import (
     ConflictFlagger,
+    ConflictJudge,
     Deduper,
     MergeJudge,
 )
@@ -52,8 +53,11 @@ def test_one_recall_pass_feeds_both_judges():
     # judge: each is consulted exactly once on the same recalled candidate.
     emb = _CountingEmbedder()
     merge_llm = FakeLlm(default='{"same_lesson": false}')  # not a duplicate
-    conflict_llm = FakeLlm(default="no")  # not a contradiction
-    policy = [Deduper(judge=MergeJudge(llm=merge_llm)), ConflictFlagger(llm=conflict_llm)]
+    conflict_llm = FakeLlm(default='{"contradicts": false}')  # not a contradiction
+    policy = [
+        Deduper(judge=MergeJudge(llm=merge_llm)),
+        ConflictFlagger(judge=ConflictJudge(llm=conflict_llm)),
+    ]
     g = VectorGraph(embedder=emb, policy=policy, recall_floor=-1.0)
     g.write("alpha fact", state="active")
     emb.embedded.clear()
@@ -79,8 +83,11 @@ def test_merged_dup_triggers_zero_conflict_checks():
     # Merge runs before conflict: when the merge judge collapses the write into an
     # existing fact (action == "update"), the conflict judge is never consulted.
     merge_llm = FakeLlm(default='{"same_lesson": true}')
-    conflict_llm = FakeLlm(default="yes")
-    policy = [Deduper(judge=MergeJudge(llm=merge_llm)), ConflictFlagger(llm=conflict_llm)]
+    conflict_llm = FakeLlm(default='{"contradicts": true}')
+    policy = [
+        Deduper(judge=MergeJudge(llm=merge_llm)),
+        ConflictFlagger(judge=ConflictJudge(llm=conflict_llm)),
+    ]
     g = VectorGraph(policy=policy, recall_floor=-1.0)
     g.write("use uv run pytest", state="active")
     g.write("run the suite with uv run pytest", state="active")  # paraphrase -> merge

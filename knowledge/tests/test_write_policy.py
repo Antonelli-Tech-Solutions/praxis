@@ -7,7 +7,6 @@ fills it before the steps run); these tests script that set directly.
 from knowledge.knowledge_graph.knowledge_graph_def import Fact, SearchHit
 from knowledge.knowledge_graph.write_policy.write_policy_def import WriteDecision
 from knowledge.knowledge_graph.write_policy.write_step_variants import (
-    ConflictFlagger,
     Deduper,
     MergeJudge,
     Redactor,
@@ -67,28 +66,3 @@ def test_deduper_without_judge_does_exact_only():
     d = _decision("use uv run pytest before pushing", [SearchHit(fact=existing, score=0.67)])
     Deduper().apply(d)
     assert d.action == "add"
-
-
-def test_conflict_flagger_flags_on_llm_yes():
-    existing = Fact(id="f9", text="use 2 spaces", embedding=[1.0, 0.0])
-    d = _decision("use 4 spaces", [SearchHit(fact=existing, score=0.9)])
-    ConflictFlagger(llm=FakeLlm(default="yes")).apply(d)
-    assert any(f.startswith("contradiction:f9") for f in d.flags)
-
-
-def test_conflict_flagger_inert_without_llm():
-    existing = Fact(id="f9", text="use 2 spaces", embedding=[1.0, 0.0])
-    d = _decision("use 4 spaces", [SearchHit(fact=existing, score=0.9)])
-    ConflictFlagger(llm=None).apply(d)
-    assert d.flags == []
-
-
-def test_conflict_flagger_skips_on_merge():
-    # Merge runs before conflict: a write that already merged is not conflict-checked.
-    existing = Fact(id="f9", text="use 2 spaces", embedding=[1.0, 0.0])
-    d = _decision("use 4 spaces", [SearchHit(fact=existing, score=0.9)])
-    d.action = "update"  # Deduper merged it
-    llm = FakeLlm(default="yes")
-    ConflictFlagger(llm=llm).apply(d)
-    assert d.flags == []
-    assert llm.calls == []  # judge never consulted on a merge

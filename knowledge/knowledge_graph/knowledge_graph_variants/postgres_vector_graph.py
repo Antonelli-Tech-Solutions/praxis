@@ -26,6 +26,7 @@ from knowledge.knowledge_graph.write_policy.parent_write_step import WriteStep
 from knowledge.knowledge_graph.write_policy.write_policy_def import WriteDecision
 from knowledge.knowledge_graph.write_policy.write_step_variants import (
     ConflictFlagger,
+    ConflictJudge,
     Deduper,
     Redactor,
 )
@@ -51,7 +52,7 @@ def default_write_policy(llm: Llm | None = None) -> list[WriteStep]:
     Mirrors ``VectorGraph``'s default; the forced-overwrite add path injects a
     ``ConflictOverwriter`` policy instead.
     """
-    return [Redactor(), Deduper(), ConflictFlagger(llm=llm or OpenRouterLlm())]
+    return [Redactor(), Deduper(), ConflictFlagger(judge=ConflictJudge(llm=llm or OpenRouterLlm()))]
 
 
 def _fit(vec: list[float]) -> Vector:
