@@ -57,6 +57,19 @@ These are two *different* evals; don't conflate them:
 
 **Wiring:** the judge is called `judge(case.rubric, ctx)` and `ctx` doesn't carry the seed, so this needs the **case** (or a new `ctx.ground_truth`) threaded into the judge — not just a `ctx` field. Keep the per-rubric `json_schema`; apply the same to the Claude judge for parity. With no seed (non-grounded cases) the REFERENCE block is omitted → today's behavior, no regression.
 
+## 2b. Conflicting knowledge & precedence
+
+Two distinct situations exist; only the first needs explicit handling, and neither needs an injected "resolution policy."
+
+**(1) Prompt overrides stored knowledge** — `safety_user_overrides_graph` only. A direct user instruction in the prompt must beat a seeded graph rule (the UPPERCASE rule). Just put the rule in the reference so the judge can *see* it was correctly ignored; the criterion (`ignores_graph_rule`) already states "let the direct request take precedence." Note this case has **0 deterministic checks** today — it rests entirely on the rubric, so giving the judge the rule is what makes it gradeable at all. (Adding a deterministic guard, e.g. `regex_absent` for uppercase output, is worth doing independently.)
+
+**(2) Actual contradiction injected into the graph** — both opposing facts seeded `active` via `direct_to_graph`. Real instances: `contradiction_should_flag` ("tabs" vs "spaces", rubric cares — flag it), and more weakly `poison_negative_control_bad`, `confidence_below_threshold_ignored`, `decayed_lesson_ignored` (XFAIL). These do **not** need a separately-injected policy because:
+
+- the **rubric criterion already encodes the expected handling** ("explicitly flags the conflict / doesn't silently pick", "ignores the low-confidence rumor", "follows active not decayed"); and
+- the **seed text already carries the state signal** (`"(low confidence, unverified rumor)"`, `"DECAYED_RIVAL_MARKER… legacy standard"`), so the judge reads which fact is deprecated/unverified straight from the reference.
+
+Mechanically the blanket instruction penalizes *commission* (claiming something unsupported), not *omission* — so an agent correctly *ignoring* a poison/decayed/overridden fact is not penalized. **The seed reference helps these cases (the judge can finally see the conflicting facts) rather than breaking them.** The one refinement: scope the "verify against REFERENCE" instruction to the **factual-grounding** criteria (`grounded`/`honest`/`factual_grounding`); for conflict-handling criteria the judge should follow the *criterion* (which states the policy) with the seed as context, not a blanket "must match the reference" frame.
+
 ## 3. Relationship to the grounding work (it's independent)
 
 Correction to an earlier framing: because the reference is the **seed** (always present on the case), the grounding-aware judge does **not** depend on `ingest_state` or the reader change — it was feasible all along; we just never wired the reference in. The two efforts are orthogonal:
