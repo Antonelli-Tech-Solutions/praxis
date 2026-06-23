@@ -1,10 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   ApiConflictError,
-  EvalRegenerateUnavailableError,
   GraphIngestUnavailableError,
   postInsight,
-  postRegenerateEvals,
 } from "./api/apiClient";
 import { buildLocalLogSession } from "./api/localLogsProvider";
 import { CandidateCards } from "./components/CandidateCards";
@@ -82,7 +80,6 @@ export default function App() {
   const [refreshingCandidateId, setRefreshingCandidateId] = useState<string | null>(
     null,
   );
-  const [regeneratePending, setRegeneratePending] = useState(false);
   const [editorState, setEditorState] = useState<
     { mode: "add" } | { mode: "edit"; candidate: Candidate } | null
   >(null);
