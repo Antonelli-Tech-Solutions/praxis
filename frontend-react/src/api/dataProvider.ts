@@ -1,4 +1,4 @@
-import type { Candidate, CandidateWriteInput, EvalMetrics } from "../types/candidate";
+import type { Candidate, CandidateWriteInput } from "../types/candidate";
 import type { KnowledgeGraphSnapshot } from "../types/graph";
 import type { ParsedLogSession } from "../types/transcript";
 
@@ -24,7 +24,6 @@ export interface DataProvider {
     contradictionId: string,
     customText: string,
   ): Promise<Candidate>;
-  getEvalMetrics(): Promise<EvalMetrics>;
   getGraph(): Promise<KnowledgeGraphSnapshot>;
   getTranscript(): Promise<ParsedLogSession | null>;
 }

@@ -2,7 +2,6 @@ import { describe, expect, it, beforeEach, vi } from "vitest";
 import {
   buildConfigFromPreset,
   DATA_SOURCE_STORAGE_KEY,
-  deriveEvalMetricsUrl,
   persistConfig,
   PRESET_IDS,
   resolveInitialConfig,
@@ -39,7 +38,6 @@ describe("dataSource config", () => {
     vi.stubEnv("VITE_PRAXIS_API_BASE_URL", "");
     vi.stubEnv("VITE_PRAXIS_POSTGRES_API_BASE_URL", "");
     vi.stubEnv("VITE_PRAXIS_API_TOKEN", "");
-    vi.stubEnv("VITE_PRAXIS_EVAL_METRICS_URL", "");
   });
 
   it("builds local-logs preset config", () => {
@@ -66,11 +64,10 @@ describe("dataSource config", () => {
     expect(config.apiBaseUrl).toBeUndefined();
   });
 
-  it("builds local live preset with derived metrics URL", () => {
+  it("builds local live preset", () => {
     const config = buildConfigFromPreset(PRESET_IDS.local);
     expect(config.mode).toBe("live");
     expect(config.apiBaseUrl).toBe("http://localhost:8000");
-    expect(config.evalMetricsUrl).toBe("http://localhost:8000/metrics");
   });
 
   it("builds postgres preset with localhost fallback when env unset", () => {
@@ -78,7 +75,6 @@ describe("dataSource config", () => {
     expect(config.mode).toBe("live");
     expect(config.presetId).toBe(PRESET_IDS.postgres);
     expect(config.apiBaseUrl).toBe("http://localhost:8000");
-    expect(config.evalMetricsUrl).toBe("http://localhost:8000/metrics");
   });
 
   it("postgres preset prefers VITE_PRAXIS_POSTGRES_API_BASE_URL over generic URL", () => {
@@ -86,12 +82,6 @@ describe("dataSource config", () => {
     vi.stubEnv("VITE_PRAXIS_API_BASE_URL", "https://generic.api.test");
     const config = buildConfigFromPreset(PRESET_IDS.postgres);
     expect(config.apiBaseUrl).toBe("https://postgres.api.test");
-  });
-
-  it("derives eval metrics URL without trailing slash", () => {
-    expect(deriveEvalMetricsUrl("http://localhost:8000/")).toBe(
-      "http://localhost:8000/metrics",
-    );
   });
 
   it("persists and restores config from localStorage", () => {
@@ -104,7 +94,6 @@ describe("dataSource config", () => {
 
   it("defaults to postgres preset when env API URL is set", () => {
     vi.stubEnv("VITE_PRAXIS_API_BASE_URL", "https://api.example.com");
-    vi.stubEnv("VITE_PRAXIS_EVAL_METRICS_URL", "https://api.example.com/metrics");
     const config = resolveInitialConfig();
     expect(config.mode).toBe("live");
     expect(config.presetId).toBe(PRESET_IDS.postgres);
@@ -146,7 +135,7 @@ describe("resolveDataProvider", () => {
 
   it("returns api provider for live config", () => {
     const provider = resolveDataProvider(buildConfigFromPreset(PRESET_IDS.local));
-    expect(provider.getEvalMetrics).toBeTypeOf("function");
+    expect(provider.listCandidates).toBeTypeOf("function");
   });
 
   it("returns empty local provider for local-logs without session", () => {

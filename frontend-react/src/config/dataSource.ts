@@ -12,7 +12,6 @@ export interface DataSourceConfig {
   mode: DataSourceMode;
   presetId: string;
   apiBaseUrl?: string;
-  evalMetricsUrl?: string;
   apiToken?: string;
   label: string;
 }
@@ -98,14 +97,6 @@ function envApiToken(): string | undefined {
   return import.meta.env.VITE_PRAXIS_API_TOKEN?.trim() || undefined;
 }
 
-function envEvalMetricsUrl(): string | undefined {
-  return import.meta.env.VITE_PRAXIS_EVAL_METRICS_URL?.trim() || undefined;
-}
-
-export function deriveEvalMetricsUrl(apiBaseUrl: string): string {
-  return `${apiBaseUrl.replace(/\/$/, "")}/metrics`;
-}
-
 export function getPresetById(presetId: string): DataSourcePreset | undefined {
   return DATA_SOURCE_PRESETS.find((p) => p.id === presetId);
 }
@@ -153,18 +144,11 @@ export function buildConfigFromPreset(
   }
 
   const normalized = apiBaseUrl.replace(/\/$/, "");
-  const evalFromEnv = envEvalMetricsUrl();
-  const evalMetricsUrl =
-    evalFromEnv &&
-    (preset.id === PRESET_IDS.deployed || preset.id === PRESET_IDS.postgres)
-      ? evalFromEnv
-      : deriveEvalMetricsUrl(normalized);
 
   return {
     mode: "live",
     presetId: preset.id,
     apiBaseUrl: normalized,
-    evalMetricsUrl,
     apiToken: envApiToken(),
     label: preset.label,
   };
@@ -210,8 +194,6 @@ export function resolveInitialConfig(): DataSourceConfig {
           mode: "live",
           presetId: stored.presetId,
           apiBaseUrl,
-          evalMetricsUrl:
-            stored.evalMetricsUrl ?? deriveEvalMetricsUrl(apiBaseUrl),
           apiToken: envApiToken(),
           label: stored.label || "Live API",
         };
@@ -239,7 +221,6 @@ export function persistConfig(config: DataSourceConfig): void {
     presetId: config.presetId,
     label: config.label,
     apiBaseUrl: config.apiBaseUrl,
-    evalMetricsUrl: config.evalMetricsUrl,
   };
   localStorage.setItem(DATA_SOURCE_STORAGE_KEY, JSON.stringify(toStore));
 }

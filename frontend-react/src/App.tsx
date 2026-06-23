@@ -15,7 +15,6 @@ import {
   uniqueContradictionPairs,
 } from "./components/ContradictionsReview";
 import { GraphExplorer } from "./components/graph/GraphExplorer";
-import { EvalMetricsEmbed } from "./components/EvalMetricsEmbed";
 import { McpSetupGuide } from "./components/McpSetupGuide";
 import { AppShell } from "./components/layout/AppShell";
 import { ContentSplit } from "./components/layout/ContentSplit";
@@ -446,8 +445,6 @@ export default function App() {
           }
         />
       )}
-
-      {viewTab !== "setup" ? <EvalMetricsEmbed provider={provider} /> : null}
 
       <CandidateEditorModal
         mode={editorState?.mode ?? "add"}
