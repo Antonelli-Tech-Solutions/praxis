@@ -291,9 +291,14 @@ def test_key_provides_both_embedding_capabilities(monkeypatch, tmp_path):
     import knowledge.evals.run as run_mod
 
     monkeypatch.setattr(run_mod, "EMBED_CACHE_DIR", tmp_path)
-    monkeypatch.setattr(run_mod, "VERDICT_CACHE_DIR", tmp_path)  # isolate; the key still provides merge_verdicts
+    monkeypatch.setattr(run_mod, "VERDICT_CACHE_DIR", tmp_path)  # isolate; the key still provides merge/conflict verdicts
     monkeypatch.setenv("OPENROUTER_API_KEY", "k")
-    assert run_mod.harness_capabilities() == {"real_embeddings", "live_embeddings", "merge_verdicts"}
+    assert run_mod.harness_capabilities() == {
+        "real_embeddings",
+        "live_embeddings",
+        "merge_verdicts",
+        "conflict_verdicts",
+    }
 
 
 def test_eval_embedder_resolves_per_axis(monkeypatch, tmp_path):

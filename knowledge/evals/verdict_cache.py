@@ -1,10 +1,11 @@
-"""Regenerate the committed merge-verdict cassette for ``merge_model`` eval cases.
+"""Regenerate the committed judge-verdict cassettes for eval cases.
 
-Run locally with ``OPENROUTER_API_KEY`` set. It re-runs every case that sets
-``merge_model``, driving the ingestion/seed writes so the recording
-``VerdictCassette`` captures the exact merge decisions those cases make at write time
-(and, as a side effect, records any missing embedding vectors the recall gate needs).
-Then commit the cassette + the embedding fixture.
+Run locally with ``OPENROUTER_API_KEY`` set. It re-runs every case that sets a
+judge axis (``merge_model`` and/or ``conflict_model``), driving the ingestion/seed
+writes so the recording ``VerdictCassette`` captures the exact merge/conflict
+decisions those cases make at write time (and, as a side effect, records any
+missing embedding vectors the recall gate needs). Then commit the cassette(s) +
+the embedding fixture.
 
     uv run python -m knowledge.evals.verdict_cache --refresh
 """
@@ -26,14 +27,15 @@ def refresh() -> int:
         )
         return 1
 
-    cases = [c for c in load_cases() if c.merge_model]
+    cases = [c for c in load_cases() if c.merge_model or c.conflict_model]
     if not cases:
-        print("no `merge_model` cases to record")
+        print("no `merge_model` / `conflict_model` cases to record")
         return 0
 
     for case in cases:
-        # Seeding drives graph.write -> Deduper -> MergeJudge, so the recording
-        # cassette captures each merge verdict (and the embed cache captures misses).
+        # Seeding drives graph.write -> Deduper -> MergeJudge and ConflictFlagger ->
+        # ConflictJudge, so the recording cassettes capture each merge/conflict
+        # verdict (and the embed cache captures misses).
         graph, ingestor, _ = _build_trio_for(case)
         for text in case.seeded_insight.direct_to_graph:
             graph.write(text)
@@ -41,14 +43,16 @@ def refresh() -> int:
             ingestor.ingest(text)
         print(f"recorded {case.id}")
 
-    print(f"wrote merge verdicts for {len(cases)} case(s)")
+    print(f"wrote judge verdicts for {len(cases)} case(s)")
     return 0
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="knowledge.evals.verdict_cache")
     parser.add_argument(
-        "--refresh", action="store_true", help="record merge verdicts for merge_model cases"
+        "--refresh",
+        action="store_true",
+        help="record merge/conflict verdicts for merge_model / conflict_model cases",
     )
     args = parser.parse_args(argv)
     if not args.refresh:
