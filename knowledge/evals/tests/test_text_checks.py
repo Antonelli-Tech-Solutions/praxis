@@ -5,6 +5,7 @@ from knowledge.evals.deterministic_checks.text import (
     is_empty,
     json_valid,
     max_line_length,
+    mentions_any,
     occurs_at_most,
     ordered_substrings,
     regex_absent,
@@ -112,3 +113,30 @@ def test_is_empty_pass():
 
 def test_is_empty_fail():
     assert not is_empty(_ctx("x")).passed
+
+
+# --- mentions_any: synonym-tolerant widening (US3) ---
+
+# The required concept is "RAG", accepted as the acronym OR its expansion.
+_RAG = [r"(?i)\brag\b", r"(?i)retrieval.?augmented"]
+
+
+def test_mentions_any_passes_on_acronym():
+    assert mentions_any(_ctx("our RAG pipeline served users"), patterns=_RAG).passed
+
+
+def test_mentions_any_passes_on_paraphrase():
+    # the widened check accepts the expansion even when the acronym is absent
+    assert mentions_any(_ctx("we built retrieval-augmented generation"), patterns=_RAG).passed
+
+
+def test_mentions_any_fails_when_concept_absent():
+    # discrimination retained: a wrong/missing-concept answer still fails
+    res = mentions_any(_ctx("a poem about the sea"), patterns=_RAG)
+    assert not res.passed
+    assert "no match" in res.evidence
+
+
+def test_mentions_any_word_boundary_avoids_false_positive():
+    # the old `(?i)rag` matched inside "storage"; the widened `\brag\b` does not
+    assert not mentions_any(_ctx("cheap storage layer"), patterns=[r"(?i)\brag\b"]).passed

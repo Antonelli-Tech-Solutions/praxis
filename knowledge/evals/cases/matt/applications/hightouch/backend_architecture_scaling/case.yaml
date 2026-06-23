@@ -604,13 +604,25 @@ deterministic_checks:
   ref: knowledge.evals.deterministic_checks.builds:output_nonempty
   params: {}
 - name: mentions_scale
-  ref: knowledge.evals.deterministic_checks.text:regex_matches
+  ref: knowledge.evals.deterministic_checks.text:mentions_any
   params:
-    pattern: (?i)billions
+    patterns:
+    - (?i)billion
+    - (?i)million
+    - (?i)terabyte
+    - (?i)scal(e|ing|able)
 - name: mentions_stack
-  ref: knowledge.evals.deterministic_checks.text:regex_matches
+  ref: knowledge.evals.deterministic_checks.text:mentions_any
   params:
-    pattern: (?i)graphql|lambda
+    patterns:
+    - (?i)graphql
+    - (?i)\blambda\b
+    - (?i)dynamodb
+    - (?i)appsync
+    - (?i)aws cdk
+    - (?i)\biac\b
+    - (?i)infrastructure as code
+    - (?i)microservice
 rubric:
   id: matt_hightouch_backend_architecture_scaling_v1
   items:

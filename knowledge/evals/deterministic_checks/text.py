@@ -91,6 +91,23 @@ def ordered_substrings(ctx: EvalContext, *, texts: list[str]) -> CheckResult:
     )
 
 
+def mentions_any(ctx: EvalContext, *, patterns: list[str]) -> CheckResult:
+    """Pass iff ANY of ``patterns`` (regex, searched independently) matches the output.
+
+    A synonym-tolerant widening of ``regex_matches``: a required concept can be
+    phrased several ways (an acronym, its expansion, a paraphrase), so the check
+    accepts a *set* of accepted spellings rather than a single literal pattern.
+    Each entry is a regex (use ``(?i)`` for case-insensitivity); the check still
+    fails an answer that mentions none of them, so discrimination is preserved.
+    """
+    hits = [p for p in patterns if re.search(p, ctx.output) is not None]
+    return CheckResult(
+        name="mentions_any",
+        passed=bool(hits),
+        evidence=(f"matched {hits!r}" if hits else f"no match for any of {patterns!r}"),
+    )
+
+
 def regex_matches(ctx: EvalContext, *, pattern: str) -> CheckResult:
     """Pass iff ``re.search(pattern, output)`` finds a match."""
     found = re.search(pattern, ctx.output) is not None

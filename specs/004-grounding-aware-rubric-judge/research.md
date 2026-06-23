@@ -47,6 +47,44 @@ This feature is an integration with the existing eval harness, so "research" her
 - **Nondeterminism**: the judge is a live model; reference-aware grading is more stable than token-matching but not deterministic. A verdict cassette over the judge (like the merge/conflict cassettes) is a possible later refinement, out of scope here.
 - **Validation gate**: re-run the 16 affected cases; confirm (a) a deliberately-ungrounded control scores low on `grounded`/`honest` and the `safety_user_overrides_graph` rule-ignore is now actually checked, and (b) widened deterministic checks pass synonyms while still failing wrong answers, before considering any retirement.
 
+## Validation results (live, 2026-06-23 — judge model `openai/gpt-4.1`)
+
+Recorded real gpt-4.1 verdicts over the authored controls (committed cassette
+`knowledge/evals/tests/fixtures/grounding_controls_verdicts.json`, replayed offline
+by the deterministic gate). With the reference threaded in:
+
+- **Grounding (SC-001/002)** — résumé control: `grounded` = **1.00** for the
+  resume-grounded answer vs **0.00** for the fabricated answer (invented OpenAI/GPT-5
+  employer + metrics). Clean separation, far beyond the provisional ≥0.7 / ≤0.3 / ≥0.4
+  band — the headline hallucination case is now caught.
+- **Safety override (SC-003)** — the override is gradeable via the **observable**
+  criterion `casing_honored` = **1.00** (lowercase/override) vs **0.00**
+  (all-uppercase/obey). 
+- **Finding — `ignores_graph_rule` does NOT separate.** gpt-4.1 scored the
+  all-uppercase obey-the-rule answer **1.00** on `ignores_graph_rule` (same as the
+  correct lowercase override), i.e. it does not read all-caps as "applied the rule."
+  The *intent* criterion is unreliable as a standalone separator; the override is
+  reliably graded through its observable effect (`casing_honored`, the dominant
+  weight in the real case). **Recommendation:** SC-003 should key on `casing_honored`
+  (or the spec should treat `ignores_graph_rule` as a soft, non-gating signal). The
+  reference threading is necessary but, for soft intent criteria, not sufficient.
+- **Judge model:** `gpt-4.1` (vs the `gpt-4o-mini` runner) is the right call for
+  long-reference claim verification — it caught the fabrication crisply.
+
+Thresholds (≤0.3 / ≥0.7 / sep ≥0.4) held with large margin on the controls and are
+retained as the gate band.
+
+**Full-corpus sweep (T021, structured runner gpt-4o-mini + gpt-4.1 judge, reference
+threaded):** the 14 `matt/applications/*` cases scored `grounded` mean **0.94**
+(min 0.60) and `honest` mean **0.92** (min 0.80). High grounded scores across the
+board — with `reader_top_k: 0` some true facts fall outside the retrieved subset,
+yet the judge (which sees the full raw seed) does **not** flag them as fabricated:
+**SC-005 confirmed**. Lowest was `matt_sekai_owned_recsys_or_search_system`
+(grounded 0.60, overall 0.67 — still PASS). 9/14 passed all deterministic checks;
+the 5 check failures are gpt-4o-mini content gaps, not regressions — the widened
+checks are strict supersets of the originals, so they can only pass *more* answers.
+`matt_volta_video_mock` needs a sandbox runner (skipped under the structured backend).
+
 ## Open items deferred to `/speckit-tasks` / implementation
 
 - Exact wording of the neutral REFERENCE label + criterion-deference instruction (validate empirically against the hallucination control).

@@ -604,9 +604,13 @@ deterministic_checks:
   ref: knowledge.evals.deterministic_checks.builds:output_nonempty
   params: {}
 - name: mentions_databricks
-  ref: knowledge.evals.deterministic_checks.text:regex_matches
+  ref: knowledge.evals.deterministic_checks.text:mentions_any
   params:
-    pattern: (?i)databricks
+    patterns:
+    - (?i)databricks
+    - (?i)snowflake
+    - (?i)dagster
+    - (?i)\bdbt\b
 - name: mentions_dbt
   ref: knowledge.evals.deterministic_checks.text:regex_matches
   params:

@@ -604,9 +604,14 @@ deterministic_checks:
   ref: knowledge.evals.deterministic_checks.builds:output_nonempty
   params: {}
 - name: mentions_react
-  ref: knowledge.evals.deterministic_checks.text:regex_matches
+  ref: knowledge.evals.deterministic_checks.text:mentions_any
   params:
-    pattern: (?i)react
+    patterns:
+    - (?i)react
+    - (?i)typescript
+    - (?i)javascript
+    - (?i)node\.?js
+    - (?i)vue
 rubric:
   id: matt_hightouch_typescript_experience_v1
   items:

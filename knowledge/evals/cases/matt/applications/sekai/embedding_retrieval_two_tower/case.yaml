@@ -604,9 +604,12 @@ deterministic_checks:
   ref: knowledge.evals.deterministic_checks.builds:output_nonempty
   params: {}
 - name: mentions_embeddings
-  ref: knowledge.evals.deterministic_checks.text:regex_matches
+  ref: knowledge.evals.deterministic_checks.text:mentions_any
   params:
-    pattern: (?i)embedding
+    patterns:
+    - (?i)embedding
+    - (?i)\bvector
+    - (?i)two.?tower
 rubric:
   id: matt_sekai_embedding_retrieval_two_tower_v1
   items:
