@@ -18,6 +18,7 @@ class OpenRouterLlm(Llm):
         *,
         temperature: float = 0.0,
         max_tokens: int = 1024,
+        response_format: dict | None = None,
     ) -> str:
         payload = [{"role": m.role, "content": m.content} for m in messages]
         return openrouter_http.chat_complete(
@@ -25,5 +26,6 @@ class OpenRouterLlm(Llm):
             model=self.model,
             temperature=temperature,
             max_tokens=max_tokens,
+            response_format=response_format,
             post=self.post,
         )

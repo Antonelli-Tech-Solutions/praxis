@@ -15,14 +15,31 @@ Determinism + graceful degradation, mirroring ``ConflictFlagger``:
 
 from __future__ import annotations
 
+import json
+
 from knowledge.llm.llm_def import ChatMessage
 from knowledge.llm.parent_llm import Llm
 from knowledge.llm.verdict_cassette import VerdictCassette
 
 _PROMPT = (
     "Do these two notes record the SAME lesson or rule, just phrased differently? "
-    "Answer only 'yes' or 'no'.\nEXISTING: {existing}\nNEW: {new}"
+    "Set same_lesson true if they do, false otherwise.\nEXISTING: {existing}\nNEW: {new}"
 )
+
+# Structured output: a JSON object (a bare boolean is not a valid json_schema root).
+_SCHEMA = {
+    "type": "json_schema",
+    "json_schema": {
+        "name": "merge_verdict",
+        "strict": True,
+        "schema": {
+            "type": "object",
+            "properties": {"same_lesson": {"type": "boolean"}},
+            "required": ["same_lesson"],
+            "additionalProperties": False,
+        },
+    },
+}
 
 
 class MergeJudge:
@@ -47,7 +64,8 @@ class MergeJudge:
         return None  # no verdict source -> skip
 
     def _compute(self, incoming: str, existing: str) -> dict:
-        answer = self.llm.complete(
-            [ChatMessage(role="user", content=_PROMPT.format(existing=existing, new=incoming))]
+        raw = self.llm.complete(
+            [ChatMessage(role="user", content=_PROMPT.format(existing=existing, new=incoming))],
+            response_format=_SCHEMA,
         )
-        return {"same_lesson": answer.strip().lower().startswith("yes")}
+        return {"same_lesson": bool(json.loads(raw)["same_lesson"])}

@@ -84,10 +84,15 @@ def chat_complete(
     api_key: str | None = None,
     temperature: float = 0.0,
     max_tokens: int = 1024,
+    response_format: dict | None = None,
     post: Poster | None = None,
     timeout: int = 120,
 ) -> str:
-    """Return the assistant text for one chat completion."""
+    """Return the assistant text for one chat completion.
+
+    ``response_format`` is passed through to the API (e.g. an OpenAI-style
+    ``{"type": "json_schema", ...}`` spec) to constrain the reply when set.
+    """
     model_name = model or os.getenv("OPENROUTER_MODEL", DEFAULT_CHAT_MODEL)
     payload = {
         "model": model_name,
@@ -95,6 +100,8 @@ def chat_complete(
         "temperature": temperature,
         "max_tokens": max_tokens,
     }
+    if response_format is not None:
+        payload["response_format"] = response_format
     with tracing.llm_span("openrouter.chat", model=model_name, input_value=messages) as span:
         raw = (post or default_post)(
             f"{BASE_URL}/chat/completions", payload, _headers(_require_key(api_key)), timeout

@@ -47,7 +47,7 @@ def test_deduper_semantic_merge_when_judge_says_same_lesson():
     # Paraphrase: above the recall gate, judge says same lesson -> merge into existing.
     existing = Fact(id="f1", text="run the suite with uv run pytest", embedding=[1.0])
     d = WriteDecision(text="use uv run pytest before pushing")
-    judge = MergeJudge(llm=FakeLlm(default="yes"))
+    judge = MergeJudge(llm=FakeLlm(default='{"same_lesson": true}'))
     Deduper(recall_floor=0.45, judge=judge).apply(
         d, _StoreView([SearchHit(fact=existing, score=0.67)])
     )
@@ -58,7 +58,7 @@ def test_deduper_semantic_merge_when_judge_says_same_lesson():
 def test_deduper_keeps_both_when_judge_says_distinct():
     existing = Fact(id="f1", text="the API is versioned under /v1", embedding=[1.0])
     d = WriteDecision(text="use uv run pytest before pushing")
-    judge = MergeJudge(llm=FakeLlm(default="no"))
+    judge = MergeJudge(llm=FakeLlm(default='{"same_lesson": false}'))
     Deduper(recall_floor=0.45, judge=judge).apply(
         d, _StoreView([SearchHit(fact=existing, score=0.67)])
     )
@@ -69,7 +69,7 @@ def test_deduper_skips_judge_below_recall_floor():
     # Candidate below the recall gate -> judge never consulted (no wasted call).
     existing = Fact(id="f1", text="totally unrelated fact", embedding=[1.0])
     d = WriteDecision(text="use uv run pytest before pushing")
-    llm = FakeLlm(default="yes")
+    llm = FakeLlm(default='{"same_lesson": true}')
     Deduper(recall_floor=0.45, judge=MergeJudge(llm=llm)).apply(
         d, _StoreView([SearchHit(fact=existing, score=0.31)])
     )
