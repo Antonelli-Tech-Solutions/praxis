@@ -1,9 +1,9 @@
 # Tier-B PROVISIONAL implicit-contradiction case (FR-021/FR-022). Two genuinely
-# contradictory engineering preferences, phrased with DISJOINT vocabulary and NO
-# negation cue, so cosine recall never pairs them (~0.45 or below). The AspectTagger
-# assigns both the controlled-vocab aspect "config-organization", and the conflict path's
-# same-tag recall surfaces the pair for the ConflictJudge. Replays offline from the
-# committed aspect + conflict cassettes once recorded.
+# contradictory engineering preferences phrased with DISJOINT vocabulary and NO
+# shared key noun, so they sit below the cosine recall floor (cosine << 0.45) and
+# cosine recall never pairs them. The AspectTagger assigns both the controlled-vocab
+# aspect "config-organization"; the conflict path's same-tag recall surfaces the pair for the
+# ConflictJudge. Replays offline from the committed aspect + conflict cassettes.
 #
 # xfail = provisional: kept ONLY if the owner judges the Tier-B gate cleared
 # (FR-022). A working experiment XPASSes here; an unrecalled pair stays XFAIL.
@@ -18,8 +18,8 @@ xfail: "Tier-B gate pending (FR-022): implicit-contradiction recall via aspect t
 seeded_insight:
   via_ingestor: []
   direct_to_graph:
-    - "Centralize all configuration in a single settings file."
-    - "Colocate configuration next to the module that uses it."
+    - "Keep every tunable knob in one central place."
+    - "Put each setting right beside the code that reads it."
 
 deterministic_checks:
   - name: implicit_contradiction_flagged
