@@ -1,7 +1,11 @@
 """Tests for the shared embedding/LLM seam (offline)."""
 
 import json
+import urllib.error
 
+import pytest
+
+from knowledge.llm import openrouter_http
 from knowledge.llm.embedder_variants.fake_embedder import FakeEmbedder
 from knowledge.llm.embedder_variants.openrouter_embedder import OpenRouterEmbedder
 from knowledge.llm.llm_def import ChatMessage
@@ -46,3 +50,46 @@ def test_openrouter_llm_parses_text(monkeypatch):
 
     out = OpenRouterLlm(post=fake_post).complete([ChatMessage(role="user", content="hi")])
     assert out == "ok"
+
+
+def test_default_post_retries_transient_then_succeeds(monkeypatch):
+    monkeypatch.setattr(openrouter_http.time, "sleep", lambda _s: None)  # no real backoff
+    calls = {"n": 0}
+
+    def flaky(url, payload, headers, timeout):
+        calls["n"] += 1
+        if calls["n"] < 3:
+            raise ConnectionResetError("WinError 10054")  # transient (OSError)
+        return "ok"
+
+    monkeypatch.setattr(openrouter_http, "_request_once", flaky)
+    assert openrouter_http.default_post("u", {}, {}, 5) == "ok"
+    assert calls["n"] == 3  # two failures, third attempt wins
+
+
+def test_default_post_retries_on_5xx_then_raises_after_max(monkeypatch):
+    monkeypatch.setattr(openrouter_http.time, "sleep", lambda _s: None)
+    calls = {"n": 0}
+
+    def always_503(url, payload, headers, timeout):
+        calls["n"] += 1
+        raise urllib.error.HTTPError(url, 503, "Service Unavailable", {}, None)
+
+    monkeypatch.setattr(openrouter_http, "_request_once", always_503)
+    with pytest.raises(urllib.error.HTTPError):
+        openrouter_http.default_post("u", {}, {}, 5)
+    assert calls["n"] == openrouter_http._MAX_ATTEMPTS  # exhausted retries
+
+
+def test_default_post_does_not_retry_client_error(monkeypatch):
+    monkeypatch.setattr(openrouter_http.time, "sleep", lambda _s: None)
+    calls = {"n": 0}
+
+    def always_400(url, payload, headers, timeout):
+        calls["n"] += 1
+        raise urllib.error.HTTPError(url, 400, "Bad Request", {}, None)
+
+    monkeypatch.setattr(openrouter_http, "_request_once", always_400)
+    with pytest.raises(urllib.error.HTTPError):
+        openrouter_http.default_post("u", {}, {}, 5)
+    assert calls["n"] == 1  # fail fast, no retry on 4xx

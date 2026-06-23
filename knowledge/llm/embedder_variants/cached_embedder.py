@@ -21,10 +21,17 @@ import base64
 import hashlib
 import json
 import struct
+import threading
 from pathlib import Path
 
 from knowledge.llm.llm_def import Vector
 from knowledge.llm.parent_embedder import Embedder
+
+# Guards the read-modify-write in ``save`` so parallel cases (e.g. the runner's
+# ``--workers``) recording to the *same* cache file can't clobber each other's new
+# keys. Process-wide because the contention is between separate CachedEmbedder
+# instances sharing one path, not within one instance.
+_FILE_LOCK = threading.Lock()
 
 
 def _pack(vec: Vector) -> str:
@@ -73,15 +80,25 @@ class CachedEmbedder(Embedder):
         return [self._cache[self._key(t)] for t in texts]
 
     def save(self) -> None:
-        """Write the cache back to disk (sorted, packed) if anything changed."""
+        """Write the cache back to disk (sorted, packed) if anything changed.
+
+        Merges with the current on-disk state under a process-wide lock so a
+        concurrent saver (parallel cases sharing this path) can't drop the other's
+        newly recorded keys. Vectors are deterministic for a fixed ``(model, text)``,
+        so merge precedence is immaterial.
+        """
         if not self._dirty:
             return
-        self.cache_path.parent.mkdir(parents=True, exist_ok=True)
-        packed = {k: _pack(v) for k, v in self._cache.items()}
-        self.cache_path.write_text(
-            json.dumps(packed, indent=0, sort_keys=True) + "\n", encoding="utf-8"
-        )
-        self._dirty = False
+        with _FILE_LOCK:
+            merged = self._load()  # re-read: may include a peer's concurrent writes
+            merged.update(self._cache)
+            self.cache_path.parent.mkdir(parents=True, exist_ok=True)
+            packed = {k: _pack(v) for k, v in merged.items()}
+            self.cache_path.write_text(
+                json.dumps(packed, indent=0, sort_keys=True) + "\n", encoding="utf-8"
+            )
+            self._cache = merged  # adopt peers' keys so later hits resolve
+            self._dirty = False
 
     def _load(self) -> dict[str, Vector]:
         if not self.cache_path.exists():
