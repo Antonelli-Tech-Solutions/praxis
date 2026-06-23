@@ -101,6 +101,7 @@ class SeededInsight(BaseModel):
 
     via_ingestor: list[str] = Field(default_factory=list)  # each fed to Ingestor.ingest()
     direct_to_graph: list[str] = Field(default_factory=list)  # each written to KnowledgeGraph.write()
+    via_image_ingestor: list[str] = Field(default_factory=list)  # asset folders (fixture-relative) fed to ImageIngestor; land active
 
 
 # Which slice of the pipeline a case exercises. None => the full agent pipeline
@@ -137,6 +138,7 @@ class EvalCase(BaseModel):
     ingest_model: str | None = None  # OpenRouter chat model for ingestion distillation (PromptIngestor's LLM); None => passthrough line-split. Needs OPENROUTER_API_KEY
     merge_model: str | None = None  # OpenRouter chat model for the dedup MergeJudge; None => exact-dedup only. Replayed from a committed merge verdict cassette (or a live key)
     conflict_model: str | None = None  # OpenRouter chat model for the ConflictFlagger's ConflictJudge; None => no conflict flagging. Replayed from a committed conflict verdict cassette (or a live key)
+    caption_model: str | None = None  # OpenRouter VLM for image asset captions (ImageIngestor); None => deterministic-only cards. Replayed from a committed caption cassette (or a live key)
     seeded_insight: SeededInsight = Field(default_factory=SeededInsight)
     deterministic_checks: list[DeterministicCheckRef] = Field(default_factory=list)
     rubric: Rubric | None = None
