@@ -261,6 +261,7 @@ def test_real_embedding_cases_skip_without_cache_or_key(monkeypatch, tmp_path):
     import knowledge.evals.run as run_mod
 
     monkeypatch.setattr(run_mod, "EMBED_CACHE_DIR", tmp_path)  # empty -> no committed fixture
+    monkeypatch.setattr(run_mod, "VERDICT_CACHE_DIR", tmp_path)  # empty -> no merge cassette
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
     monkeypatch.delenv("OPENROUTER_EMBED_MODEL", raising=False)
 
@@ -290,8 +291,9 @@ def test_key_provides_both_embedding_capabilities(monkeypatch, tmp_path):
     import knowledge.evals.run as run_mod
 
     monkeypatch.setattr(run_mod, "EMBED_CACHE_DIR", tmp_path)
+    monkeypatch.setattr(run_mod, "VERDICT_CACHE_DIR", tmp_path)  # isolate; the key still provides merge_verdicts
     monkeypatch.setenv("OPENROUTER_API_KEY", "k")
-    assert run_mod.harness_capabilities() == {"real_embeddings", "live_embeddings"}
+    assert run_mod.harness_capabilities() == {"real_embeddings", "live_embeddings", "merge_verdicts"}
 
 
 def test_eval_embedder_resolves_per_axis(monkeypatch, tmp_path):

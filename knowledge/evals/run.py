@@ -47,6 +47,7 @@ RESULTS_DIR = HERE / "results"
 BASELINE_PATH = RESULTS_DIR / "baseline.jsonl"
 RUNS_DIR = RESULTS_DIR / "runs"  # verbose per-run transcripts (gitignored)
 EMBED_CACHE_DIR = HERE / "fixtures" / "embeddings"  # committed real-vector caches
+VERDICT_CACHE_DIR = HERE / "fixtures" / "verdicts"  # committed judge-verdict cassettes
 
 # Overall verdict threshold for a rubric-only case.
 PASS_THRESHOLD = 0.5
@@ -166,6 +167,11 @@ def harness_capabilities() -> set[str]:
         caps.add("real_embeddings")
     if os.getenv("OPENROUTER_API_KEY"):
         caps |= {"real_embeddings", "live_embeddings"}
+    # Merge-judge verdicts: a committed merge cassette replays offline; a live key
+    # can compute them. Either way the dedup cases can run faithfully.
+    merge_dir = VERDICT_CACHE_DIR / "merge"
+    if os.getenv("OPENROUTER_API_KEY") or (merge_dir.exists() and any(merge_dir.glob("*.json"))):
+        caps.add("merge_verdicts")
     return caps
 
 
@@ -198,6 +204,10 @@ def case_needs(case: EvalCase) -> set[str]:
         needs.add("real_embeddings")
     elif case.embedder == "live":
         needs.add("live_embeddings")
+    # Semantic-merge cases need a merge verdict source (committed cassette or a key),
+    # else they'd silently fall back to exact-dedup and mis-grade -> SKIP instead.
+    if case.merge_model:
+        needs.add("merge_verdicts")
     return needs
 
 
@@ -268,8 +278,34 @@ def _ingest_llm_for(case: EvalCase, llm):
     return lambda prompt: model.complete([ChatMessage(role="user", content=prompt)])
 
 
+def _merge_judge_for(case: EvalCase):
+    """Build the dedup ``MergeJudge`` for a case's ``merge_model`` axis (None => none).
+
+    Mirrors the embedder wiring: a live OpenRouter judge when a key is set, plus a
+    committed verdict cassette for offline replay. With neither, returns None so the
+    ``Deduper`` falls back to exact-dedup only (the case SKIPs via ``merge_verdicts``).
+    """
+    if not case.merge_model:
+        return None
+    from knowledge.knowledge_graph.write_policy.write_step_variants import MergeJudge
+    from knowledge.llm.llm_variants.openrouter_llm import OpenRouterLlm
+    from knowledge.llm.verdict_cassette import VerdictCassette
+
+    has_key = bool(os.getenv("OPENROUTER_API_KEY"))
+    llm = OpenRouterLlm(model=case.merge_model) if has_key else None
+    cache = VERDICT_CACHE_DIR / "merge" / f"{_slug(case.merge_model)}.json"
+    cassette = (
+        VerdictCassette(cache, model_id=case.merge_model, allow_compute=has_key)
+        if (cache.exists() or has_key)
+        else None
+    )
+    if llm is None and cassette is None:
+        return None
+    return MergeJudge(llm=llm, cassette=cassette)
+
+
 def _build_trio_for(case: EvalCase, llm=None):
-    """Wire the trio honoring the case's reader/embedder/ingest_model axes."""
+    """Wire the trio honoring the case's reader/embedder/ingest_model/merge_model axes."""
     llm = _ingest_llm_for(case, llm)
     embedder = _eval_embedder(case)
     graph = None
@@ -280,7 +316,7 @@ def _build_trio_for(case: EvalCase, llm=None):
         from knowledge.knowledge_graph.knowledge_graph_variants.vector_graph import VectorGraph
         from knowledge.knowledge_graph.write_policy.write_step_variants import Deduper, Redactor
 
-        graph = VectorGraph(embedder=embedder, policy=[Redactor(), Deduper()])
+        graph = VectorGraph(embedder=embedder, policy=[Redactor(), Deduper(judge=_merge_judge_for(case))])
     return build_trio(
         substrate=case.substrate,
         graph=graph,

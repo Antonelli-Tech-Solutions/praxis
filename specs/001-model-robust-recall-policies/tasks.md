@@ -84,11 +84,11 @@ Single Python package at repo root: `knowledge/...`. Tests live in per-package `
 
 - [X] T021 [US2] Implement `MergeJudge` in `knowledge/knowledge_graph/write_policy/write_step_variants/merge_judge.py` (yes/no same-lesson over `OpenRouterLlm`, backed by `VerdictCassette`; existing note is the verbatim survivor; skip when no source)
 - [X] T022 [US2] Update `Deduper`: `threshold`→`recall_floor`; exact short-circuit kept; recall-gate → `MergeJudge`; no-judge = exact-only (backward compatible — all existing `Deduper()` callers still work)
-- [ ] T023 [US2] Wire the merge cassette into `knowledge/evals/run.py` (graceful skip when no key/cassette)
-- [ ] T024 [US2] Add merge/conflict cassette regenerator `knowledge/evals/verdict_cache.py` (mirrors `embed_cache.py`, `--refresh`)
-- [ ] T025 [US2] Generate + commit the merge verdict cassette `knowledge/evals/fixtures/verdicts/merge/<model-slug>.json`
-- [ ] T026 [P] [US2] Flip `ingestion_merge_near_dupes`: drop the `xfail`, ride the new `Deduper` (`knowledge/evals/cases/ingestion_merge_near_dupes/case.yaml`)
-- [ ] T027 [P] [US2] Flip `skills_merge_dedup`: drop the `xfail`; confirm `distinct_ideas_survive` still guards over-merge (`knowledge/evals/cases/skills_merge_dedup/case.yaml`)
+- [X] T023 [US2] Wire the merge judge/cassette into `knowledge/evals/run.py` via a `merge_model` `EvalCase` axis + a `merge_verdicts` capability (graceful SKIP when no key/cassette); `_merge_judge_for` builds the judge, injected into `Deduper`.
+- [X] T024 [US2] Add `knowledge/evals/verdict_cache.py` regenerator (mirrors `embed_cache.py`, `--refresh`; records merge verdicts + any embedding misses).
+- [X] T025 [US2] Generated + committed the merge verdict cassette `knowledge/evals/fixtures/verdicts/merge/openai_gpt-4o-mini.json` (+ embedding vectors for the two cases).
+- [X] T026 [P] [US2] Flip `ingestion_merge_near_dupes`: `embedder: cached` + `merge_model`; xfail dropped → **PASS 1/1** offline (paraphrases merge).
+- [X] T027 [P] [US2] Flip `skills_merge_dedup`: `embedder: cached` + `merge_model`; xfail dropped → **PASS 2/2** offline (shared idea merged, distinct ideas survive).
 
 **Checkpoint**: US2 works independently; the two paraphrase-dedup cases pass against cassetted verdicts; `ingestion_dedup` (exact) still passes.
 

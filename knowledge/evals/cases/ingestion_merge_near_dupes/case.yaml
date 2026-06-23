@@ -1,19 +1,17 @@
-# Component eval: ingestion only (no agent). Feeds the SAME lesson TWICE,
-# phrased differently (trivial wording variation) but sharing the identical
-# load-bearing phrase "use uv run pytest". Runs on the vector substrate so it
-# exercises the real write policy (Redactor -> Deduper -> ConflictFlagger).
-# EXPECTED-FAIL today: the Deduper only collapses near-EXACT duplicates (cosine
-# threshold 0.95), so these two differently-phrased lines are NOT merged -> "use
-# uv run pytest" appears twice and occurs_at_most(n=1) FAILS. This is NOT merely an
-# offline-embedder artifact: the paraphrases sit at ~0.65 cosine (measured,
-# text-embedding-3-small), well below 0.95, so a real embedder ALONE will not merge
-# them either. GREEN PATH = a paraphrase-level semantic-merge write step (loose
-# recall gate + merge-judge) that keeps one verbatim insight and drops the dup.
-# (Pairs with ingestion_dedup, the exact-match arm that passes offline.)
+# Component eval: ingestion only (no agent). Feeds the SAME lesson TWICE, phrased
+# differently (trivial wording variation) but sharing the load-bearing phrase
+# "use uv run pytest". Runs on the vector substrate, so it exercises the real
+# write policy (Redactor -> Deduper). The two phrasings sit at ~0.65 cosine
+# (text-embedding-3-small): the loose recall gate (recall_floor 0.45) surfaces the
+# paraphrase as a candidate, and the MergeJudge confirms "same lesson" -> the two
+# merge into one verbatim survivor, so "use uv run pytest" appears once and
+# occurs_at_most(n=1) PASSES. Replays from the committed merge cassette offline.
+# (Pairs with ingestion_dedup, the exact-match arm.)
 id: ingestion_merge_near_dupes
 component: ingestion
 substrate: vector
-xfail: "no paraphrase-level semantic merge: a real embedder still won't merge ~0.65 paraphrases under the Deduper's near-exact (0.95) threshold; needs the recall-gate + merge-judge write step"
+embedder: cached  # real vectors so the recall gate finds the ~0.65 paraphrase candidate
+merge_model: openai/gpt-4o-mini  # MergeJudge decides same-lesson; replayed from the committed cassette
 
 seeded_insight:
   via_ingestor:
