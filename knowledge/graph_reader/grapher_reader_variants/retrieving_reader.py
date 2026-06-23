@@ -20,14 +20,16 @@ reader's system contract:
 Set ``abs_floor=0`` or ``rel_ratio=0`` to disable a mechanism (used by tests to
 isolate the other).
 
-Default calibration (``abs_floor=0.30``, ``rel_ratio=0.75``, ``top_k=8``) is tuned
-against ``openai/text-embedding-3-small``: on the reader graph the relevant facts
-score ~0.45-0.52 and the distractors sit <=0.27, while a no-relevant-fact query
-tops out ~0.2. The floor (0.30) sits in the unrelated band — coarse, not on the
-separating line — and the ratio (0.75) drops anything much weaker than the best.
-Validated end-to-end: ``lost_in_middle_reader`` (relative cutoff isolated) and the
-live ``lost_in_middle`` (full production triple) both pass. Recompute the floor on
-an embedding-model change; the relative ratio is model-robust and should carry over.
+Default calibration (``abs_floor=0.30``, ``rel_ratio=0.60``, ``top_k=8``) is tuned
+against ``openai/text-embedding-3-small``. Two reader cases pin ``rel_ratio`` from
+opposite sides: ``lost_in_middle_reader`` needs it high enough to drop a distractor
+(CloudFront 0.272 vs top 0.516 -> ratio must exceed 0.527), while
+``scattered_multifact`` needs it low enough to keep the weakest of several relevant
+facts (the recall-under-noise constraint). ``0.60`` clears the distractor with
+headroom and keeps a relevant cluster whose weakest member is >= 0.6 of the best.
+The floor (0.30) sits in the unrelated band — coarse, not on the separating line.
+Recompute the floor on an embedding-model change; the relative ratio is model-robust
+and should carry over.
 """
 
 from __future__ import annotations
@@ -47,7 +49,7 @@ class RetrievingReader(GraphReader):
         *,
         top_k: int = 8,
         abs_floor: float = 0.30,
-        rel_ratio: float = 0.75,
+        rel_ratio: float = 0.60,
     ) -> None:
         if not isinstance(graph, SearchableGraph):
             raise TypeError(

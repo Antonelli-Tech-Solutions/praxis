@@ -68,7 +68,7 @@ def test_integration_production_defaults_keep_relevant_drop_irrelevant():
     graph = _StubGraph(
         [("caching", 0.52), ("todo", 0.45), ("cloudfront", 0.27), ("xray", 0.18)]
     )
-    reader = RetrievingReader(graph, top_k=8, abs_floor=0.30, rel_ratio=0.75)
+    reader = RetrievingReader(graph, top_k=8)  # production defaults (abs_floor=0.30, rel_ratio=0.60)
     out = _texts(reader.read("q"))
     assert out == {"caching", "todo"}
 

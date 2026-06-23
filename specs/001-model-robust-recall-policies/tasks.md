@@ -54,9 +54,10 @@ Single Python package at repo root: `knowledge/...`. Tests live in per-package `
 - [X] T011 [US1] Thread the new axes through `knowledge/evals/run.py` (`_build_trio_for`)
 - [X] T012 [P] [US1] Reconcile `lost_in_middle_reader`: set `reader_abs_floor: 0`, drop `reader_min_score`, remove the PROVISIONAL note (`knowledge/evals/cases/lost_in_middle_reader/case.yaml`) — passes offline 4/4
 - [X] T012a [US1] Update existing `knowledge/tests/test_graph_reader.py` to the new abs_floor/rel_ratio API (required by the `min_score` removal)
-- [ ] T013 [P] [US1] Convert `reader_returns_all` → `reader_returns_all_before` (XFAIL control asserting dump-all); add an `after` case asserting ranking **only if** not redundant with `lost_in_middle_reader`/`scattered_multifact` (note redundancy if so) (`knowledge/evals/cases/`)
-- [ ] T014 [P] [US1] Redesign `scattered_multifact` into two recall-under-noise versions: far-only (expected PASS) and near-only (provisional) with `reader_abs_floor: 0` (`knowledge/evals/cases/scattered_multifact/`)
-- [ ] T015 [P] [US1] Convert no-leak cases to floor tests: `context_budget_overload`, `negative_control_irrelevant` assert empty/clean injection (`knowledge/evals/cases/`)
+- [X] T013 [P] [US1] Convert `reader_returns_all` → `reader_returns_all_before` (XFAIL control: retrieving reader keeps only the config fact, dump-all assertion fails); `after` omitted as redundant with `lost_in_middle_reader` (noted in-case). Replays offline XFAIL.
+- [X] T014 [P] [US1] Redesign `scattered_multifact` → recall-under-noise reader test (far-only PASS 5/5: 3 conventions cluster 0.54-0.59, far distractors ≤0.15) + `scattered_multifact_near` (near-only **provisional**, XFAIL 4/5: same-topic distractor survives — documented boundary).
+- [X] T015 [P] [US1] Convert no-leak cases to floor tests: `negative_control_irrelevant` (PASS — floor empties the CSS graph for a Python query) and `context_budget_overload` (PASS — ZEBRA_RULE stays below the floor at ~50-fact scale).
+- [X] T016a [US1] Recalibrate global `rel_ratio` 0.75 → 0.60: the two reader cases pin it to (0.527, ~0.6]; 0.60 drops `lost_in_middle`'s CloudFront (0.272) with headroom and keeps `scattered_multifact`'s weakest convention. Reader default + docstring updated; integration test uses the default.
 - [X] T016 [US1] Calibrate `abs_floor`/`rel_ratio`/`top_k` against the committed `text-embedding-3-small` cache; document the model + values on `RetrievingReader` (values validated by the lost_in_middle pair; documented on the reader)
 
 **Checkpoint**: US1 fully functional and independently testable (the read-path MVP).

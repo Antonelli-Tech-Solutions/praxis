@@ -1,21 +1,20 @@
-# BUDGET / no-bloat, no-leak under a LARGE graph. The seeded graph holds ~50
-# unrelated rules spanning many domains; exactly one buries the unique token
-# "ZEBRA_RULE". The task touches none of them: write a Python `add(a, b)` to
-# answer.py. We assert the artifact defines `add` AND that none of the
-# irrelevant graph content (specifically "ZEBRA_RULE") leaks into the output.
+# FLOOR TEST under a LARGE graph (~50 facts spanning many domains; exactly one
+# buries the unique token "ZEBRA_RULE"). The query is a Python task (write add(a,b))
+# that touches none of them. The RetrievingReader's absolute floor keeps the
+# clearly-irrelevant ZEBRA_RULE (an audit-log rule) out of the injected context, so
+# it can never leak downstream — the no-bloat/no-leak guarantee at the reader level,
+# at scale (some Python-style rules may clear the floor; the audit rule must not).
 #
-# Scope: full-pipeline (real Claude Code agent; no `component`).
-# Expected under a REAL run: PASS. A competent agent ignores the irrelevant
-# rules and emits a clean two-line function, so "def add" is present and
-# "ZEBRA_RULE" is absent. (Under the offline FakeRunner there is no real agent
-# output, so it would FAIL offline -- the probe below proves the checks are sound.)
+# Converted from the old full-pipeline no-leak case: the reader-level floor (junk is
+# filtered before it reaches an agent) is the more fundamental guarantee.
+# embedder: cached -> committed real-vector fixture; offline/CI.
 id: context_budget_overload
-seed_prompt: |
-  Write a Python function `add(a, b)` that returns the sum of its two arguments.
-  Write the complete function definition to a file named answer.py and nothing else.
-target_commit: "0000000000000000000000000000000000000000"  # placeholder reference
-start_commit: null
-repo: null
+component: graph_reader
+substrate: vector
+reader: retrieving
+embedder: cached
+reader_top_k: 8
+seed_prompt: "Write a Python function add(a, b) that returns the sum of its two arguments."
 
 seeded_insight:
   via_ingestor:
@@ -72,10 +71,6 @@ seeded_insight:
     - "Temporary files are written to /tmp and cleaned on process exit."
 
 deterministic_checks:
-  - name: defines_add
-    ref: "knowledge.evals.deterministic_checks.builds:contains_text"
-    params:
-      text: "def add"
   - name: no_zebra_leak
     ref: "knowledge.evals.deterministic_checks.text:forbids_substring"
     params:
