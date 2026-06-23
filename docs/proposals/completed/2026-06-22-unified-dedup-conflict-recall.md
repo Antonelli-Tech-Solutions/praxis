@@ -8,7 +8,7 @@ pass, a contradiction-specific recall key (experiment), and a documented residua
 
 > Companion to [`2026-06-22-semantic-dedup-recall-gate-llm-judge.md`](2026-06-22-semantic-dedup-recall-gate-llm-judge.md)
 > (the dedup recall-gate + merge-judge) and successor to the open agenda (§4) in
-> [`2026-06-22-dedup-conflict-handoff.md`](archive/2026-06-22-dedup-conflict-handoff.md). The dedup
+> [`2026-06-22-dedup-conflict-handoff.md`](../archive/2026-06-22-dedup-conflict-handoff.md). The dedup
 > proposal is **not** superseded — it is endorsed and reused. This doc (1) unifies
 > `ConflictFlagger` onto the same two-stage machinery, (2) adds the one recall key with a
 > plausible shot at *implicit* contradictions, and (3) names — honestly — the case the field
