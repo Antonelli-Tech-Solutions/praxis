@@ -11,7 +11,7 @@ seed_prompt: 'You are helping Matthew Daw fill out a job application for the Sen
   Application question: Tell us about a recommendation, ranking, or model-quality experiment you designed and analyzed end-to-end, and how the results drove your next iteration.'
 target_commit: '0000000000000000000000000000000000000000'
 needs:
-- sandbox
+- file_io
 seeded_insight:
   via_ingestor:
   - 'Matthew Daw Resume

@@ -11,7 +11,7 @@ seed_prompt: 'You are helping Matthew Daw fill out a job application for the Sen
   Application question: What is your experience with embedding-based retrieval and two-tower models for candidate generation, and how have you used embeddings in production?'
 target_commit: '0000000000000000000000000000000000000000'
 needs:
-- sandbox
+- file_io
 seeded_insight:
   via_ingestor:
   - 'Matthew Daw Resume

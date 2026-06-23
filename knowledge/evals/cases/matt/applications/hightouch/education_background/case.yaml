@@ -11,7 +11,7 @@ seed_prompt: 'You are helping Matthew Daw fill out a job application for the Sof
   Application question: Walk us through your relevant education and how it prepared you for AI/backend work.'
 target_commit: '0000000000000000000000000000000000000000'
 needs:
-- sandbox
+- file_io
 seeded_insight:
   via_ingestor:
   - 'Matthew Daw Resume

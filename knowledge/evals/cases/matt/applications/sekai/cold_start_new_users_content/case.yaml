@@ -11,7 +11,7 @@ seed_prompt: 'You are helping Matthew Daw fill out a job application for the Sen
   Application question: How would you approach improving recommendation quality for new users and brand-new content (the cold-start problem) in a fast-changing content pool?'
 target_commit: '0000000000000000000000000000000000000000'
 needs:
-- sandbox
+- file_io
 seeded_insight:
   via_ingestor:
   - 'Matthew Daw Resume

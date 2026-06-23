@@ -11,7 +11,7 @@ seed_prompt: 'You are helping Matthew Daw fill out a job application for the Sen
   Application question: Sekai is a remote-first, fast-moving consumer social product (the ''TikTok of interactive mini-apps''). Why do you want to work on AI-native content discovery here, and what makes you a fit?'
 target_commit: '0000000000000000000000000000000000000000'
 needs:
-- sandbox
+- file_io
 seeded_insight:
   via_ingestor:
   - 'Matthew Daw Resume

@@ -247,7 +247,11 @@ def main() -> None:
                 "ingest_model": "openai/gpt-4o-mini",
                 "seed_prompt": seed_prompt(company, role, question),
                 "target_commit": "0" * 40,
-                "needs": ["sandbox"],
+                # file_io, not sandbox: the checks grade answer text (output_nonempty
+                # + regex_matches over ctx.output) and mount no fixture, so a file-
+                # producing runner suffices. This lets the cheaper structured backend
+                # grade them, not just full Claude Code.
+                "needs": ["file_io"],
                 "seeded_insight": {"via_ingestor": SOURCES},
                 "deterministic_checks": [NONEMPTY]
                 + [regex_check(n, p) for n, p in checks],
