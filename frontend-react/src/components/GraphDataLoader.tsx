@@ -58,11 +58,11 @@ export function GraphDataLoader({ apiBaseUrl, auth, onLoaded }: GraphDataLoaderP
     }
   }
 
-  async function handleLoadEvals(mode: "add" | "upsert") {
+  async function handleLoadEvals(mode: "add" | "replace") {
     if (!selected.length) return;
-    if (mode === "upsert") {
+    if (mode === "replace") {
       const ok = window.confirm(
-        "Upsert evals truncates the entire live graph before inserting the selected evals. Continue?",
+        "Replace graph clears the entire live graph before inserting the selected evals. Continue?",
       );
       if (!ok) return;
     }
@@ -72,7 +72,7 @@ export function GraphDataLoader({ apiBaseUrl, auth, onLoaded }: GraphDataLoaderP
     try {
       const result = await loadEvals(apiBaseUrl, { scopes: selected, mode, distill: false }, auth);
       setMessage(
-        `${mode === "upsert" ? "Upserted" : "Added"} ${result.candidatesInserted} candidates into the graph.`,
+        `${mode === "replace" ? "Replaced graph with" : "Added"} ${result.candidatesInserted} candidates into the graph.`,
       );
       onLoaded?.();
       void loadCached();
@@ -138,12 +138,12 @@ export function GraphDataLoader({ apiBaseUrl, auth, onLoaded }: GraphDataLoaderP
               <button
                 type="button"
                 className="btn primary"
-                onClick={() => void handleLoadEvals("upsert")}
+                onClick={() => void handleLoadEvals("replace")}
                 disabled={loading || !selected.length}
-                title="Truncate the whole live graph, then insert these evals"
-                aria-label="Truncate the whole live graph, then insert these evals"
+                title="Clear the whole live graph, then insert these evals"
+                aria-label="Clear the whole live graph, then insert these evals"
               >
-                {loading ? "Working…" : `Upsert evals${selected.length ? ` (${selected.length})` : ""}`}
+                {loading ? "Working…" : `Replace graph${selected.length ? ` (${selected.length})` : ""}`}
               </button>
               <button
                 type="button"

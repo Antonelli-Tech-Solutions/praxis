@@ -39,11 +39,11 @@ export interface DataProvider {
   saveSnapshot(name: string): Promise<Snapshot>;
   /**
    * Load the named snapshot into the live graph.
-   * `mode:"upsert"` (default) is DESTRUCTIVE: it truncates the whole live graph
+   * `mode:"replace"` (default) is DESTRUCTIVE: it truncates the whole live graph
    * then inserts the snapshot. `mode:"add"` additively merges the snapshot,
    * replacing only nodes it shares by id and keeping other live facts.
    */
-  loadSnapshot(name: string, mode?: "add" | "upsert"): Promise<{ loaded: number }>;
+  loadSnapshot(name: string, mode?: "add" | "replace"): Promise<{ loaded: number }>;
   /** Delete a saved snapshot. */
   deleteSnapshot(name: string): Promise<{ deleted: string }>;
 }

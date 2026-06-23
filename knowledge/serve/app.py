@@ -341,14 +341,14 @@ def create_app(conn: Any | None = None) -> FastAPI:
     ) -> dict[str, Any]:
         """Put a snapshot into the live graph.
 
-        ``mode="upsert"`` (default) truncates the whole live graph then inserts
+        ``mode="replace"`` (default) truncates the whole live graph then inserts
         the snapshot. ``mode="add"`` additively merges the snapshot into the
         current graph (replacing only nodes the snapshot shares by id), keeping
         other live facts.
         """
-        mode = str(body.get("mode") or "upsert").strip().lower()
-        if mode not in ("add", "upsert"):
-            raise HTTPException(status_code=400, detail="mode must be 'add' or 'upsert'")
+        mode = str(body.get("mode") or "replace").strip().lower()
+        if mode not in ("add", "replace"):
+            raise HTTPException(status_code=400, detail="mode must be 'add' or 'replace'")
         g = live_graph(org, principal.sub)
         key = f"snapshot:{name}"
         if g.cache_count(key) == 0:
@@ -462,15 +462,15 @@ def create_app(conn: Any | None = None) -> FastAPI:
     ) -> dict[str, Any]:
         """Put cached eval data into the live graph.
 
-        ``mode="add"`` (default) additively upserts each eval's nodes into the
+        ``mode="add"`` (default) additively merges each eval's nodes into the
         graph (replacing only that eval's own nodes if already present), keeping
-        other live facts. ``mode="upsert"`` truncates the whole live graph first,
+        other live facts. ``mode="replace"`` truncates the whole live graph first,
         then inserts the selected eval(s). Cache misses are (re)generated first.
         """
         body = body or {}
         mode = str(body.get("mode") or "add").strip().lower()
-        if mode not in ("add", "upsert"):
-            raise HTTPException(status_code=400, detail="mode must be 'add' or 'upsert'")
+        if mode not in ("add", "replace"):
+            raise HTTPException(status_code=400, detail="mode must be 'add' or 'replace'")
         try:
             case_ids = _selected_case_ids(body)
             regenerated, from_cache = _ensure_cached(
@@ -487,7 +487,7 @@ def create_app(conn: Any | None = None) -> FastAPI:
 
         keys = [f"eval:{cid}" for cid in case_ids]
         live = live_graph(org, principal.sub)
-        if mode == "upsert":
+        if mode == "replace":
             facts_in_graph = live.load_caches(keys)
         else:
             facts_in_graph = live.merge_caches_into_live(keys)

@@ -193,7 +193,7 @@ export function createMockDataProviderWithRows(
       throw new Error("Snapshots are not supported in mock mode");
     },
 
-    async loadSnapshot(_name: string, _mode?: "add" | "upsert") {
+    async loadSnapshot(_name: string, _mode?: "add" | "replace") {
       throw new Error("Snapshots are not supported in mock mode");
     },
 

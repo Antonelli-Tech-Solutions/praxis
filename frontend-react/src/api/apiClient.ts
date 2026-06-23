@@ -85,7 +85,7 @@ export interface EvalCacheResult {
 
 /** Result of `POST /evals/load` (puts cached eval data into the live graph). */
 export interface EvalLoadResult {
-  mode: "add" | "upsert";
+  mode: "add" | "replace";
   regenerated: string[];
   fromCache: string[];
   candidatesInserted: number;
@@ -176,7 +176,7 @@ function normalizeEvalLoadResult(payload: unknown): EvalLoadResult {
     payload && typeof payload === "object"
       ? (payload as Record<string, unknown>)
       : {};
-  const mode = row.mode === "upsert" ? "upsert" : "add";
+  const mode = row.mode === "replace" ? "replace" : "add";
   return {
     mode,
     regenerated: toStringArray(row.regenerated),
@@ -411,7 +411,7 @@ export function createApiDataProvider(
       return normalizeSnapshot(payload);
     },
 
-    async loadSnapshot(name: string, mode: "add" | "upsert" = "upsert") {
+    async loadSnapshot(name: string, mode: "add" | "replace" = "replace") {
       const payload = await request(
         "POST",
         `/snapshots/${encodeURIComponent(name)}/load`,
@@ -614,7 +614,7 @@ export interface EvalCachePayload {
 export interface EvalLoadPayload {
   caseIds?: string[];
   scopes?: string[];
-  mode: "add" | "upsert";
+  mode: "add" | "replace";
   distill?: boolean;
 }
 
@@ -654,7 +654,7 @@ export async function regenerateEvalCache(
 /**
  * `POST /evals/load` — put cached eval data into the live graph
  * (regenerating cache misses first). `mode:"add"` additively upserts each
- * eval's nodes; `mode:"upsert"` truncates the whole live graph then inserts.
+ * eval's nodes; `mode:"replace"` truncates the whole live graph then inserts.
  */
 export async function loadEvals(
   apiBaseUrl: string,
@@ -731,7 +731,7 @@ export async function saveSnapshot(
 export async function loadSnapshot(
   apiBaseUrl: string,
   name: string,
-  mode: "add" | "upsert" = "upsert",
+  mode: "add" | "replace" = "replace",
   auth?: string | ApiDataProviderAuth,
 ): Promise<{ loaded: number }> {
   const payload = await snapshotRequest(

@@ -194,7 +194,7 @@ export function createLocalLogsDataProvider(session: ParsedLogSession): DataProv
       throw new Error("Snapshots are not supported for local logs");
     },
 
-    async loadSnapshot(_name: string, _mode?: "add" | "upsert") {
+    async loadSnapshot(_name: string, _mode?: "add" | "replace") {
       throw new Error("Snapshots are not supported for local logs");
     },
 
@@ -259,7 +259,7 @@ export function createEmptyLocalLogsProvider(): DataProvider {
       throw new Error("Snapshots are not supported for local logs");
     },
 
-    async loadSnapshot(_name: string, _mode?: "add" | "upsert") {
+    async loadSnapshot(_name: string, _mode?: "add" | "replace") {
       throw new Error("Snapshots are not supported for local logs");
     },
 

@@ -87,17 +87,17 @@ export function SnapshotManager({ apiBaseUrl, auth, onLoaded }: SnapshotManagerP
     });
   }
 
-  function handleUpsert() {
+  function handleReplace() {
     if (!selected) return;
     if (
       !window.confirm(
-        `Upsert snapshot "${selected}"? This is destructive: it truncates the live graph and replaces it with the snapshot.`,
+        `Replace graph with snapshot "${selected}"? This is destructive: it clears the live graph and replaces it with the snapshot.`,
       )
     ) {
       return;
     }
     void run(async () => {
-      const result = await loadSnapshot(apiBaseUrl, selected, "upsert", auth);
+      const result = await loadSnapshot(apiBaseUrl, selected, "replace", auth);
       onLoaded?.();
       return `Loaded snapshot "${selected}" (${result.loaded} nodes) into the live graph.`;
     });
@@ -187,11 +187,11 @@ export function SnapshotManager({ apiBaseUrl, auth, onLoaded }: SnapshotManagerP
               <button
                 type="button"
                 className="btn secondary"
-                onClick={handleUpsert}
+                onClick={handleReplace}
                 disabled={busy || !selected}
-                title="Destructive: truncate the live graph and insert this snapshot"
+                title="Destructive: clear the live graph and insert this snapshot"
               >
-                Upsert
+                Replace graph
               </button>
               <button
                 type="button"
