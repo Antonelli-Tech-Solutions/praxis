@@ -4,6 +4,7 @@ import {
   GraphIngestUnavailableError,
   postInsight,
 } from "./api/apiClient";
+import { canDeleteCandidate } from "./api/candidateModel";
 import { buildLocalLogSession } from "./api/localLogsProvider";
 import { CandidateCards } from "./components/CandidateCards";
 import { CandidateDetail } from "./components/CandidateDetail";
@@ -261,6 +262,11 @@ export default function App() {
 
   async function handleDelete(id: string) {
     setActionError(null);
+    const candidate = candidates.find((c) => c.id === id);
+    if (candidate && !canDeleteCandidate(candidate)) {
+      setActionError("Reject this fact before deleting it.");
+      return;
+    }
     try {
       await deleteCandidate(id);
     } catch (err) {
@@ -315,8 +321,6 @@ export default function App() {
         onSelect={setSelectedId}
         onPromote={handlePromote}
         onReject={handleReject}
-        onRefreshCandidate={handleRefreshCandidate}
-        refreshingId={refreshingCandidateId}
         onEdit={handleEditCandidate}
         onDelete={handleDelete}
       />
@@ -327,8 +331,6 @@ export default function App() {
         onSelect={setSelectedId}
         onPromote={handlePromote}
         onReject={handleReject}
-        onRefreshCandidate={handleRefreshCandidate}
-        refreshingId={refreshingCandidateId}
         onEdit={handleEditCandidate}
         onDelete={handleDelete}
       />
@@ -440,6 +442,8 @@ export default function App() {
               candidates={filtered}
               selectedId={selectedId}
               onSelect={setSelectedId}
+              onPromote={handlePromote}
+              onReject={handleReject}
               onRefreshCandidate={handleRefreshCandidate}
               refreshingId={refreshingCandidateId}
               onResolve={handleResolve}
