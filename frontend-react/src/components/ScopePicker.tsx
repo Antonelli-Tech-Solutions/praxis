@@ -122,11 +122,19 @@ export function ScopePicker({ scopes, selected, onChange, cached }: ScopePickerP
                     </span>
                     <span className="eval-runner__entry-name">{leafName(c.scope)}</span>
                     {!isDir && cached ? (
-                      <span
-                        className={`eval-runner__cache-dot${cached.has(c.scope) ? " is-cached" : ""}`}
-                        title={cached.has(c.scope) ? "cached" : "not cached"}
-                        aria-label={cached.has(c.scope) ? "cached" : "not cached"}
-                      />
+                      // The cache is keyed by the bare case id (eval:<case_id>),
+                      // which is the path's leaf — not the full folder path. Match
+                      // on leafName so nested cases (e.g. matt/foo) light up too.
+                      (() => {
+                        const isCached = cached.has(leafName(c.scope));
+                        return (
+                          <span
+                            className={`eval-runner__cache-dot${isCached ? " is-cached" : ""}`}
+                            title={isCached ? "cached" : "not cached"}
+                            aria-label={isCached ? "cached" : "not cached"}
+                          />
+                        );
+                      })()
                     ) : null}
                     {isDir ? <span className="eval-runner__entry-count">{c.caseCount}</span> : null}
                     {isDir ? <span className="eval-runner__entry-caret">›</span> : null}
