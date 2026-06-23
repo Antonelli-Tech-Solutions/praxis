@@ -294,6 +294,7 @@ def test_key_provides_both_embedding_capabilities(monkeypatch, tmp_path):
     monkeypatch.setattr(run_mod, "EMBED_CACHE_DIR", tmp_path)
     monkeypatch.setattr(run_mod, "VERDICT_CACHE_DIR", tmp_path)  # isolate; the key still provides merge/conflict verdicts
     monkeypatch.setattr(run_mod, "INGEST_CACHE_DIR", tmp_path)  # isolate; the key still provides ingest_replay
+    monkeypatch.setattr(run_mod, "CAPTION_CACHE_DIR", tmp_path)  # isolate; the key still provides captions
     monkeypatch.setenv("OPENROUTER_API_KEY", "k")
     assert run_mod.harness_capabilities() == {
         "real_embeddings",
@@ -302,6 +303,7 @@ def test_key_provides_both_embedding_capabilities(monkeypatch, tmp_path):
         "conflict_verdicts",
         "tag_verdicts",
         "ingest_replay",
+        "real_captions",
     }
 
 

@@ -49,6 +49,7 @@ RUNS_DIR = RESULTS_DIR / "runs"  # verbose per-run transcripts (gitignored)
 EMBED_CACHE_DIR = HERE / "fixtures" / "embeddings"  # committed real-vector caches
 VERDICT_CACHE_DIR = HERE / "fixtures" / "verdicts"  # committed judge-verdict cassettes
 INGEST_CACHE_DIR = HERE / "fixtures" / "ingestion"  # committed ingestion replay cassettes
+CAPTION_CACHE_DIR = HERE / "fixtures" / "captions"  # committed VLM image-caption cassettes
 
 # Overall verdict threshold for a rubric-only case.
 PASS_THRESHOLD = 0.5
@@ -190,6 +191,12 @@ def harness_capabilities() -> set[str]:
         INGEST_CACHE_DIR.exists() and any(INGEST_CACHE_DIR.glob("*.json"))
     ):
         caps.add("ingest_replay")
+    # Image captions: a committed caption cassette replays offline; a live key can
+    # compute them. Either way image-asset cases can run faithfully.
+    if os.getenv("OPENROUTER_API_KEY") or (
+        CAPTION_CACHE_DIR.exists() and any(CAPTION_CACHE_DIR.glob("*.json"))
+    ):
+        caps.add("real_captions")
     return caps
 
 
@@ -238,6 +245,13 @@ def case_needs(case: EvalCase) -> set[str]:
     # passthrough line-split -> SKIP instead.
     if case.ingest_model:
         needs.add("ingest_replay")
+    # Image-caption cases need a caption source (committed cassette or a key), else
+    # they'd silently fall back to deterministic-only cards and mis-grade -> SKIP.
+    if case.caption_model:
+        needs.add("real_captions")
+    # Seeding image assets requires a real working dir to read the mounted fixture.
+    if case.seeded_insight.via_image_ingestor:
+        needs.add("sandbox")
     return needs
 
 
@@ -369,6 +383,55 @@ def _conflict_judge_for(case: EvalCase):
     return ConflictJudge(llm=llm, cassette=cassette)
 
 
+def _caption_captioner_for(case: EvalCase):
+    """Build the image ``Captioner`` for a case's ``caption_model`` axis (None => none).
+
+    Mirrors ``_merge_judge_for``: a live OpenRouter VLM when a key is set, plus a
+    committed caption cassette for offline replay. With neither, returns a captioner
+    that yields ``None`` (deterministic-only cards) — though such a case SKIPs via
+    ``real_captions`` before it runs.
+    """
+    if not case.caption_model:
+        return None
+    from knowledge.injestion.image.captioner import PROMPT_VERSION, make_captioner
+    from knowledge.llm.caption_cassette import CaptionCassette
+
+    has_key = bool(os.getenv("OPENROUTER_API_KEY"))
+    cache = CAPTION_CACHE_DIR / f"{_slug(case.caption_model)}.json"
+    cassette = (
+        CaptionCassette(
+            cache,
+            model_id=case.caption_model,
+            prompt_version=PROMPT_VERSION,
+            allow_compute=has_key,
+        )
+        if (cache.exists() or has_key)
+        else None
+    )
+    return make_captioner(model=case.caption_model, cassette=cassette, has_key=has_key)
+
+
+def _image_asset_dirs(case: EvalCase) -> list[Path]:
+    """Resolve ``via_image_ingestor`` entries to absolute fixture-relative dirs."""
+    if not case.seeded_insight.via_image_ingestor or not case.source_dir:
+        return []
+    fixture = Path(case.source_dir) / "fixture"
+    return [fixture / entry for entry in case.seeded_insight.via_image_ingestor]
+
+
+def _seed_image_assets(case: EvalCase, graph) -> None:
+    """Ingest the case's image-asset folders into ``graph`` as active knowledge."""
+    dirs = _image_asset_dirs(case)
+    if not dirs:
+        return
+    from knowledge.injestion.injestor_variants.image_injestor import ImageIngestor
+
+    captioner = _caption_captioner_for(case)
+    img_ingestor = ImageIngestor(graph, captioner=captioner)
+    for d in dirs:
+        img_ingestor.ingest(str(d), state="active")
+
+
 def _aspect_tagger_for(case: EvalCase):
     """Build the Tier-B ``AspectTagger`` for a case's ``tag_model`` axis (None => none).
 
@@ -475,8 +538,10 @@ def _seed_signature(case: EvalCase) -> str:
         "merge_model": case.merge_model,
         "conflict_model": case.conflict_model,
         "tag_model": case.tag_model,
+        "caption_model": case.caption_model,
         "via_ingestor": list(case.seeded_insight.via_ingestor),
         "direct_to_graph": list(case.seeded_insight.direct_to_graph),
+        "via_image_ingestor": list(case.seeded_insight.via_image_ingestor),
     }
     return hashlib.sha256(json.dumps(payload, sort_keys=True).encode("utf-8")).hexdigest()
 
@@ -503,6 +568,8 @@ def _seed_knowledge(case: EvalCase, llm=None):
         graph.write(text, state="active")
     for text in case.seeded_insight.via_ingestor:
         ingestor.ingest(text, state=case.ingest_state)
+    # Image assets: distilled to derived cards and written active (explicit adds).
+    _seed_image_assets(case, graph)
 
     if _SEED_CACHE_ENABLED:
         _SEED_CACHE[sig] = reader
