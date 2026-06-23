@@ -177,6 +177,11 @@ def harness_capabilities() -> set[str]:
     conflict_dir = VERDICT_CACHE_DIR / "conflict"
     if os.getenv("OPENROUTER_API_KEY") or (conflict_dir.exists() and any(conflict_dir.glob("*.json"))):
         caps.add("conflict_verdicts")
+    # Tier-B aspect-tag verdicts: same shape — committed aspect cassette replays
+    # offline; a live key can compute them.
+    aspect_dir = VERDICT_CACHE_DIR / "aspect"
+    if os.getenv("OPENROUTER_API_KEY") or (aspect_dir.exists() and any(aspect_dir.glob("*.json"))):
+        caps.add("tag_verdicts")
     return caps
 
 
@@ -217,6 +222,9 @@ def case_needs(case: EvalCase) -> set[str]:
     # else the ConflictFlagger can't decide and the case mis-grades -> SKIP instead.
     if case.conflict_model:
         needs.add("conflict_verdicts")
+    # Tier-B implicit-contradiction cases need an aspect-tag verdict source too.
+    if case.tag_model:
+        needs.add("tag_verdicts")
     return needs
 
 
@@ -339,15 +347,45 @@ def _conflict_judge_for(case: EvalCase):
     return ConflictJudge(llm=llm, cassette=cassette)
 
 
+def _aspect_tagger_for(case: EvalCase):
+    """Build the Tier-B ``AspectTagger`` for a case's ``tag_model`` axis (None => none).
+
+    Mirrors ``_conflict_judge_for``: a live OpenRouter judge when a key is set, plus
+    a committed aspect verdict cassette for offline replay. With neither, returns
+    None so no tagger is wired (the case SKIPs via ``tag_verdicts``).
+    """
+    if not case.tag_model:
+        return None
+    from knowledge.knowledge_graph.write_policy.write_step_variants import (
+        AspectJudge,
+        AspectTagger,
+    )
+    from knowledge.llm.llm_variants.openrouter_llm import OpenRouterLlm
+    from knowledge.llm.verdict_cassette import VerdictCassette
+
+    has_key = bool(os.getenv("OPENROUTER_API_KEY"))
+    llm = OpenRouterLlm(model=case.tag_model) if has_key else None
+    cache = VERDICT_CACHE_DIR / "aspect" / f"{_slug(case.tag_model)}.json"
+    cassette = (
+        VerdictCassette(cache, model_id=case.tag_model, allow_compute=has_key)
+        if (cache.exists() or has_key)
+        else None
+    )
+    if llm is None and cassette is None:
+        return None
+    return AspectTagger(judge=AspectJudge(llm=llm, cassette=cassette))
+
+
 def _build_trio_for(case: EvalCase, llm=None):
-    """Wire the trio honoring reader/embedder/ingest_model/merge_model/conflict_model axes."""
+    """Wire the trio honoring reader/embedder/ingest_model/merge/conflict/tag axes."""
     llm = _ingest_llm_for(case, llm)
     embedder = _eval_embedder(case)
     graph = None
     if case.substrate == "vector" and case.embedder != "fake":
-        # Real-embedder cases seed with redact + dedup, plus the ConflictFlagger only
-        # when the case opts into a conflict_model (its cassette replays offline);
-        # otherwise the per-write conflict LLM call is dropped so seeding stays cheap.
+        # Real-embedder cases seed with redact + dedup; the Tier-B AspectTagger
+        # (before dedup, so tags are assigned ahead of recall) and the ConflictFlagger
+        # are added only when the case opts into tag_model / conflict_model (their
+        # cassettes replay offline), so seeding stays cheap by default.
         from knowledge.knowledge_graph.knowledge_graph_variants.vector_graph import VectorGraph
         from knowledge.knowledge_graph.write_policy.write_step_variants import (
             ConflictFlagger,
@@ -355,7 +393,11 @@ def _build_trio_for(case: EvalCase, llm=None):
             Redactor,
         )
 
-        policy = [Redactor(), Deduper(judge=_merge_judge_for(case))]
+        policy = [Redactor()]
+        aspect_tagger = _aspect_tagger_for(case)
+        if aspect_tagger is not None:
+            policy.append(aspect_tagger)
+        policy.append(Deduper(judge=_merge_judge_for(case)))
         conflict_judge = _conflict_judge_for(case)
         if conflict_judge is not None:
             policy.append(ConflictFlagger(judge=conflict_judge))
@@ -407,6 +449,7 @@ def _seed_signature(case: EvalCase) -> str:
         # so two cases differing only in a judge model must not share a cached seed.
         "merge_model": case.merge_model,
         "conflict_model": case.conflict_model,
+        "tag_model": case.tag_model,
         "via_ingestor": list(case.seeded_insight.via_ingestor),
         "direct_to_graph": list(case.seeded_insight.direct_to_graph),
     }
