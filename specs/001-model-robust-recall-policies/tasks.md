@@ -130,9 +130,9 @@ Single Python package at repo root: `knowledge/...`. Tests live in per-package `
 
 ## Phase 6: Polish & Cross-Cutting Concerns
 
-- [ ] T041 [P] Run `quickstart.md` validation: offline `--structured` run confirms the expected flips (dedup XFAIL→PASS, reader cluster reconciled) with zero live calls
-- [ ] T042 [P] Update `docs/CHANGELOG`/proposals status (mark the three source proposals implemented; cross-link the cassette follow-on)
-- [ ] T043 Verify full-suite offline determinism: cassettes committed, stale fixture surfaces a loud miss, no live calls in CI
+- [X] T041 [P] Ran `quickstart.md` validation offline (`--fake`; the doc's `--structured` is a live backend, so `--fake` is the truly-offline runner for the deterministic component flips): dedup XFAIL→PASS, reader cluster reconciled (`lost_in_middle_reader` PASS, `reader_returns_all_before`/`scattered_multifact_near` XFAIL), conflict PASS, implicit 7 PASS + 1 XFAIL — zero live calls. Mechanism-isolation pytest subsets (graph_reader/knowledge_graph/llm) green.
+- [X] T042 [P] Marked the three source proposals Implemented (`reader-cutoff-policy`, `semantic-dedup-recall-gate-llm-judge`, `unified-dedup-conflict-recall`) with the spec/Tier cross-references; cross-linked the deterministic-ingestion cassette follow-on. (De-linked a few pre-existing rotted/bot-blocked external citations the link-checker flagged.)
+- [X] T043 Verified full-suite offline determinism: committed cassettes (merge/conflict/aspect) + embeddings replay with zero live calls (`OPENROUTER_API_KEY=`); stale/uncached fixture surfaces a loud `RuntimeError` (covered by `test_verdict_cassette` + conflict/aspect loud-miss tests).
 - [ ] T044 Follow-on (separate spec, NOT this feature): deterministic-ingestion cassette is required before relying on the application suite for FR-030/SC-013 — link `docs/proposals/2026-06-22-deterministic-ingestion-cassette.md`
 
 ---
