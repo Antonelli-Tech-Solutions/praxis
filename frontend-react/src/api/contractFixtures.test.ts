@@ -63,15 +63,6 @@ describe("contract v1 fixtures", () => {
     expect(rows[0].id).toBe("x");
   });
 
-  it("requires curve fields in eval-metrics.json", () => {
-    const metrics = loadFixture("eval-metrics.json") as Record<string, unknown>;
-    const series = metrics.correction_rate;
-    expect(Array.isArray(series)).toBe(true);
-    expect((series as unknown[]).length).toBeGreaterThanOrEqual(2);
-    expect(metrics.corrections_before).toBeDefined();
-    expect(metrics.corrections_after).toBeDefined();
-  });
-
   it("validates ingest-jsonl-request.json shape", () => {
     const payload = loadFixture("ingest-jsonl-request.json") as {
       files: Array<{ name: string; content: string }>;

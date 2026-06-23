@@ -17,7 +17,7 @@ import {
   parseGraphPayload,
 } from "./graphModel";
 import type { DataProvider } from "./dataProvider";
-import type { CandidateWriteInput, EvalMetrics } from "../types/candidate";
+import type { CandidateWriteInput } from "../types/candidate";
 
 class ApiConflictError extends Error {
   readonly statusCode = 409 as const;
@@ -161,13 +161,8 @@ export interface ApiDataProviderAuth {
 export function createApiDataProvider(
   baseUrl: string,
   auth?: ApiDataProviderAuth,
-  evalMetricsUrl?: string,
 ): DataProvider {
   const root = baseUrl.replace(/\/$/, "");
-  const metricsUrl =
-    evalMetricsUrl?.trim() ||
-    import.meta.env.VITE_PRAXIS_EVAL_METRICS_URL?.trim() ||
-    `${root}/metrics`;
 
   async function authHeaders(): Promise<HeadersInit> {
     const token = auth?.getToken ? await auth.getToken() : undefined;
@@ -304,30 +299,6 @@ export function createApiDataProvider(
         buildCustomResolveBody(customText),
       );
       return candidateFromMapping(payload as Record<string, unknown>);
-    },
-
-    async getEvalMetrics() {
-      try {
-        const response = await fetch(metricsUrl, {
-          headers: await authHeaders(),
-        });
-        if (!response.ok) {
-          throw new Error(response.statusText);
-        }
-        const payload = (await response.json()) as Record<string, unknown>;
-        return normalizeEvalMetrics(payload, metricsUrl);
-      } catch (error) {
-        const message =
-          error instanceof Error ? error.message : "Eval metrics unavailable";
-        return {
-          source: "placeholder",
-          correctionRate: [1.0, 0.72, 0.48, 0.35],
-          sessions: ["cold", "run_1", "run_2", "run_3"],
-          correctionsBefore: 12,
-          correctionsAfter: 5,
-          fetchError: message,
-        };
-      }
     },
 
     async getGraph() {
@@ -568,31 +539,6 @@ export async function regenerateGraphFromScopes(
     );
   }
   return normalizeEvalRegenerateResult(await parseJsonResponse(response));
-}
-
-function normalizeEvalMetrics(
-  payload: Record<string, unknown>,
-  source: string,
-): EvalMetrics {
-  const series =
-    (payload.correction_rate as number[] | undefined) ??
-    (payload.correctionRate as number[] | undefined) ??
-    [];
-  const sessions = payload.sessions as string[] | undefined;
-  const correctionsBefore =
-    (payload.corrections_before as number | undefined) ??
-    (payload.correctionsBefore as number | undefined);
-  const correctionsAfter =
-    (payload.corrections_after as number | undefined) ??
-    (payload.correctionsAfter as number | undefined);
-
-  return {
-    source,
-    correctionRate: Array.isArray(series) ? series : [],
-    sessions,
-    correctionsBefore,
-    correctionsAfter,
-  };
 }
 
 export {

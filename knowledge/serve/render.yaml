@@ -19,7 +19,6 @@ services:
         - frontend/mock_data.py
         - scripts/export-render-seed.py
         - scripts/export-mock-candidates.py
-        - docs/integration/fixtures/eval-metrics.json
     envVars:
       - key: PRAXIS_API_HOST
         value: 0.0.0.0
