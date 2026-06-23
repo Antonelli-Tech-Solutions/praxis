@@ -508,6 +508,12 @@ code,
   box-shadow: 0 0 0 1px var(--accent), var(--shadow-panel);
 }
 
+/* Long, space-less values (provenance ids like pipeline/fact:<hash>) must wrap
+   inside the card instead of overflowing its width. */
+.candidate-card .mono {
+  overflow-wrap: anywhere;
+}
+
 .card-head {
   display: flex;
   justify-content: space-between;
@@ -1159,7 +1165,9 @@ code,
 
 .compare-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  /* minmax(0, 1fr) lets each column shrink below its content's intrinsic
+     width; without it a long unbroken provenance token overflows the page. */
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: var(--space-3);
 }
 
@@ -1172,6 +1180,13 @@ code,
   padding: var(--space-3);
   background: #fafbfc;
   font-size: 0.88rem;
+  min-width: 0;
+}
+
+/* Long provenance ids / unbroken tokens must wrap rather than overflow. */
+.compare-card code,
+.compare-card p {
+  overflow-wrap: anywhere;
 }
 
 .compare-card.rival {
