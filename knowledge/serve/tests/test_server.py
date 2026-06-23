@@ -140,6 +140,45 @@ def test_resolve_keeps_one_and_drops_link(tmp_path):
     assert pair["b"]["id"] not in contradiction_ids(store.get(cid=keep_id))
 
 
+def test_resolve_promotes_kept_newcomer_to_active(tmp_path):
+    # A held newcomer (proposed) that wins its contradiction is promoted into the
+    # active graph; the losing side decays.
+    client, store = _client(tmp_path)
+    a = store.create(body={"title": "A", "content": "Use tabs."})
+    b = store.create(body={"title": "B", "content": "Use spaces."})
+    a["contradiction_ids"] = [b["id"]]
+    b["contradiction_ids"] = [a["id"]]
+    store._persist()
+    pair_id = f"{a['id']}__{b['id']}"
+    assert store.get(cid=a["id"])["state"] == "proposed"  # newcomer starts held
+    res = client.post(f"/contradictions/{pair_id}/resolve", json={"keepId": a["id"]})
+    assert res.status_code == 200
+    assert store.get(cid=a["id"])["state"] == "active"  # winner enters the graph
+    assert store.get(cid=b["id"])["state"] == "decayed"  # loser retired
+
+
+def test_resolve_custom_decays_both_and_creates_active(tmp_path):
+    # A custom resolution is neither side: both originals decay and a fresh active
+    # candidate carrying the user's text takes their place.
+    client, store = _client(tmp_path)
+    a = store.create(body={"title": "A", "content": "Use tabs."})
+    b = store.create(body={"title": "B", "content": "Use spaces."})
+    a["contradiction_ids"] = [b["id"]]
+    b["contradiction_ids"] = [a["id"]]
+    store._persist()
+    pair_id = f"{a['id']}__{b['id']}"
+    res = client.post(
+        f"/contradictions/{pair_id}/resolve",
+        json={"customText": "Use tabs for indentation, spaces for alignment."},
+    )
+    assert res.status_code == 200
+    new = res.json()
+    assert new["state"] == "active"
+    assert new["id"] not in (a["id"], b["id"])
+    assert store.get(cid=a["id"])["state"] == "decayed"
+    assert store.get(cid=b["id"])["state"] == "decayed"
+
+
 def test_promote_unknown_is_404(tmp_path):
     client, _ = _client(tmp_path)
     assert client.post("/candidates/nope/promote", json={}).status_code == 404

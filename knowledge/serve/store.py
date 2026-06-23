@@ -50,6 +50,28 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _custom_resolution_candidate(text: str, superseded: list[str]) -> Candidate:
+    """A fresh ``active`` candidate authored by a human to settle a contradiction.
+
+    Shared by both stores so the JSON and Postgres paths produce identical records.
+    The ``id`` is a normal ``cand_`` id (not ``pipe_``), so it reads as a human-gate
+    entry, and it carries no contradiction links of its own.
+    """
+    title = text if len(text) <= 60 else f"{text[:57].rstrip()}…"
+    return {
+        "id": f"cand_{uuid.uuid4().hex[:12]}",
+        "title": title,
+        "content": text,
+        "state": "active",
+        "confidence": 0.8,
+        "provenance": f"human-gate/custom-resolution:{_now()}",
+        "createdAt": _now(),
+        "contradiction_ids": [],
+        "auditTrail": [],
+        "supersedes": [cid for cid in superseded if cid],
+    }
+
+
 class PromotionError(ValueError):
     """Raised when a candidate can't be promoted from its current state."""
 
@@ -171,8 +193,11 @@ class CandidateStore:
         kept, loser = self.get(cid=keep_id), self.get(cid=loser_id)
         if kept is None:
             raise KeyError(keep_id)
-        # Drop the a<->b contradiction link from both sides; decay the loser.
+        # Drop the a<->b contradiction link from both sides; decay the loser. The
+        # kept side wins the dispute, so it (re)enters the active graph — it was
+        # demoted to ``proposed`` while contested.
         self._strip_link(kept, loser_id)
+        kept["state"] = "active"
         self._audit(kept, "kept_over_contradiction", note=f"superseded {loser_id}")
         if loser is not None:
             self._strip_link(loser, keep_id)
@@ -180,6 +205,39 @@ class CandidateStore:
             self._audit(loser, "superseded", note=f"lost contradiction to {keep_id}")
         self._persist()
         return kept
+
+    def resolve_custom(
+        self,
+        org_id: str = "default",
+        user_id: str = "default",
+        pair_id: str = "",
+        custom_text: str = "",
+    ) -> Candidate:
+        """Resolve a contradiction with a brand-new, user-authored fact.
+
+        Neither side wins: both ``a`` and ``b`` are decayed (and their mutual
+        contradiction link stripped), and a fresh ``active`` candidate carrying
+        ``custom_text`` is created in their place. Returns the new candidate.
+        """
+        text = (custom_text or "").strip()
+        if not text:
+            raise ValueError("custom_text is required")
+        a, _, b = pair_id.partition("__")
+        sides = {a: self.get(cid=a), b: self.get(cid=b)}
+        if all(side is None for side in sides.values()):
+            raise KeyError(pair_id)
+        for cid, other in ((a, b), (b, a)):
+            side = sides[cid]
+            if side is None:
+                continue
+            self._strip_link(side, other)
+            side["state"] = "decayed"
+            self._audit(side, "superseded", note="resolved by custom resolution")
+        new = _custom_resolution_candidate(text, superseded=[a, b])
+        self._audit(new, "created", note=f"custom resolution superseding {a}, {b}")
+        self._candidates.append(new)
+        self._persist()
+        return new
 
     def create(
         self,

@@ -288,9 +288,18 @@ def create_app(store: Any | None = None) -> FastAPI:
         principal: Principal = Depends(current_user),
         org: str = Depends(active_org),
     ) -> dict[str, Any]:
+        # A custom resolution supersedes BOTH sides with new, user-authored text.
+        custom_text = body.get("customText")
+        if custom_text is not None and str(custom_text).strip():
+            try:
+                return store.resolve_custom(org, principal.sub, pair_id, str(custom_text))
+            except KeyError:
+                raise HTTPException(status_code=404, detail=f"unknown contradiction {pair_id}")
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc))
         keep_id = body.get("keepId")
         if not keep_id:
-            raise HTTPException(status_code=400, detail="keepId required")
+            raise HTTPException(status_code=400, detail="keepId or customText required")
         try:
             return store.resolve(org, principal.sub, pair_id, str(keep_id))
         except KeyError:

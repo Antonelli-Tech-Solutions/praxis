@@ -1,0 +1,42 @@
+# HARD-NEGATIVE conflict case (false-alarm trap). Two rules about the SAME action
+# -- "run database migrations automatically during deploys" -- with an Always/Never
+# polarity flip that makes them LOOK flatly contradictory on the surface. They are
+# NOT: each is scoped to a different environment (staging vs production), so both
+# hold at once. A shallow judge that keys on "Always run X" vs "Never run X" will
+# misfire; a careful one notices the environment scope reconciles them.
+#
+# This is the precision arm of the conflict suite: it asserts the ConflictJudge does
+# NOT cry wolf on superficially-clashing-but-compatible guidance. The two sentences
+# share heavy vocabulary so they sit at high cosine and the recall gate DOES surface
+# the candidate (the judge is genuinely consulted) -- the test is the verdict, not
+# whether recall fired. Component eval (no agent); vector substrate exercises the real
+# write policy (Redactor -> Deduper -> ConflictFlagger). Replays from the committed
+# conflict cassette + embedding fixture offline (no live calls).
+#
+# Desired behavior: NO contradiction flagged -> graph.contradictions() empty ->
+# "CONTRADICTION" absent from output; both rules kept verbatim.
+id: apparent_conflict_env_scoped
+component: knowledge_graph
+substrate: vector
+embedder: cached  # real vectors so the recall gate surfaces the look-alike candidate
+conflict_model: openai/gpt-4o-mini  # ConflictJudge decides contradicts; replayed from the committed cassette
+
+seeded_insight:
+  via_ingestor: []
+  direct_to_graph:
+    - "Always run database migrations automatically during deploys to the staging environment."
+    - "Never run database migrations automatically during deploys to the production environment."
+
+deterministic_checks:
+  # Precision: the judge must NOT flag these compatible, differently-scoped rules.
+  - name: no_contradiction_flagged
+    ref: "knowledge.evals.deterministic_checks.text:regex_absent"
+    params:
+      pattern: "(?i)CONTRADICTION"
+  # Both rules survive verbatim as distinct stored facts (nothing merged/dropped).
+  - name: both_rules_kept
+    ref: "knowledge.evals.deterministic_checks.text:requires_all_substrings"
+    params:
+      texts:
+        - "Always run database migrations automatically during deploys to the staging environment."
+        - "Never run database migrations automatically during deploys to the production environment."
