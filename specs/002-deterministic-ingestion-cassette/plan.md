@@ -41,10 +41,12 @@ authored (the distiller keeps its `str → str` contract).
 **Scale/Scope**: the `matt/applications/*` suite (all `ingest_model` cases) plus the new ingestion
 cassette + the embedding vectors for the now-stable distilled strings.
 
-**Sequencing**: implementation is sequenced **after** `001-model-robust-recall-policies` merges to
-`main` — it reuses the embed-once write path and the `VerdictCassette` keyed-replay sibling, and
-edits `knowledge/evals/run.py`, which 001 also rewrites. This branch is based on `main`; rebase
-onto the updated `main` before implementing.
+**Sequencing**: this branch is **stacked on `001-us3-tier-b-implicit-contradiction`** (the tip of
+the 001 stack), so the 001 code it reuses — the embed-once write path, the `VerdictCassette`
+keyed-replay sibling, the `CachedEmbedder` pattern, and the `dom/` eval namespace — is already
+present and **implementation can proceed now**. It edits `knowledge/evals/run.py`, which 001 also
+rewrites, so building on the 001 tip avoids those conflicts. The 002 PR **merges after** the 001
+stack lands on `main` (stacked PR; rebase/retarget onto `main` once 001 merges).
 
 ## Constitution Check
 

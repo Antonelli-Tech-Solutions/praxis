@@ -38,5 +38,5 @@
   identify *what* surface the feature governs, not *how* to build it.
 - Two cross-feature dependencies are called out explicitly rather than left implicit: this feature
   is the first of two prerequisites for the `model-robust-recall-policies` spec's FR-030/SC-013
-  (the second — active-fact retrievability — is tracked separately), and its implementation is
-  sequenced after that feature merges.
+  (the second — active-fact retrievability — is tracked separately). This branch is stacked on the
+  001 branch, so implementation can proceed now; its PR merges after the 001 stack lands on `main`.

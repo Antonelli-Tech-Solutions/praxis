@@ -11,9 +11,10 @@ description: "Task list for Deterministic Ingestion Cassette"
 **Tests**: INCLUDED — the project follows TDD (write red tests first); the cassette's
 record/replay/loud-miss/skip behavior is mechanism-isolation tested before wiring.
 
-**Sequencing precondition (not a task)**: `001-model-robust-recall-policies` must be merged to
-`main` and this branch rebased onto it before implementation — it reuses the embed-once write path
-and the `VerdictCassette` sibling and edits `knowledge/evals/run.py`, which 001 also rewrites.
+**Sequencing (not a task)**: this branch is **stacked on `001-us3-tier-b-implicit-contradiction`**,
+so the reused 001 code (embed-once write path, `VerdictCassette` sibling, `CachedEmbedder`, the
+`dom/` eval namespace used by T013) is already present — implementation can begin now. The 002 PR
+**merges after** the 001 stack lands on `main`.
 
 **Organization**: By user story (P1 → P2 → P3). US1 delivers deterministic ingestion (the MVP);
 US2 flips the application suite to cached embeddings; US3 adds deterministic component cases.
@@ -32,8 +33,8 @@ Single Python package at repo root: `knowledge/...`. Tests live in per-package `
 ## Phase 2: Foundational (Blocking Prerequisites)
 
 **Intentionally minimal.** US1 delivers the `IngestionCassette` itself; US2 and US3 build on it
-(natural priority order). There are no blocking-all-stories code tasks beyond Setup — the only
-hard precondition is the rebase-onto-`main`-with-001 noted above.
+(natural priority order). There are no blocking-all-stories code tasks beyond Setup — the 001-stack
+precondition is already satisfied by stacking this branch on `001-us3-tier-b-implicit-contradiction`.
 
 **Checkpoint**: Setup complete — US1 can begin.
 

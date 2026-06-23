@@ -211,9 +211,11 @@ input and confirm it replays offline with identical facts every run.
   offline.
 - The "users" are the eval-harness maintainers and the team using the application suite to measure
   write-policy changes.
-- This feature builds on the landed `model-robust-recall-policies` work (the embed-once write path
-  and the `VerdictCassette` keyed-replay pattern); its implementation is sequenced **after** that
-  feature merges, so it can reuse those patterns and avoid eval-harness merge conflicts.
+- This feature builds on the `model-robust-recall-policies` work (the embed-once write path and the
+  `VerdictCassette` keyed-replay pattern). This branch is **stacked on the 001 branch**
+  (`001-us3-tier-b-implicit-contradiction`), so that code is present and implementation can proceed
+  now; its PR **merges after** the 001 stack lands on `main` — building on the 001 tip avoids
+  eval-harness merge conflicts.
 - A unified keyed-replay abstraction across the four cassette surfaces (embeddings, ingestion,
   merge verdicts, conflict verdicts) is **deferred** — the ingestion cassette ships as a near-copy
   of the embedding cache; extraction happens later, once three concrete instances prove the shared

@@ -4,8 +4,10 @@ How to build, record, and verify the feature. Commands are POSIX (Git Bash).
 
 ## Prerequisites
 
-- `001-model-robust-recall-policies` merged to `main`; this branch rebased onto it (reuses the
-  embed-once write path + the `VerdictCassette` sibling, and `run.py` edits).
+- This branch is **stacked on `001-us3-tier-b-implicit-contradiction`** (the 001 stack tip), so the
+  reused 001 code (embed-once write path, `VerdictCassette` sibling, `CachedEmbedder`, the `dom/`
+  eval namespace) is already present — implementation can proceed now. The 002 PR merges after the
+  001 stack lands on `main`.
 - `OPENROUTER_API_KEY` in `.env` — only for recording fixtures; CI / offline runs don't need it.
 - `uv` for running.
 
