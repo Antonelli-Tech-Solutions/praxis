@@ -118,11 +118,11 @@ Single Python package at repo root: `knowledge/...`. Tests live in per-package `
 
 ### Implementation for User Story 3 — Tier B (gated experiment)
 
-- [ ] T036 [US3] Implement `AspectTagger` in `knowledge/knowledge_graph/write_policy/write_step_variants/aspect_tagger.py`: write-time controlled-vocab tags on `Fact.tags`; seed/normalize step to limit fragmentation
-- [ ] T037 [US3] Union `same-tag` candidates into the **conflict** recall path only, bounded (cap same-tag candidates per write) in `vector_graph.py`/`conflict_flagger.py`
-- [ ] T038 [P] [US3] Build the implicit-contradiction eval set (the 0.454 pair + ~5–10 disjoint-vocab/no-negation-cue siblings) under `knowledge/evals/cases/` (marked provisional)
-- [ ] T039 [US3] Report the Tier-B gate metrics (tag co-assignment recall + end-to-end flag rate) and **surface them to the feature owner for an explicit keep/kill decision** (no pre-pinned threshold, per FR-022); record the decision in the spec/research
-- [ ] T040 [US3] Gate outcome — **kill**: leave implicit cases as documented XFAIL (honest, no per-case-tuned pass) and drop the tag key; **keep**: promote the implicit cases to PASS
+- [X] T036 [US3] `AspectTagger` + `AspectJudge` in `aspect_tagger.py` (controlled `ASPECT_VOCAB`, structured `{tags}`, cassette-replayed, graceful skip); `Fact.tags` field. Write-time tags on the incoming note.
+- [X] T037 [US3] Union `same-tag` candidates into the **conflict** recall path only, bounded by `tag_recall_k` (`vector_graph._recall` builds `decision.tag_candidates`; `conflict_flagger` unions cosine ∪ same-tag, deduped — the Deduper still sees cosine only).
+- [X] T038 [P] [US3] Built the implicit-contradiction eval set (`implicit_conflict_*`, 8 disjoint-vocab/no-negation pairs, all below the 0.45 floor) + `tag_model` axis / `_aspect_tagger_for` / `tag_verdicts` capability wiring; committed aspect+conflict cassettes + embeddings.
+- [X] T039 [US3] `tier_b_metrics.py` reports co-assignment + end-to-end flag + cosine-only baseline + rescued-by-tags; strengthened the set to genuine below-floor pairs (first set skewed above-floor); surfaced to owner. Decision recorded in spec SC-010 + research R8.
+- [X] T040 [US3] Gate outcome — **KEEP** (owner, 2026-06-23): promoted the 7 rescued cases to PASS, kept `documentation_policy` as a documented XFAIL residual (FR-023); tag mechanism kept opt-in (not in production `default_write_policy`).
 
 **Checkpoint**: US3 Tier A hardens + unifies the write path; Tier B is measured and decided; Tier C (batch backstop) remains documented-only per spec FR-023.
 

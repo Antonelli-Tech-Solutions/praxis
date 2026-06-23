@@ -1,19 +1,20 @@
-# Tier-B PROVISIONAL implicit-contradiction case (FR-021/FR-022). Two genuinely
-# contradictory engineering preferences phrased with DISJOINT vocabulary and NO
-# shared key noun, so they sit below the cosine recall floor (cosine << 0.45) and
-# cosine recall never pairs them. The AspectTagger assigns both the controlled-vocab
-# aspect "logging-verbosity"; the conflict path's same-tag recall surfaces the pair for the
-# ConflictJudge. Replays offline from the committed aspect + conflict cassettes.
+# Tier-B implicit-contradiction case (FR-021). Two genuinely contradictory
+# engineering preferences phrased with DISJOINT vocabulary and NO shared key noun,
+# so they sit below the cosine recall floor (cosine << 0.45) — cosine recall never
+# pairs them. The AspectTagger assigns both the controlled-vocab aspect
+# "logging-verbosity"; the conflict path's same-tag recall surfaces the pair for the
+# ConflictJudge, which flags the contradiction. Replays offline from the committed
+# aspect + conflict cassettes.
 #
-# xfail = provisional: kept ONLY if the owner judges the Tier-B gate cleared
-# (FR-022). A working experiment XPASSes here; an unrecalled pair stays XFAIL.
+# PROMOTED to a real PASS assertion: the owner judged the Tier-B gate CLEARED
+# (FR-022, 2026-06-23) — all implicit pairs sit below the cosine floor (cosine
+# catches 0/8) and the tag key rescues 7/8. See specs research R8 + tier_b_metrics.
 id: implicit_conflict_logging_verbosity
 component: knowledge_graph
 substrate: vector
 embedder: cached  # real vectors; the pair sits below the cosine floor by design
 tag_model: openai/gpt-4o-mini  # AspectTagger; replayed from the committed aspect cassette
 conflict_model: openai/gpt-4o-mini  # ConflictJudge; replayed from the committed conflict cassette
-xfail: "Tier-B gate pending (FR-022): implicit-contradiction recall via aspect tags is unproven until the owner reviews the gate metrics"
 
 seeded_insight:
   via_ingestor: []
