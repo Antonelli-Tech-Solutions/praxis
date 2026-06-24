@@ -105,6 +105,23 @@ def test_patch_updates_candidate(client):
     assert res.json()["title"] == "New lesson (edited)"
 
 
+def test_delete_active_is_refused_with_409(client):
+    cid = _create(client)["id"]
+    client.post(f"/candidates/{cid}/promote")  # -> active
+    res = client.delete(f"/candidates/{cid}")
+    assert res.status_code == 409
+    assert "reject" in res.json()["detail"].lower()
+    assert client.get(f"/candidates/{cid}").status_code == 200  # still there
+
+
+def test_delete_proposed_and_rejected_succeed(client):
+    proposed = _create(client, title="P", content="A proposed note to remove.")["id"]
+    assert client.delete(f"/candidates/{proposed}").status_code == 200
+    rejected = _create(client, title="R", content="A note to reject then remove.")["id"]
+    client.post(f"/candidates/{rejected}/reject")
+    assert client.delete(f"/candidates/{rejected}").status_code == 200
+
+
 def test_delete_then_get_is_404(client):
     cid = _create(client)["id"]
     assert client.delete(f"/candidates/{cid}").status_code == 200

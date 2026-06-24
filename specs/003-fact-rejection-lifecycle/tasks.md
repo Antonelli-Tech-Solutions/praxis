@@ -115,13 +115,13 @@ description: "Task list for REJECTED state + retained-contradiction lifecycle"
 
 ### Tests for User Story 3 — backend (write first, must fail)
 
-- [ ] T028 [P] [US3] Test `DELETE /candidates/{id}`: `active` → 409 with reject-first guidance; `proposed`/`rejected` → 200 and `fact_edges` gone; the fact disappears from other facts' contradiction lists, in `knowledge/serve/tests/test_server.py` (US3 #1–#3, SC-005).
-- [ ] T029 [P] [US3] Test `FactsCandidates.delete` state gating (raises a precondition error on `active`, deletes otherwise) in `knowledge/serve/tests/test_facts_candidates.py` (FR-014, FR-015).
+- [X] T028 [P] [US3] Test `DELETE /candidates/{id}`: `active` → 409 with reject-first guidance; `proposed`/`rejected` → 200 and `fact_edges` gone; the fact disappears from other facts' contradiction lists, in `knowledge/serve/tests/test_server.py` (US3 #1–#3, SC-005).
+- [X] T029 [P] [US3] Test `FactsCandidates.delete` state gating (raises a precondition error on `active`, deletes otherwise) in `knowledge/serve/tests/test_facts_candidates.py` (FR-014, FR-015).
 
 ### Implementation for User Story 3 — backend
 
-- [ ] T030 [US3] Add state gating to `FactsCandidates.delete` in `knowledge/serve/facts_candidates.py`: raise a precondition error when `state == 'active'`; delete (edges cascade) when `proposed`/`rejected` (FR-014, FR-016).
-- [ ] T031 [US3] Map the precondition error to **HTTP 409** with `{ detail: "reject the fact before deleting" }` in the `delete_candidate` route in `knowledge/serve/app.py` (FR-014).
+- [X] T030 [US3] Add state gating to `FactsCandidates.delete` in `knowledge/serve/facts_candidates.py`: raise a precondition error when `state == 'active'`; delete (edges cascade) when `proposed`/`rejected` (FR-014, FR-016).
+- [X] T031 [US3] Map the precondition error to **HTTP 409** with `{ detail: "reject the fact before deleting" }` in the `delete_candidate` route in `knowledge/serve/app.py` (FR-014).
 
 **Checkpoint**: 🔒 **API contract frozen.** All backend behavior (US1–US3) is implemented and tested; the renamed state value, `status`, and `hasOtherContradictions` fields are stable. Frontend work can now begin against a fixed contract.
 

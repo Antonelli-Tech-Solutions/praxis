@@ -12,7 +12,7 @@ import pytest
 from knowledge.knowledge_graph.write_policy.write_step_variants import Deduper, Redactor
 from knowledge.llm.embedder_variants.fake_embedder import FakeEmbedder
 from knowledge.serve import db
-from knowledge.serve.facts_candidates import FactsCandidates, PromotionError
+from knowledge.serve.facts_candidates import DeletionError, FactsCandidates, PromotionError
 
 pytestmark = pytest.mark.skipif(
     db.resolve_dsn() is None,
@@ -249,3 +249,37 @@ def test_resolve_loser_other_contradictions_flag(facade):
     facade.graph.add_edge(p, q, "contradiction")
     facade.graph.add_edge(q, r, "contradiction")  # q's other contradiction
     assert facade.resolve(_pair(p, q), p)["hasOtherContradictions"] is True  # loser q
+
+
+# --- US3: delete gating -----------------------------------------------------
+
+
+def test_delete_gated_to_proposed_or_rejected(facade):
+    """FR-014: an active fact can't be deleted (reject first); proposed/rejected can."""
+    active = facade.create({"title": "A", "content": "Active note."})["id"]
+    facade.promote(active)  # -> active
+    with pytest.raises(DeletionError):
+        facade.delete(active)
+    assert facade.get(active) is not None  # untouched
+
+    proposed = facade.create({"title": "P", "content": "Proposed note."})["id"]
+    facade.delete(proposed)
+    assert facade.get(proposed) is None
+
+    rejected = facade.create({"title": "R", "content": "Rejected note."})["id"]
+    facade.reject(rejected)
+    facade.delete(rejected)
+    assert facade.get(rejected) is None
+
+
+def test_delete_removes_contradiction_links(facade):
+    """FR-015/SC-005: deleting a fact removes its edges; the contradictor no longer
+    lists it."""
+    a = facade.create({"title": "A", "content": "A note."})["id"]
+    b = facade.create({"title": "B", "content": "B note."})["id"]
+    facade.graph.add_edge(a, b, "contradiction")
+    facade.reject(a)  # make it deletable
+    facade.delete(a)
+    assert facade.get(a) is None
+    assert _contra_status(facade.get(b)) == {}  # b no longer linked to a
+    assert _edge_pairs(facade, "contradiction") == set()

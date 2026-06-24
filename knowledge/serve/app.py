@@ -47,7 +47,11 @@ from knowledge.knowledge_graph.write_policy.write_step_variants import (  # noqa
 from knowledge.llm.llm_variants.openrouter_llm import OpenRouterLlm  # noqa: E402
 from knowledge.serve import db, graph_adapter  # noqa: E402
 from knowledge.serve.auth import Principal, current_user  # noqa: E402
-from knowledge.serve.facts_candidates import FactsCandidates, PromotionError  # noqa: E402
+from knowledge.serve.facts_candidates import (  # noqa: E402
+    DeletionError,
+    FactsCandidates,
+    PromotionError,
+)
 from knowledge.serve.orgs_store import OrgsStore  # noqa: E402
 from knowledge.serve.regenerate import (  # noqa: E402
     PipelineConfig,
@@ -258,6 +262,8 @@ def create_app(conn: Any | None = None) -> FastAPI:
             return {"deleted": cid}
         except KeyError:
             raise HTTPException(status_code=404, detail=f"unknown candidate {cid}")
+        except DeletionError as exc:
+            raise HTTPException(status_code=409, detail=str(exc))
 
     # --- contradictions ----------------------------------------------------
     @app.get("/contradictions")

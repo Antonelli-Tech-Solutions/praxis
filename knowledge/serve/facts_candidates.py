@@ -39,6 +39,14 @@ class PromotionError(ValueError):
     """Raised when a candidate can't be promoted from its current state."""
 
 
+class DeletionError(ValueError):
+    """Raised when a candidate can't be deleted from its current state.
+
+    Deletion is gated to ``proposed``/``rejected`` facts; an ``active`` fact must
+    be rejected first (FR-014). Surfaced as HTTP 409 at the route.
+    """
+
+
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -266,8 +274,12 @@ class FactsCandidates:
         return candidate
 
     def delete(self, cid: str) -> None:
-        if self.graph.get_fact(cid) is None:
+        fact = self.graph.get_fact(cid)
+        if fact is None:
             raise KeyError(cid)
+        if fact.state == "active":
+            raise DeletionError("reject the fact before deleting")
+        # proposed/rejected only; fact_edges cascade via ON DELETE CASCADE (FR-015).
         self.graph.delete_fact(cid)
 
     # --- contradictions ----------------------------------------------------
