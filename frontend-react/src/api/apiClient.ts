@@ -786,12 +786,20 @@ export async function deleteSnapshot(
   return { deleted: typeof row.deleted === "string" ? row.deleted : name };
 }
 
-/** A foldable source: an org member's live graph plus their saved snapshots. */
+/** One saved snapshot in a source: its name and node count. */
+export interface SourceSnapshot {
+  name: string;
+  count: number;
+}
+
+/** A foldable source: an org member and their saved snapshots. */
 export interface OrgSource {
   userId: string;
+  /** Display name (the member's email); null for teammates whose email isn't known. */
+  username: string | null;
   role: string;
   isSelf: boolean;
-  snapshots: string[];
+  snapshots: SourceSnapshot[];
 }
 
 /** A single fact within a snapshot, grouped into a folder by scope. */
@@ -830,14 +838,27 @@ export interface FoldInResult {
   mode: FoldInMode;
 }
 
-function normalizeOrgSource(payload: unknown): OrgSource {
+function normalizeSourceSnapshot(payload: unknown): SourceSnapshot {
+  // Tolerate both the object shape ({name, count}) and a bare name string.
+  if (typeof payload === "string") return { name: payload, count: 0 };
   const row =
     payload && typeof payload === "object" ? (payload as Record<string, unknown>) : {};
   return {
+    name: typeof row.name === "string" ? row.name : String(row.name ?? ""),
+    count: typeof row.count === "number" ? row.count : Number(row.count ?? 0),
+  };
+}
+
+function normalizeOrgSource(payload: unknown): OrgSource {
+  const row =
+    payload && typeof payload === "object" ? (payload as Record<string, unknown>) : {};
+  const snapshots = Array.isArray(row.snapshots) ? row.snapshots : [];
+  return {
     userId: typeof row.userId === "string" ? row.userId : String(row.user_id ?? ""),
+    username: typeof row.username === "string" ? row.username : null,
     role: typeof row.role === "string" ? row.role : "",
     isSelf: Boolean(row.isSelf ?? row.is_self),
-    snapshots: toStringArray(row.snapshots),
+    snapshots: snapshots.map(normalizeSourceSnapshot),
   };
 }
 

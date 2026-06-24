@@ -285,7 +285,14 @@ def _backfill_scope(
         facts_processed += 1
         if has_claims:
             continue  # idempotent: never re-extract a fact that already has claims
-        extracted = extractor.extract(text or "")
+        try:
+            extracted = extractor.extract(text or "")
+        except Exception as exc:  # one bad fact must not abort the whole backfill
+            # e.g. a model response truncated mid-JSON (max-tokens cutoff). Skip
+            # this fact (it stays claim-less and is retried on a later re-run) and
+            # keep going so the rest of the tenant still gets backfilled.
+            print(f"  {label}: SKIP fact {fact_id} — extract failed: {type(exc).__name__}: {exc}")
+            continue
         if not extracted:
             continue  # no source / no checkable claim -> skip without error
         _insert_claims(conn, claims_table, org, user, fact_id, cache_key, extracted)

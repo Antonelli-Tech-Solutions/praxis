@@ -40,13 +40,15 @@ interface SnapshotOption {
 function buildOptions(sources: OrgSource[]): SnapshotOption[] {
   const options: SnapshotOption[] = [];
   for (const s of sources) {
-    const who = s.isSelf ? `${s.userId} (me)` : s.userId;
+    const name = s.username || s.userId; // prefer the display name over the raw id
+    const who = s.isSelf ? `${name} (me)` : name;
     for (const snap of s.snapshots) {
+      const nodes = `${snap.count} node${snap.count === 1 ? "" : "s"}`;
       options.push({
-        value: `${s.userId}::${snap}`,
+        value: `${s.userId}::${snap.name}`,
         userId: s.userId,
-        snapshot: snap,
-        label: `${who} / ${snap}`,
+        snapshot: snap.name,
+        label: `${who} / ${snap.name} (${nodes})`,
         isSelf: s.isSelf,
       });
     }

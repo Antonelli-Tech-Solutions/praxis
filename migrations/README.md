@@ -13,6 +13,14 @@ Schema changes are applied in two layers:
 On merges to `main` the `migrate-on-main` workflow runs the bootstrap, then
 `yoyo apply` over this directory.
 
+### What does *not* belong here
+
+Backfills that derive new data with an **LLM** are deliberately kept out of the
+deploy-time migrate workflow — they need `OPENROUTER_API_KEY` and must not run
+unattended. The structural-contradiction claims backfill lives at
+[`scripts/claims_backfill.py`](../scripts/claims_backfill.py) and is run by hand
+once per database (`OPENROUTER_API_KEY=… python -m scripts.claims_backfill`).
+
 ## File convention
 
 - `NNNN_short_name.sql` — pure SQL. Statements separated by `;`. Declare order

@@ -1,4 +1,7 @@
 {
+"155975f70061aa4a7a238fdc242f8279327fbda807a912e4a4c9f75c59af772e": {
+"incompatible": false
+},
 "16acf32c6eaa652b62bae27d522168a1d326b5bbdec9747518c6004b8b08a136": {
 "contradicts": true
 },
@@ -32,6 +35,9 @@
 "59627e66e1eae0b2ccf655f1561e2f212986cc9144bc7b83cab7af6b01b601fa": {
 "contradicts": true
 },
+"66d5541308cc5425b71947cb28758742866ac9c179ad936458777598a432dd0e": {
+"incompatible": true
+},
 "685bf34ae6d4b41a25db27370497fb579a6c99504a478765e5d002804efaf3c7": {
 "incompatible": true
 },
@@ -50,6 +56,9 @@
 "a1e444e1814eb71f3c78f926c3cab507fb09504c17d90521bee02a15c502c2b8": {
 "contradicts": true
 },
+"ae20f671c59f4da8be9fe877b18cccebdf46c883b54ea6909e6194567078ccb1": {
+"incompatible": false
+},
 "af00e584c679dc3b825c1cd3cf49a9db40da73239ad5363ef3676694b7645377": {
 "contradicts": true
 },
@@ -67,6 +76,9 @@
 },
 "cfb729d856a532f85cddb5ebee47d5f0b7471ab0699c04ea442bf21e3eb334df": {
 "contradicts": false
+},
+"d61e39041ae3d0a9768a738c4903fa0532740707122bd24b3a603f6d06cab688": {
+"incompatible": true
 },
 "da8b3b76660601272c2120554bcfef604b749a53a3828f2e4e0ab0ee2cfab763": {
 "contradicts": true
