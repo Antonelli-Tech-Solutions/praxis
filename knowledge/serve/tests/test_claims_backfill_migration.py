@@ -11,7 +11,7 @@ from knowledge.knowledge_graph.knowledge_graph_def import Claim
 from knowledge.knowledge_graph.write_policy.write_step_variants.claim_conflict_detector import (
     ClaimConflictDetector,
 )
-from migrations.m2026_06_24_claims_backfill import (
+from scripts.claims_backfill import (
     compute_contradiction_edges,
     edges_match,
     normalized_pair,

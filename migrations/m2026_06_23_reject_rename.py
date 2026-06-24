@@ -34,15 +34,33 @@ def _rename_state(conn, table: str) -> int:
     return result.rowcount
 
 
+def _apply(conn) -> None:
+    """yoyo apply step. ``conn`` is the psycopg3 backend connection.
+
+    The pure ``_rename_state`` helper works on either the project's connection
+    wrapper or a raw psycopg3 connection (both expose ``execute().rowcount`` /
+    ``execute().fetchone()``), so the same code path serves yoyo and the CLI.
+    """
+    _rename_state(conn, "facts")
+    _rename_state(conn, "cached_facts")
+
+
 def main() -> None:
     from dotenv import load_dotenv
 
     load_dotenv()
 
     with connect() as conn:
-        _rename_state(conn, "facts")
-        _rename_state(conn, "cached_facts")
+        _apply(conn)
     print("migration complete.")
+
+
+try:  # present whenever yoyo imports this file as a migration
+    from yoyo import step
+
+    steps = [step(_apply)]
+except ImportError:  # pragma: no cover - yoyo is always installed in the migrate env
+    pass
 
 
 if __name__ == "__main__":

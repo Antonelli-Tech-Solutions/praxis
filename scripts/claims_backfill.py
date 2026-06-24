@@ -1,9 +1,12 @@
 """One-off, idempotent backfill + re-evaluate migration for the structural
 contradiction path (U7 of the structural-contradiction-detection plan).
 
-Run once against the configured Postgres:
+This is a MANUAL one-off, deliberately NOT a yoyo migration: it derives new
+data with an LLM (claim extraction), so it needs ``OPENROUTER_API_KEY`` and must
+not run unattended in the deploy-time migrate workflow. Run it by hand against
+the configured Postgres once, with a key set:
 
-    python -m migrations.m2026_06_24_claims_backfill
+    OPENROUTER_API_KEY=... python -m scripts.claims_backfill
 
 It does two guarded, re-runnable things, over BOTH the live spine
 (``facts``/``fact_edges``) and every cached state (``cached_facts``/

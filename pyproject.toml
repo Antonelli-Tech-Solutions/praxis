@@ -20,6 +20,7 @@ dependencies = [
     "pillow>=11.0",
     "psd-tools>=1.10",
     "imagehash>=4.3",
+    "yoyo-migrations>=9.0.0",
 ]
 
 [project.scripts]

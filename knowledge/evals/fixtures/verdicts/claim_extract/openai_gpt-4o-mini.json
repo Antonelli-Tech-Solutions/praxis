@@ -1,9 +1,163 @@
 {
+"013dcf92b3d098bc84c5a8ef072c57d0d3f9110479a48919cfeddc9d1e9460e1": {
+"claims": [
+{
+"attribute": "path handling standard",
+"functional": true,
+"subject": "new code",
+"value": "pathlib.Path"
+},
+{
+"attribute": "path handling standard",
+"functional": true,
+"subject": "config paths",
+"value": "os.path.join"
+},
+{
+"attribute": "existence check standard",
+"functional": true,
+"subject": "config paths",
+"value": "os.path.exists"
+}
+],
+"stance": {
+"axis": "none",
+"pole": ""
+}
+},
+"0394ffbc00f4db84a627ccbbeb5fb0173c9a6d29bb35ae132658711218060ea1": {
+"claims": [
+{
+"attribute": "processing method",
+"functional": true,
+"subject": "rubric grading",
+"value": "Claude Code"
+},
+{
+"attribute": "offline verify pass",
+"functional": true,
+"subject": "rubric grading",
+"value": "skipped"
+}
+],
+"stance": {
+"axis": "none",
+"pole": ""
+}
+},
+"04791aec15ad91e470699bd5a0f1c633f0e06f333cc142a5c2c8c051c7e4c4bd": {
+"claims": [
+{
+"attribute": "instrumentation",
+"functional": true,
+"subject": "production insight",
+"value": "true"
+}
+],
+"stance": {
+"axis": "axis:logging-verbose-vs-minimal",
+"pole": "minimal"
+}
+},
+"054f20eea1aef12d0d804479d9b50fd744e94f5326b3c71f8115d66b8679c669": {
+"claims": [
+{
+"attribute": "required",
+"functional": true,
+"subject": "indentation style",
+"value": "tabs"
+},
+{
+"attribute": "forbidden",
+"functional": true,
+"subject": "indentation style",
+"value": "spaces"
+}
+],
+"stance": {
+"axis": "none",
+"pole": ""
+}
+},
+"065afe77ae33f6cfe7ed3ef5088bd27f07610c0f768ea889f1db930bd91908ef": {
+"claims": [
+{
+"attribute": "Agents tab",
+"functional": true,
+"subject": "claude+ Chrome wrapper",
+"value": "removed"
+}
+],
+"stance": {
+"axis": "none",
+"pole": ""
+}
+},
+"0d709b6838614438ffc0e2633178eb7c338d5e66539fc5b90c3733c9fcb3cc0f": {
+"claims": [
+{
+"attribute": "location",
+"functional": true,
+"subject": "CDK infrastructure",
+"value": "repo root"
+}
+],
+"stance": {
+"axis": "none",
+"pole": ""
+}
+},
+"1656effae2d88926e5727abfea68b44e6f0b9fc1c93033faefbb6f6b2a3352cc": {
+"claims": [
+{
+"attribute": "execution command",
+"functional": true,
+"subject": "test suite",
+"value": "uv run pytest"
+},
+{
+"attribute": "pre-check requirement",
+"functional": true,
+"subject": "PR",
+"value": "uv run pytest"
+},
+{
+"attribute": "status",
+"functional": true,
+"subject": "test suite",
+"value": "green"
+}
+],
+"stance": {
+"axis": "none",
+"pole": ""
+}
+},
 "18de9bb8995416d246068ba7d3466bc320277d7fb63cd60d31e1fcef8096183d": {
 "claims": [],
 "stance": {
 "axis": "axis:documentation-explicit-vs-self-documenting",
 "pole": "self-documenting"
+}
+},
+"19647c39ac003aa2342a7cc3c2bb6f717c03b27dac033a0286e9b8b38ac9047e": {
+"claims": [
+{
+"attribute": "component field",
+"functional": true,
+"subject": "full-pipeline eval cases",
+"value": "omitted"
+},
+{
+"attribute": "real agent",
+"functional": true,
+"subject": "full-pipeline eval cases",
+"value": "Claude Code"
+}
+],
+"stance": {
+"axis": "none",
+"pole": ""
 }
 },
 "1b67ea1fb57dadd19e81fc26837986b18977a88c243b724dc350d5e4948f8f87": {
@@ -54,6 +208,61 @@
 "pole": ""
 }
 },
+"2df957c5de7db771252b0f81c353101c1ab13d544f300a0ae7d01de7fc4e6b9e": {
+"claims": [
+{
+"attribute": "indentation",
+"functional": true,
+"subject": "indentation style",
+"value": "4"
+},
+{
+"attribute": "alternative indentation",
+"functional": false,
+"subject": "indentation style",
+"value": "2"
+}
+],
+"stance": {
+"axis": "none",
+"pole": ""
+}
+},
+"2eb2d2480ad1214d5cc2f422406f3b7d2f55a577bdeacaed1afe5c61ecbf0eb5": {
+"claims": [],
+"stance": {
+"axis": "axis:error-fail-fast-vs-fail-safe",
+"pole": "fail-fast"
+}
+},
+"2fa86607f62b34d84bacdbc48362ef041a28e43751614471601dca4bef686fba": {
+"claims": [
+{
+"attribute": "preferred format",
+"functional": true,
+"subject": "eval output",
+"value": "named artifact file"
+}
+],
+"stance": {
+"axis": "none",
+"pole": ""
+}
+},
+"332dbdc3395152136b305f3f682c5e9a398389dfd07d4c33276d2a44306e4f28": {
+"claims": [
+{
+"attribute": "operating environment",
+"functional": true,
+"subject": "full-pipeline agents",
+"value": "sealed temporary working directory"
+}
+],
+"stance": {
+"axis": "none",
+"pole": ""
+}
+},
 "370f0e749d4ca40ae7ac7f4d68ada95e6fb61e9d0d8f37184f41aff031ca835f": {
 "claims": [
 {
@@ -66,6 +275,66 @@
 "stance": {
 "axis": "axis:abstraction-vs-directness",
 "pole": "abstraction"
+}
+},
+"3f6d6f8ab5f880e7d3caa37fcead84a9bffd6fa5fa199e685bf005dc543f969b": {
+"claims": [
+{
+"attribute": "checkout status",
+"functional": true,
+"subject": "repository",
+"value": "current directory"
+}
+],
+"stance": {
+"axis": "none",
+"pole": ""
+}
+},
+"3fa61fcde1eafd5e6f6988a61a3b32efd09fbe07b97611be5fb85215ca221e88": {
+"claims": [
+{
+"attribute": "source",
+"functional": true,
+"subject": "diagnostics",
+"value": "claude+"
+},
+{
+"attribute": "source",
+"functional": true,
+"subject": "config",
+"value": "claude+"
+},
+{
+"attribute": "source",
+"functional": true,
+"subject": "title",
+"value": "claude+"
+},
+{
+"attribute": "source",
+"functional": true,
+"subject": "pty modules",
+"value": "claude+"
+}
+],
+"stance": {
+"axis": "none",
+"pole": ""
+}
+},
+"41d83d2491527dda0a34502a5110770007a996050068653fec8195dcb0f271c0": {
+"claims": [
+{
+"attribute": "definition location",
+"functional": true,
+"subject": "EvalCase",
+"value": "knowledge/evals/eval_def.py"
+}
+],
+"stance": {
+"axis": "none",
+"pole": ""
 }
 },
 "4640ddb656837654529ebedfb34159734b257c76742c48e1d6ed8366c076cad1": {
@@ -117,6 +386,32 @@
 "pole": "colocated"
 }
 },
+"50804f456e2c008bf61427ecc3b40a6420f59effbbc070236ee4f2d40ba89a7c": {
+"claims": [
+{
+"attribute": "docstring",
+"functional": true,
+"subject": "public function",
+"value": "required"
+},
+{
+"attribute": "unit test",
+"functional": true,
+"subject": "public function",
+"value": "required"
+},
+{
+"attribute": "precondition",
+"functional": true,
+"subject": "merge",
+"value": "public function must have docstring and unit test"
+}
+],
+"stance": {
+"axis": "axis:documentation-explicit-vs-self-documenting",
+"pole": "explicit"
+}
+},
 "5f24f1c0ba2c372896af8d791ecaee54f09d8c1ce1a6ba5c708de3695df35a86": {
 "claims": [
 {
@@ -131,6 +426,52 @@
 "pole": ""
 }
 },
+"63205889df847e69cf155c54a820910580410a73fbb290571c3c52dc774b83f7": {
+"claims": [
+{
+"attribute": "requires docstring",
+"functional": true,
+"subject": "public function",
+"value": "true"
+},
+{
+"attribute": "requires unit test",
+"functional": true,
+"subject": "public function",
+"value": "true"
+},
+{
+"attribute": "contains small pure helpers",
+"functional": true,
+"subject": "calculator.py",
+"value": "true"
+}
+],
+"stance": {
+"axis": "none",
+"pole": ""
+}
+},
+"650c0449d82c3b31ceab81e61c277a0824940797cf65aabf2c124a0a2ca91454": {
+"claims": [
+{
+"attribute": "execution command",
+"functional": true,
+"subject": "tests",
+"value": "uv run pytest -q"
+},
+{
+"attribute": "execution location",
+"functional": true,
+"subject": "tests",
+"value": "repo root"
+}
+],
+"stance": {
+"axis": "none",
+"pole": ""
+}
+},
 "65328c3f4f978de972672fdb820d3dc57e9303a56c2a37266e224ba59ee94e81": {
 "claims": [
 {
@@ -138,6 +479,40 @@
 "functional": true,
 "subject": "electrophorus",
 "value": "Alessandro Volta"
+}
+],
+"stance": {
+"axis": "none",
+"pole": ""
+}
+},
+"67180eba0d42f8df613c09aa2498025346da6c698ca80d5cf66e1a627e501ba6": {
+"claims": [
+{
+"attribute": "required",
+"functional": true,
+"subject": "indentation style",
+"value": "tabs"
+},
+{
+"attribute": "forbidden",
+"functional": true,
+"subject": "indentation style",
+"value": "spaces"
+}
+],
+"stance": {
+"axis": "none",
+"pole": ""
+}
+},
+"67f43be0768e489487e517b18430dac9a8563cab53c48060993a722229e4150a": {
+"claims": [
+{
+"attribute": "default branch",
+"functional": true,
+"subject": "pull requests",
+"value": "main"
 }
 ],
 "stance": {
@@ -219,6 +594,32 @@
 "pole": ""
 }
 },
+"7a272c3e1c9fad6b4e4cd18580005ba356408a28a9646d03081162925238eb0e": {
+"claims": [
+{
+"attribute": "management type",
+"functional": true,
+"subject": "Praxis",
+"value": "uv-managed"
+},
+{
+"attribute": "repository type",
+"functional": true,
+"subject": "Praxis",
+"value": "Python monorepo"
+},
+{
+"attribute": "location",
+"functional": true,
+"subject": "knowledge harness",
+"value": "knowledge/"
+}
+],
+"stance": {
+"axis": "none",
+"pole": ""
+}
+},
 "7c22dd8d6659f7b4e07808c204149b0d5e1849eaefc071b4f00a1326f672849a": {
 "claims": [
 {
@@ -287,6 +688,88 @@
 "pole": "readability"
 }
 },
+"8359ff1b55bfd3679faa7392145054a74694166b55e3550bfce96e924eaf4ffc": {
+"claims": [
+{
+"attribute": "reuse layer",
+"functional": true,
+"subject": "shared logic",
+"value": "true"
+}
+],
+"stance": {
+"axis": "axis:abstraction-vs-directness",
+"pole": "directness"
+}
+},
+"854adc83f3d45d1b79c3710229dec6ea3d5457baa37fb6b23907acd301fd28ab": {
+"claims": [
+{
+"attribute": "length",
+"functional": true,
+"subject": "lines",
+"value": "80"
+},
+{
+"attribute": "docstring",
+"functional": true,
+"subject": "functions",
+"value": "one-line"
+}
+],
+"stance": {
+"axis": "none",
+"pole": ""
+}
+},
+"871c0f79764409478787e361ff25d0a0c038cb44e3c49df08e0fa96c2f7334c6": {
+"claims": [
+{
+"attribute": "location",
+"functional": true,
+"subject": "eval cases",
+"value": "knowledge/evals/cases/<case-id>/case.yaml"
+}
+],
+"stance": {
+"axis": "none",
+"pole": ""
+}
+},
+"9173d7a1b53d04a631b9ceba880de07f84703139188946f9e21f75e47bee8418": {
+"claims": [
+{
+"attribute": "centralization",
+"functional": true,
+"subject": "tunable knobs",
+"value": "one place"
+},
+{
+"attribute": "location",
+"functional": true,
+"subject": "settings",
+"value": "beside the code"
+}
+],
+"stance": {
+"axis": "axis:config-centralized-vs-colocated",
+"pole": "centralized"
+}
+},
+"95ff254157ef5eef7cf4e62b50eff982aa1c12c847afdd8d866980d2c1a60b3e": {
+"claims": [
+{
+"attribute": "storage location",
+"functional": true,
+"subject": "project planning documents",
+"value": "docs/plans/"
+}
+],
+"stance": {
+"axis": "none",
+"pole": ""
+}
+},
 "964ee5c9664894ba649371d0c8ae163ededc9f552104d2bd0a6b5d033f4f4164": {
 "claims": [
 {
@@ -296,6 +779,13 @@
 "value": "1799"
 }
 ],
+"stance": {
+"axis": "none",
+"pole": ""
+}
+},
+"9e10470c34753b31a8093040435a9bc207e0df6bd5330456f1d725bbae1504cc": {
+"claims": [],
 "stance": {
 "axis": "none",
 "pole": ""
@@ -315,11 +805,187 @@
 "pole": ""
 }
 },
+"a3020215ec1eed97bc06ac187c5bf196e6c685d65e22667e1def28dc533d002f": {
+"claims": [
+{
+"attribute": "development speed",
+"functional": true,
+"subject": "ship features",
+"value": "quickly"
+},
+{
+"attribute": "test coverage",
+"functional": true,
+"subject": "changes",
+"value": "full automated"
+}
+],
+"stance": {
+"axis": "axis:testing-rigor-vs-speed",
+"pole": "testing-rigor"
+}
+},
+"a7455d43dee0a4704e45a84a6f883d4998e3136ba74761aae033f2158fe7a661": {
+"claims": [
+{
+"attribute": "reduction",
+"functional": true,
+"subject": "ETL pipeline runtime",
+"value": "8"
+},
+{
+"attribute": "original duration",
+"functional": true,
+"subject": "ETL pipeline runtime",
+"value": "14"
+},
+{
+"attribute": "new duration",
+"functional": true,
+"subject": "ETL pipeline runtime",
+"value": "6"
+},
+{
+"attribute": "increase percentage",
+"functional": true,
+"subject": "compute scaling",
+"value": "20"
+},
+{
+"attribute": "daily collection",
+"functional": true,
+"subject": "scrapers",
+"value": "12"
+},
+{
+"attribute": "monthly cost",
+"functional": true,
+"subject": "scrapers",
+"value": "5000"
+},
+{
+"attribute": "database size",
+"functional": true,
+"subject": "ML rent-detection model",
+"value": "largest"
+},
+{
+"attribute": "industry position",
+"functional": true,
+"subject": "BTR database",
+"value": "largest"
+}
+],
+"stance": {
+"axis": "none",
+"pole": ""
+}
+},
+"aa24f4721671fadadb8ec32f19740dfcfa3ef4122a85137e3cfadcc7d136307a": {
+"claims": [
+{
+"attribute": "supports",
+"functional": true,
+"subject": "ingestion path",
+"value": "no-LLM passthrough"
+},
+{
+"attribute": "behavior",
+"functional": true,
+"subject": "no-LLM passthrough",
+"value": "each line becomes one insight verbatim"
+}
+],
+"stance": {
+"axis": "none",
+"pole": ""
+}
+},
+"af0c468e9cc77046f4fc59c0fcbf0fd0e68db8ba64061a64b272bd462bf19cb4": {
+"claims": [
+{
+"attribute": "discovery method",
+"functional": true,
+"subject": "case.yaml files",
+"value": "recursively"
+},
+{
+"attribute": "function",
+"functional": true,
+"subject": "case loader",
+"value": "load_cases"
+}
+],
+"stance": {
+"axis": "none",
+"pole": ""
+}
+},
 "b15e847a80e25c67464846828e9f2c8235eb88294fd63e67dfb42730a64b1790": {
 "claims": [],
 "stance": {
 "axis": "axis:logging-verbose-vs-minimal",
 "pole": "minimal"
+}
+},
+"b29abac277c7466949aaf0d108aa44c4024dcec444af08f6c2e24205231912a5": {
+"claims": [
+{
+"attribute": "prefix style",
+"functional": true,
+"subject": "commit messages",
+"value": "conventional-commit"
+}
+],
+"stance": {
+"axis": "none",
+"pole": ""
+}
+},
+"ba07a29d0e7e73ec3c4ce4589eb5629109a6b85d93a89a37e32a5fc00c094a30": {
+"claims": [
+{
+"attribute": "recommendation",
+"functional": true,
+"subject": "library",
+"value": "battle-tested"
+},
+{
+"attribute": "reinvention",
+"functional": true,
+"subject": "library",
+"value": "wheel"
+},
+{
+"attribute": "liability",
+"functional": true,
+"subject": "package",
+"value": "long-term"
+}
+],
+"stance": {
+"axis": "axis:dependency-library-vs-diy",
+"pole": "diy"
+}
+},
+"ba0dfa7d930547f4c1138e17444fc2cfa7425772403651a71a9167607a7eb334": {
+"claims": [
+{
+"attribute": "package manager",
+"functional": true,
+"subject": "repo",
+"value": "uv"
+},
+{
+"attribute": "forbidden package manager",
+"functional": true,
+"subject": "repo",
+"value": "pip"
+}
+],
+"stance": {
+"axis": "none",
+"pole": ""
 }
 },
 "ba7fc69eb47504eb19e10b7287e411d1c727dfcd00678dd3f1495ab9a99ee3ec": {
@@ -368,6 +1034,26 @@
 "pole": "spaces"
 }
 },
+"c3356c14fdfb9caa41fcb152bd3f035c69b0a45da5f88434a626795bbfaf992a": {
+"claims": [
+{
+"attribute": "target operating systems",
+"functional": false,
+"subject": "repo",
+"value": "Windows"
+},
+{
+"attribute": "target operating systems",
+"functional": false,
+"subject": "repo",
+"value": "POSIX shells"
+}
+],
+"stance": {
+"axis": "none",
+"pole": ""
+}
+},
 "c72b9ac84cc2cc0b67e8fba6aa0ff1f83b7d6830ca2e3d4c5ff60669e3dd3f83": {
 "claims": [
 {
@@ -396,6 +1082,26 @@
 "pole": "centralized"
 }
 },
+"ce0789ec39ebc21bcff152a6446b8a2ec1e1a1538212b1b91f14c894303623fa": {
+"claims": [
+{
+"attribute": "exposed subcommands",
+"functional": false,
+"subject": "claude+ CLI",
+"value": "host, ls, stop"
+},
+{
+"attribute": "exposed by",
+"functional": true,
+"subject": "PTY daemon",
+"value": "claude+ CLI"
+}
+],
+"stance": {
+"axis": "none",
+"pole": ""
+}
+},
 "d2af528b48a7de8888f9fec61aef6d7db1baedd08fa0c6698ac946ee94e8e553": {
 "claims": [
 {
@@ -408,6 +1114,34 @@
 "stance": {
 "axis": "axis:testing-rigor-vs-speed",
 "pole": "testing-rigor"
+}
+},
+"d330fcd25a63bd8709a7f0cf0c66c0064fd686cbaa9ef439a1edd4756df39b25": {
+"claims": [],
+"stance": {
+"axis": "none",
+"pole": ""
+}
+},
+"d3c1278a9ea26dc27a8fd4ede8b6f5c876bd0dbd0ba68f830e1b23c05aaa2ad9": {
+"claims": [],
+"stance": {
+"axis": "none",
+"pole": ""
+}
+},
+"d8f306bfabcdc14a1e8138e05e1754937bd690ce2841ab92491156ea46236233": {
+"claims": [
+{
+"attribute": "documentation requirement",
+"functional": true,
+"subject": "module reasoning",
+"value": "written guide"
+}
+],
+"stance": {
+"axis": "none",
+"pole": ""
 }
 },
 "d9d83240d6b28137258369566fd8e7e0313dcb3300ed42291fd826e585c800a0": {
@@ -437,6 +1171,26 @@
 "pole": "performance"
 }
 },
+"e0bc8c43116c47cb8e8e82fbfc61943e2a18d1192ca78991d56037423445ca41": {
+"claims": [
+{
+"attribute": "seeding method",
+"functional": true,
+"subject": "insights",
+"value": "ingestor"
+},
+{
+"attribute": "seeding method",
+"functional": false,
+"subject": "insights",
+"value": "written directly to the graph"
+}
+],
+"stance": {
+"axis": "none",
+"pole": ""
+}
+},
 "e611751de832ae933509ccf5a58517c667aefb91046f3937598a1074e187dfef": {
 "claims": [
 {
@@ -449,6 +1203,476 @@
 "stance": {
 "axis": "axis:logging-verbose-vs-minimal",
 "pole": "verbose"
+}
+},
+"ea2d65a9230f498d597b3d547f792b2abf91e3a1e8c1c0e6ea263d52daf186b7": {
+"claims": [
+{
+"attribute": "management type",
+"functional": true,
+"subject": "Praxis",
+"value": "uv-managed"
+},
+{
+"attribute": "repository type",
+"functional": true,
+"subject": "Praxis",
+"value": "Python monorepo"
+},
+{
+"attribute": "location",
+"functional": true,
+"subject": "knowledge harness",
+"value": "knowledge/"
+},
+{
+"attribute": "run command",
+"functional": true,
+"subject": "tests",
+"value": "uv run pytest -q"
+},
+{
+"attribute": "location",
+"functional": true,
+"subject": "CDK infrastructure",
+"value": "repo root"
+},
+{
+"attribute": "routing destination",
+"functional": true,
+"subject": "captured PTY sessions",
+"value": "DynamoDB"
+},
+{
+"attribute": "exposed subcommands",
+"functional": false,
+"subject": "claude+ CLI",
+"value": "host, ls, stop"
+},
+{
+"attribute": "status",
+"functional": true,
+"subject": "Agents tab",
+"value": "removed"
+},
+{
+"attribute": "location",
+"functional": true,
+"subject": "eval cases",
+"value": "knowledge/evals/cases/<case-id>/case.yaml"
+},
+{
+"attribute": "discovery method",
+"functional": true,
+"subject": "case loader",
+"value": "recursively discovers case.yaml files"
+},
+{
+"attribute": "reference format",
+"functional": true,
+"subject": "deterministic checks",
+"value": "module.path:function strings"
+},
+{
+"attribute": "component field",
+"functional": true,
+"subject": "full-pipeline eval cases",
+"value": "omitted"
+},
+{
+"attribute": "agent type",
+"functional": true,
+"subject": "full-pipeline eval cases",
+"value": "real Claude Code agent"
+},
+{
+"attribute": "injection method",
+"functional": true,
+"subject": "seeded knowledge",
+"value": "system prompt"
+},
+{
+"attribute": "execution environment",
+"functional": true,
+"subject": "full-pipeline agents",
+"value": "sealed temporary working directory"
+},
+{
+"attribute": "for pull requests",
+"functional": true,
+"subject": "default branch",
+"value": "main"
+},
+{
+"attribute": "format",
+"functional": true,
+"subject": "commit messages",
+"value": "conventional-commit prefix style"
+},
+{
+"attribute": "location",
+"functional": true,
+"subject": "project planning documents",
+"value": "docs/plans/"
+},
+{
+"attribute": "em dash usage",
+"functional": true,
+"subject": "writing style rule",
+"value": "never use"
+},
+{
+"attribute": "origin",
+"functional": true,
+"subject": "PTY daemon",
+"value": "upstream claude+ project"
+},
+{
+"attribute": "copied from",
+"functional": true,
+"subject": "diagnostics and config",
+"value": "claude+"
+},
+{
+"attribute": "schema definition",
+"functional": true,
+"subject": "Pydantic models",
+"value": "EvalCase"
+},
+{
+"attribute": "supports",
+"functional": true,
+"subject": "ingestion path",
+"value": "no-LLM passthrough"
+},
+{
+"attribute": "reader type",
+"functional": true,
+"subject": "graph reads",
+"value": "whole-file reader"
+},
+{
+"attribute": "execution method",
+"functional": true,
+"subject": "rubric grading",
+"value": "through Claude Code"
+},
+{
+"attribute": "target platforms",
+"functional": false,
+"subject": "repo",
+"value": "Windows and POSIX shells"
+},
+{
+"attribute": "seeding methods",
+"functional": false,
+"subject": "insights",
+"value": "ingestor or written directly to the graph"
+},
+{
+"attribute": "preferred eval output",
+"functional": true,
+"subject": "harness",
+"value": "named artifact file"
+}
+],
+"stance": {
+"axis": "none",
+"pole": ""
+}
+},
+"edf468ca19382d9bde870a7e16bd6cb2dff1e034cc2ed8691db9289a29cb0ae0": {
+"claims": [
+{
+"attribute": "routing destination",
+"functional": true,
+"subject": "Captured PTY sessions",
+"value": "DynamoDB"
+},
+{
+"attribute": "previous routing destination",
+"functional": true,
+"subject": "Captured PTY sessions",
+"value": "Command-HQ service"
+}
+],
+"stance": {
+"axis": "none",
+"pole": ""
+}
+},
+"f6cae1eb8d89663f1cae4d8a79f8541f0decda13c2ffaaf38f8161c436e585e8": {
+"claims": [
+{
+"attribute": "quality floor",
+"functional": true,
+"subject": "accessibility",
+"value": "responsive down to mobile"
+},
+{
+"attribute": "quality floor",
+"functional": true,
+"subject": "accessibility",
+"value": "visible keyboard focus"
+},
+{
+"attribute": "quality floor",
+"functional": true,
+"subject": "accessibility",
+"value": "reduced motion respected"
+},
+{
+"attribute": "semantic structure",
+"functional": true,
+"subject": "HTML structure",
+"value": "true"
+},
+{
+"attribute": "numbering or labels",
+"functional": true,
+"subject": "HTML structure",
+"value": "encode real information"
+},
+{
+"attribute": "type scale",
+"functional": true,
+"subject": "typography",
+"value": "deliberate"
+},
+{
+"attribute": "weights, widths, and spacing",
+"functional": true,
+"subject": "typography",
+"value": "intentional"
+},
+{
+"attribute": "named hex values",
+"functional": true,
+"subject": "color token system",
+"value": "4-6"
+},
+{
+"attribute": "palette consistency",
+"functional": true,
+"subject": "color token system",
+"value": "true"
+},
+{
+"attribute": "management",
+"functional": true,
+"subject": "CSS selector specificity",
+"value": "intentional"
+},
+{
+"attribute": "padding and margin rules",
+"functional": true,
+"subject": "CSS selector specificity",
+"value": "do not cancel out"
+},
+{
+"attribute": "usage",
+"functional": true,
+"subject": "animation",
+"value": "sparingly"
+},
+{
+"attribute": "purpose",
+"functional": true,
+"subject": "animation",
+"value": "serves the subject"
+},
+{
+"attribute": "voice",
+"functional": true,
+"subject": "interface copy",
+"value": "active"
+},
+{
+"attribute": "action names",
+"functional": true,
+"subject": "interface copy",
+"value": "specific"
+},
+{
+"attribute": "self-critique",
+"functional": true,
+"subject": "design critique",
+"value": "true"
+},
+{
+"attribute": "avoidance of generic AI-generated design",
+"functional": true,
+"subject": "design",
+"value": "true"
+},
+{
+"attribute": "defaults",
+"functional": true,
+"subject": "layout",
+"value": "steer away from centered layouts"
+},
+{
+"attribute": "defaults",
+"functional": true,
+"subject": "layout",
+"value": "steer away from purple gradients"
+},
+{
+"attribute": "defaults",
+"functional": true,
+"subject": "layout",
+"value": "steer away from uniform rounded corners"
+},
+{
+"attribute": "defaults",
+"functional": true,
+"subject": "layout",
+"value": "steer away from Inter font"
+},
+{
+"attribute": "building technology",
+"functional": true,
+"subject": "artifacts",
+"value": "React 18 and TypeScript"
+},
+{
+"attribute": "component safety",
+"functional": true,
+"subject": "artifacts",
+"value": "type-safe"
+},
+{
+"attribute": "framework",
+"functional": true,
+"subject": "styling",
+"value": "Tailwind CSS with shadcn/ui theming"
+},
+{
+"attribute": "path aliases",
+"functional": true,
+"subject": "project organization",
+"value": "@/"
+},
+{
+"attribute": "bundling",
+"functional": true,
+"subject": "artifact",
+"value": "single self-contained HTML file"
+},
+{
+"attribute": "asset management",
+"functional": true,
+"subject": "artifact",
+"value": "all assets inlined"
+},
+{
+"attribute": "portability",
+"functional": true,
+"subject": "artifact",
+"value": "true"
+},
+{
+"attribute": "requirement",
+"functional": true,
+"subject": "directory structure",
+"value": "index.html in root directory"
+},
+{
+"attribute": "production build",
+"functional": true,
+"subject": "artifact",
+"value": "without source maps"
+},
+{
+"attribute": "size reduction",
+"functional": true,
+"subject": "artifact",
+"value": "reduce distributed artifact size"
+}
+],
+"stance": {
+"axis": "none",
+"pole": ""
+}
+},
+"f8b9f8338e12802e85220ee63ec579438585af30424973be178c50ca43171e9c": {
+"claims": [
+{
+"attribute": "port source",
+"functional": true,
+"subject": "PTY daemon",
+"value": "upstream claude+ project"
+}
+],
+"stance": {
+"axis": "none",
+"pole": ""
+}
+},
+"f913c2e262bd1fe2786952ff045cb83f62ce54cc93296089a60d882d6d1a4b01": {
+"claims": [
+{
+"attribute": "reader type",
+"functional": true,
+"subject": "graph",
+"value": "whole-file"
+},
+{
+"attribute": "return type",
+"functional": true,
+"subject": "graph",
+"value": "entire"
+},
+{
+"attribute": "graph usage",
+"functional": true,
+"subject": "MVP",
+"value": "reads"
+}
+],
+"stance": {
+"axis": "none",
+"pole": ""
+}
+},
+"fe1c75531372edb8a277f099d5e979942090d93d3755341417bc4b27301975c8": {
+"claims": [
+{
+"attribute": "em dash usage",
+"functional": true,
+"subject": "writing style",
+"value": "never"
+}
+],
+"stance": {
+"axis": "none",
+"pole": ""
+}
+},
+"ff8720540c6e1dfe5c0146a8e3f20a32282d6b9fe4edafacbd991fd24631c422": {
+"claims": [
+{
+"attribute": "performance optimization",
+"functional": true,
+"subject": "code",
+"value": "squeeze every last cycle out of the hot paths"
+},
+{
+"attribute": "readability",
+"functional": true,
+"subject": "code",
+"value": "keep it effortless for a newcomer to follow"
+},
+{
+"attribute": "speed",
+"functional": false,
+"subject": "code",
+"value": "leave speed on the table"
+}
+],
+"stance": {
+"axis": "axis:performance-vs-readability",
+"pole": "performance"
 }
 }
 }
