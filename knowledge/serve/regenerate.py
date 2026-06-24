@@ -123,43 +123,45 @@ def distill_case(case_id: str, *, distill: bool) -> list[FactSeed]:
         raise ValueError(f"no such eval case: {case_id!r}")
 
     source = f"evals/{case_id}"
-    # (source_text, state) per seeded channel, in channel order.
-    raw_seeds: list[tuple[str, str]] = []
-    for state, rows in (
-        ("proposed", case.seeded_insight.via_ingestor),
-        ("active", case.seeded_insight.direct_to_graph),
-    ):
-        for text in rows:
-            normalized = str(text).strip()
-            if normalized:
-                raw_seeds.append((text, state))
-
     seeds: list[FactSeed] = []
-    if distill:
-        if not os.getenv("OPENROUTER_API_KEY"):
-            raise RegenerateUnavailableError(
-                "distillation needs OPENROUTER_API_KEY set on the API"
-            )
-        from knowledge.llm.llm_def import ChatMessage
-        from knowledge.llm.llm_variants.openrouter_llm import OpenRouterLlm
 
-        llm = OpenRouterLlm(model="openai/gpt-4o-mini")
-        distiller = PromptIngestor(
-            InMemoryGraph(),
-            llm=lambda prompt: llm.complete([ChatMessage(role="user", content=prompt)]),
-        )
-        for text, state in raw_seeds:
-            for insight in distiller.synthesis(text):
+    # ``direct_to_graph`` seeds mirror a real run's ``graph.write(text, state="active")``
+    # (see knowledge/evals/run.py ``_seed_knowledge``): each line is written VERBATIM,
+    # bypassing the ingestor/distiller, one fact per seed entry. Running these through
+    # distillation corrupts curated text (e.g. "RULE_B second" -> "RULE_B is a specific
+    # rule or guideline.") and is the channel the cache must reproduce faithfully.
+    for text in case.seeded_insight.direct_to_graph:
+        fact_text = " ".join(str(text).split())
+        if fact_text:
+            seeds.append(FactSeed(text=fact_text, state="active", source=source))
+
+    # ``via_ingestor`` seeds mirror ``ingestor.ingest(text)``: the real distillation
+    # path (LLM distill when requested, deterministic passthrough otherwise), landing
+    # as ``proposed``. This is the only channel that should ever be distilled.
+    via_rows = [str(t) for t in case.seeded_insight.via_ingestor if str(t).strip()]
+    if via_rows:
+        if distill:
+            if not os.getenv("OPENROUTER_API_KEY"):
+                raise RegenerateUnavailableError(
+                    "distillation needs OPENROUTER_API_KEY set on the API"
+                )
+            from knowledge.llm.llm_def import ChatMessage
+            from knowledge.llm.llm_variants.openrouter_llm import OpenRouterLlm
+
+            llm = OpenRouterLlm(model="openai/gpt-4o-mini")
+            ingestor = PromptIngestor(
+                InMemoryGraph(),
+                llm=lambda prompt: llm.complete([ChatMessage(role="user", content=prompt)]),
+            )
+            keep = bool
+        else:
+            ingestor = PromptIngestor(InMemoryGraph())  # no llm => line split
+            keep = _is_real_fact
+        for text in via_rows:
+            for insight in ingestor.synthesis(text):
                 fact_text = " ".join(insight.raw_text.split())
-                if fact_text:
-                    seeds.append(FactSeed(text=fact_text, state=state, source=source))
-    else:
-        splitter = PromptIngestor(InMemoryGraph())  # no llm => line split
-        for text, state in raw_seeds:
-            for insight in splitter.synthesis(text):
-                fact_text = " ".join(insight.raw_text.split())
-                if _is_real_fact(fact_text):
-                    seeds.append(FactSeed(text=fact_text, state=state, source=source))
+                if keep(fact_text):
+                    seeds.append(FactSeed(text=fact_text, state="proposed", source=source))
     return seeds
 
 
@@ -273,27 +275,22 @@ def _seed_write_graph() -> tuple[VectorGraph, Any]:
     """The graph that seed-loading writes into, plus the ingest LLM (None offline).
 
     With ``OPENROUTER_API_KEY`` set, use the real embedder (so semantically-related
-    seeds clear the recall floor and reach the judge) and a ``ConflictFlagger`` on
-    ``gpt-4o-mini`` -- mirroring the vector store's ``default_write_policy``. The
-    contradiction flags it records become the candidates' ``contradiction_ids``,
+    seeds clear the recall floor and reach dedup) and the structural contradiction
+    path on ``gpt-4o-mini`` -- mirroring the vector store's ``default_write_policy``.
+    The contradiction flags it records become the candidates' ``contradiction_ids``,
     which is exactly what the dashboard's Contradictions tab renders. Without a key,
     fall back to the deterministic offline ``FakeEmbedder`` and no judge (no network,
     and hence no contradiction flags -- fake vectors can't surface recall candidates).
     """
-    from knowledge.knowledge_graph.write_policy.write_step_variants import (
-        ConflictFlagger,
-        ConflictJudge,
-    )
-
     if os.getenv("OPENROUTER_API_KEY"):
+        from knowledge.knowledge_graph.knowledge_graph_variants.vector_graph import (
+            default_write_policy,
+        )
         from knowledge.llm.embedder_variants.openrouter_embedder import OpenRouterEmbedder
         from knowledge.llm.llm_variants.openrouter_llm import OpenRouterLlm
 
         llm = OpenRouterLlm(model="openai/gpt-4o-mini")
-        graph = VectorGraph(
-            embedder=OpenRouterEmbedder(),
-            policy=[Redactor(), Deduper(), ConflictFlagger(judge=ConflictJudge(llm=llm))],
-        )
+        graph = VectorGraph(embedder=OpenRouterEmbedder(), policy=default_write_policy(llm))
         return graph, llm
 
     from knowledge.llm.embedder_variants.fake_embedder import FakeEmbedder

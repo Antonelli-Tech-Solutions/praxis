@@ -9,11 +9,17 @@ candidate-id pairs it flags — best-effort, so offline / no-API-key yields [].
 
 from __future__ import annotations
 
-from typing import Any
+from collections import Counter
+from typing import Any, Callable
 
 from knowledge.knowledge_graph.knowledge_graph_variants.vector_graph import VectorGraph
 
 Candidate = dict[str, Any]
+
+# A slot is the normalized (subject, attribute) key a functional claim occupies.
+Slot = tuple[str, str]
+# Maps a fact id to (slot, value) for the functional claim it holds, if any.
+SlotInfo = dict[str, tuple[Slot, str]]
 
 
 def _cid(c: Candidate) -> str:
@@ -69,6 +75,98 @@ def serialize_pairs(
                 continue
             seen.add(f"{a}__{b}")
             out.append({"id": f"{a}__{b}", "status": status, "a": _summary(by_id[a]), "b": _summary(by_id[b])})
+    return out
+
+
+def _member(c: Candidate, slot_info: SlotInfo) -> dict[str, Any]:
+    """A summary plus the fact's value on the cluster's slot (if known)."""
+    m = _summary(c)
+    info = slot_info.get(_cid(c))
+    m["value"] = info[1] if info else ""
+    return m
+
+
+def serialize_clusters(
+    candidates: list[Candidate],
+    slot_info: SlotInfo | None = None,
+    *,
+    status_filter: str | None = None,
+) -> list[dict[str, Any]]:
+    """Group contradiction pairs into one cluster per conflicting claim slot.
+
+    A cluster collects all facts that compete on the same normalized
+    (subject, attribute) slot, listing each member's value on that slot. Two
+    facts join the same cluster when they are linked by a contradiction pair OR
+    when they share a non-empty slot. A plain 2-fact conflict is a cluster of
+    size 2 (no regression). Each cluster carries the underlying pairwise
+    ``pairs`` so the existing per-pair resolve flow keeps working unchanged.
+
+    ``slot_info`` maps a fact id to its functional claim's (slot, value); pass it
+    from the claims table (or in-memory ``Fact.claims``). When empty, every pair
+    degrades to its own cluster of two. ``status_filter`` is forwarded to
+    :func:`serialize_pairs` (pass ``"pending"`` for the global pending view).
+    """
+    slot_info = slot_info or {}
+    pairs = serialize_pairs(candidates, status_filter=status_filter)
+    by_id = {_cid(c): c for c in candidates}
+
+    # Union-find over fact ids: merge pair endpoints and same-slot facts.
+    parent: dict[str, str] = {}
+
+    def find(x: str) -> str:
+        parent.setdefault(x, x)
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    def union(a: str, b: str) -> None:
+        ra, rb = find(a), find(b)
+        if ra != rb:
+            parent[rb] = ra
+
+    members_in_pairs: set[str] = set()
+    for p in pairs:
+        a, b = p["a"]["id"], p["b"]["id"]
+        members_in_pairs.update((a, b))
+        union(a, b)
+    # Merge facts that share a slot even if only chained pairwise.
+    by_slot: dict[Slot, list[str]] = {}
+    for fid in members_in_pairs:
+        info = slot_info.get(fid)
+        if info:
+            by_slot.setdefault(info[0], []).append(fid)
+    for fids in by_slot.values():
+        for other in fids[1:]:
+            union(fids[0], other)
+
+    groups: dict[str, list[str]] = {}
+    for fid in members_in_pairs:
+        groups.setdefault(find(fid), []).append(fid)
+    pairs_by_root: dict[str, list[dict[str, Any]]] = {}
+    for p in pairs:
+        pairs_by_root.setdefault(find(p["a"]["id"]), []).append(p)
+
+    out: list[dict[str, Any]] = []
+    for root, member_ids in groups.items():
+        member_ids = sorted(member_ids)
+        cluster_pairs = pairs_by_root.get(root, [])
+        # Pick the slot most members agree on (None when no claims are stored).
+        slot_votes = Counter(
+            slot_info[mid][0] for mid in member_ids if mid in slot_info
+        )
+        slot = slot_votes.most_common(1)[0][0] if slot_votes else None
+        members = [_member(by_id[mid], slot_info) for mid in member_ids if mid in by_id]
+        out.append(
+            {
+                "id": "__".join(member_ids),
+                "slot": {"subject": slot[0], "attribute": slot[1]} if slot else None,
+                "status": "pending",
+                "members": members,
+                "pairs": cluster_pairs,
+            }
+        )
+    out.sort(key=lambda c: c["id"])
     return out
 
 
