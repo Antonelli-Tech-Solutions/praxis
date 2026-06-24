@@ -17,6 +17,7 @@ from typing import Any
 from knowledge.evals.eval_def import EvalCase
 from knowledge.evals.run import (
     CASES_DIR,
+    load_case,
     load_cases,
     partition_by_capability,
     run_case_full,
@@ -58,8 +59,17 @@ def list_scopes() -> list[dict[str, Any]]:
     """Every case-containing folder (and its ancestors) as a selectable scope."""
     root = CASES_DIR.resolve()
     counts: dict[str, int] = {}
+    # A folder's own case id, when it directly holds a single ``case.yaml``.
+    # The folder name need not match the case id (e.g. ``volta_video`` →
+    # ``matt_volta_video_mock``), so the UI needs the real id to match caches.
+    case_ids: dict[str, str] = {}
     for case_file in root.rglob("case.yaml"):
         rel_dir = case_file.parent.resolve()
+        own_key = "." if rel_dir == root else str(rel_dir.relative_to(root)).replace("\\", "/")
+        try:
+            case_ids[own_key] = load_case(rel_dir).id
+        except Exception:  # noqa: BLE001 — a malformed case shouldn't break listing.
+            pass
         # Credit the case to its own folder and every ancestor up to the root.
         node = rel_dir
         while True:
@@ -68,10 +78,14 @@ def list_scopes() -> list[dict[str, Any]]:
             if node == root:
                 break
             node = node.parent
-    return [
-        {"scope": scope, "caseCount": counts[scope]}
-        for scope in sorted(counts, key=lambda s: (s != ".", s))
-    ]
+
+    def _entry(scope: str) -> dict[str, Any]:
+        entry: dict[str, Any] = {"scope": scope, "caseCount": counts[scope]}
+        if scope in case_ids:
+            entry["caseId"] = case_ids[scope]
+        return entry
+
+    return [_entry(scope) for scope in sorted(counts, key=lambda s: (s != ".", s))]
 
 
 def _clean_overrides(raw: dict[str, Any] | None) -> dict[str, Any]:
