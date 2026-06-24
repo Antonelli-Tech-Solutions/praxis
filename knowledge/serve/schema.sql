@@ -36,13 +36,21 @@ CREATE TABLE IF NOT EXISTS facts (
     -- directly approved -- live knowledge), 'decayed' (superseded/retired).
     state             text NOT NULL DEFAULT 'proposed',
     embedding         vector(1536),
+    -- Navigation-only topic clustering (HDBSCAN over embeddings, c-TF-IDF/LLM
+    -- label). Assigned by a periodic write-time "define" pass, NEVER read by
+    -- retrieval — purely so the dashboard can collapse the graph into labeled
+    -- super-nodes. NULL == unclustered (HDBSCAN noise, or not yet clustered).
+    cluster_id        integer,
+    cluster_label     text,
     meta              jsonb NOT NULL DEFAULT '{}'::jsonb,
     created_at        timestamptz NOT NULL DEFAULT now(),
     PRIMARY KEY (org_id, user_id, id)
 );
 
--- Backfill for pre-existing `facts` tables created before `state` landed.
+-- Backfill for pre-existing `facts` tables created before these columns landed.
 ALTER TABLE facts ADD COLUMN IF NOT EXISTS state text NOT NULL DEFAULT 'proposed';
+ALTER TABLE facts ADD COLUMN IF NOT EXISTS cluster_id integer;
+ALTER TABLE facts ADD COLUMN IF NOT EXISTS cluster_label text;
 
 CREATE INDEX IF NOT EXISTS facts_tenant ON facts (org_id, shared, user_id, scope);
 
@@ -107,6 +115,10 @@ CREATE TABLE IF NOT EXISTS cached_facts (
     observation_count integer NOT NULL DEFAULT 1,
     state             text NOT NULL DEFAULT 'proposed',
     embedding         vector(1536),
+    -- Mirrors `facts`: cluster assignments are copied verbatim on save/load so a
+    -- snapshot or eval cache restores its topic super-nodes without re-clustering.
+    cluster_id        integer,
+    cluster_label     text,
     meta              jsonb NOT NULL DEFAULT '{}'::jsonb,
     cache_key         text NOT NULL,
     created_at        timestamptz NOT NULL DEFAULT now(),
@@ -114,6 +126,10 @@ CREATE TABLE IF NOT EXISTS cached_facts (
     -- saved states (e.g. two snapshots) without colliding.
     PRIMARY KEY (org_id, user_id, cache_key, id)
 );
+
+-- Backfill for pre-existing `cached_facts` tables created before clustering landed.
+ALTER TABLE cached_facts ADD COLUMN IF NOT EXISTS cluster_id integer;
+ALTER TABLE cached_facts ADD COLUMN IF NOT EXISTS cluster_label text;
 
 CREATE INDEX IF NOT EXISTS cached_facts_tenant ON cached_facts (org_id, shared, user_id, scope);
 
