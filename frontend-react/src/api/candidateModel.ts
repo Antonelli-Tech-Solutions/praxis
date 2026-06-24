@@ -3,6 +3,8 @@ import type {
   Candidate,
   CandidateState,
   ConfidenceBreakdown,
+  ContradictionLink,
+  ContradictionStatus,
   RawCandidate,
 } from "../types/candidate";
 
@@ -178,6 +180,31 @@ function normalizeContradictionIds(raw: unknown): string[] {
   return ids;
 }
 
+function normalizeContradictionLinks(raw: unknown): ContradictionLink[] {
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+  const links: ContradictionLink[] = [];
+  for (const item of raw) {
+    if (typeof item === "string") {
+      links.push({ id: item, status: "pending" });
+    } else if (item && typeof item === "object" && "id" in item) {
+      const row = item as { id: unknown; status?: unknown };
+      const status: ContradictionStatus =
+        row.status === "resolved" ? "resolved" : "pending";
+      links.push({ id: String(row.id), status });
+    }
+  }
+  return links;
+}
+
+export function contradictionStatusFor(
+  candidate: Pick<Candidate, "contradictions">,
+  rivalId: string,
+): ContradictionStatus | undefined {
+  return candidate.contradictions.find((link) => link.id === rivalId)?.status;
+}
+
 function parseBreakdown(raw: unknown): ConfidenceBreakdown | undefined {
   if (!raw || typeof raw !== "object") {
     return undefined;
@@ -252,6 +279,7 @@ export function candidateFromMapping(data: RawCandidate): Candidate {
     ),
     confidenceBreakdown: breakdown,
     contradictionIds: normalizeContradictionIds(contradictions),
+    contradictions: normalizeContradictionLinks(contradictions),
     auditTrail,
     extra,
   };

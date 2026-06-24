@@ -6,7 +6,7 @@
 
 **Status**: Draft
 
-**Input**: User description: "docs\proposals\2026-06-23-grounding-aware-rubric-judge.md"
+**Input**: User description: "docs\proposals\completed\2026-06-23-grounding-aware-rubric-judge.md"
 
 ## Clarifications
 

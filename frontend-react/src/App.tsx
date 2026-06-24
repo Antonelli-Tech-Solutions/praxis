@@ -82,6 +82,7 @@ export default function App() {
   const [viewTab, setViewTab] = useState<ViewTab>("table");
   const [actionError, setActionError] = useState<string | null>(null);
   const [deferMessage, setDeferMessage] = useState<string | null>(null);
+  const [reviewNotice, setReviewNotice] = useState<string | null>(null);
   const [infoMessage, setInfoMessage] = useState<string | null>(null);
   const [refreshingCandidateId, setRefreshingCandidateId] = useState<string | null>(
     null,
@@ -223,10 +224,34 @@ export default function App() {
     }
   }
 
+  function showReviewNotice() {
+    setReviewNotice(
+      "This retirement affects a fact with other contradictions — review it.",
+    );
+    window.setTimeout(() => setReviewNotice(null), 6000);
+  }
+
+  function noticeFromResult(result: Candidate) {
+    const extra = result.extra ?? {};
+    const rejected = extra.rejected;
+    const rippleFromRejected =
+      Array.isArray(rejected) &&
+      rejected.some(
+        (row) =>
+          !!row &&
+          typeof row === "object" &&
+          (row as { hasOtherContradictions?: unknown }).hasOtherContradictions === true,
+      );
+    if (extra.hasOtherContradictions === true || rippleFromRejected) {
+      showReviewNotice();
+    }
+  }
+
   async function handlePromote(id: string) {
     setActionError(null);
     try {
       const updated = await promote(id);
+      noticeFromResult(updated);
       await ingestActiveCandidate(updated);
     } catch (err) {
       if (err instanceof ApiConflictError) {
@@ -240,6 +265,8 @@ export default function App() {
   async function handleReject(id: string, reason?: string) {
     setActionError(null);
     try {
+      // provider.reject resolves to void (no Candidate body), so there is no
+      // extra.hasOtherContradictions signal to surface on this path.
       await reject(id, reason);
     } catch (err) {
       setActionError(err instanceof Error ? err.message : String(err));
@@ -317,7 +344,15 @@ export default function App() {
   ) {
     setActionError(null);
     try {
-      await resolveContradiction(contradictionId, resolution, keepId, rivalTitle);
+      const updated = await resolveContradiction(
+        contradictionId,
+        resolution,
+        keepId,
+        rivalTitle,
+      );
+      if (updated) {
+        noticeFromResult(updated);
+      }
     } catch (err) {
       setActionError(err instanceof Error ? err.message : String(err));
     }
@@ -412,6 +447,11 @@ export default function App() {
 
       {lastAction ? <div className="success-banner">{lastAction}</div> : null}
       {deferMessage ? <div className="info-banner">{deferMessage}</div> : null}
+      {reviewNotice ? (
+        <div className="info-banner" role="status">
+          {reviewNotice}
+        </div>
+      ) : null}
       {infoMessage ? <div className="info-banner">{infoMessage}</div> : null}
       {actionError ? <div className="error-banner">{actionError}</div> : null}
       {error ? (
@@ -477,7 +517,7 @@ export default function App() {
               onRefreshCandidate={handleRefreshCandidate}
               refreshingId={refreshingCandidateId}
               onResolve={handleResolve}
-              onDefer={handleDefer}
+              onDelete={handleDelete}
               dataSourceMode={mode}
             />
           }

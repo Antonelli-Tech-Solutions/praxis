@@ -1,7 +1,7 @@
 export type CandidateState =
   | "proposed"
   | "active"
-  | "decayed"
+  | "rejected"
   | "unrecognized";
 
 export interface ConfidenceBreakdown {
@@ -19,6 +19,13 @@ export interface AuditEntry {
   provenance: string;
   actor: string;
   note?: string;
+}
+
+export type ContradictionStatus = "pending" | "resolved";
+
+export interface ContradictionLink {
+  id: string;
+  status: ContradictionStatus;
 }
 
 export interface CandidateWriteInput {
@@ -39,6 +46,7 @@ export interface Candidate {
   createdAt: string;
   confidenceBreakdown?: ConfidenceBreakdown;
   contradictionIds: string[];
+  contradictions: ContradictionLink[];
   auditTrail: AuditEntry[];
   extra: Record<string, unknown>;
 }

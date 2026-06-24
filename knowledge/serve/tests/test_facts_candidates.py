@@ -12,7 +12,7 @@ import pytest
 from knowledge.knowledge_graph.write_policy.write_step_variants import Deduper, Redactor
 from knowledge.llm.embedder_variants.fake_embedder import FakeEmbedder
 from knowledge.serve import db
-from knowledge.serve.facts_candidates import FactsCandidates, PromotionError
+from knowledge.serve.facts_candidates import DeletionError, FactsCandidates, PromotionError
 
 pytestmark = pytest.mark.skipif(
     db.resolve_dsn() is None,
@@ -20,6 +20,20 @@ pytestmark = pytest.mark.skipif(
 )
 
 USER = "dev-user"
+
+
+def _edge_pairs(facade, kind):
+    """Undirected ``{frozenset(src, dst)}`` set of ``kind`` edges for the graph."""
+    return {frozenset((s, d)) for s, d, _k in facade.graph.all_edges(kind)}
+
+
+def _contra_status(candidate):
+    """``{rival_id: status}`` from a candidate's rich ``contradictions`` field."""
+    return {c["id"]: c["status"] for c in candidate.get("contradictions", [])}
+
+
+def _pair(a, b):
+    return f"{min(a, b)}__{max(a, b)}"
 
 
 @pytest.fixture
@@ -79,11 +93,11 @@ def test_promote_unknown_raises_keyerror(facade):
         facade.promote("nope")
 
 
-def test_reject_decays(facade):
+def test_reject_rejects(facade):
     cid = facade.create({"title": "T", "content": "Some noisy candidate text."})["id"]
     rejected = facade.reject(cid, reason="noise")
-    assert rejected["state"] == "decayed"
-    assert facade.get(cid)["state"] == "decayed"
+    assert rejected["state"] == "rejected"
+    assert facade.get(cid)["state"] == "rejected"
 
 
 def test_update_changes_title_and_content(facade):
@@ -118,12 +132,17 @@ def test_contradiction_edge_surfaces_pair_and_resolves(facade):
     kept = facade.resolve(pair["id"], a)
     assert kept["id"] == a
     assert kept["state"] == "active"
-    assert facade.get(b)["state"] == "decayed"
-    # The edge is gone, so no pair remains.
+    loser = facade.get(b)
+    assert loser["state"] == "rejected"
+    assert loser["content"] == "Use spaces for indentation."  # text intact (FR-004/SC-001)
+    # Resolved, not deleted: the pending list drops it, but the link survives
+    # flipped to contradicted_by so the resolution stays reversible (FR-004).
     assert facade.contradictions() == []
+    assert _edge_pairs(facade, "contradicted_by") == {frozenset((a, b))}
+    assert _edge_pairs(facade, "contradiction") == set()
 
 
-def test_resolve_custom_decays_both_and_creates_active(facade):
+def test_resolve_custom_rejects_both_and_creates_active(facade):
     a = facade.create({"title": "A", "content": "Store timestamps in UTC."})["id"]
     b = facade.create({"title": "B", "content": "Store timestamps in local time."})["id"]
     facade.graph.add_edge(a, b, "contradiction")
@@ -133,6 +152,134 @@ def test_resolve_custom_decays_both_and_creates_active(facade):
     assert new["state"] == "active"
     assert new["id"] not in (a, b)
     assert new["content"] == "Store timestamps in UTC, render in local time."
-    assert facade.get(a)["state"] == "decayed"
-    assert facade.get(b)["state"] == "decayed"
+    assert facade.get(a)["state"] == "rejected"
+    assert facade.get(b)["state"] == "rejected"
+    assert facade.get(a)["content"] == "Store timestamps in UTC."  # text intact
+    assert facade.get(b)["content"] == "Store timestamps in local time."  # text intact
     assert facade.contradictions() == []
+    # Resolved by a third fact: the new fact links to each loser as
+    # contradicted_by (auditable, FR-004); the old pending pair is gone.
+    assert _edge_pairs(facade, "contradicted_by") == {
+        frozenset((new["id"], a)),
+        frozenset((new["id"], b)),
+    }
+    assert _edge_pairs(facade, "contradiction") == set()
+
+
+# --- US2: review by state + contradictions ---------------------------------
+
+
+def test_per_fact_contradictions_carry_status(facade):
+    """FR-012: a fact's contradictions list both pending and resolved rivals, each
+    annotated with its status."""
+    a = facade.create({"title": "A", "content": "Use tabs."})["id"]
+    b = facade.create({"title": "B", "content": "Use spaces."})["id"]
+    c = facade.create({"title": "C", "content": "Use two spaces."})["id"]
+    facade.graph.add_edge(a, b, "contradiction")  # stays pending
+    facade.graph.add_edge(a, c, "contradiction")
+    facade.resolve(_pair(a, c), a)  # a wins over c -> a<->c becomes resolved
+
+    assert _contra_status(facade.get(a)) == {b: "pending", c: "resolved"}
+
+
+def test_global_contradictions_lists_pending_only(facade):
+    """FR-013a: the global view lists only pending pairs; resolved ones drop out."""
+    a = facade.create({"title": "A", "content": "Use tabs."})["id"]
+    b = facade.create({"title": "B", "content": "Use spaces."})["id"]
+    c = facade.create({"title": "C", "content": "Use two spaces."})["id"]
+    facade.graph.add_edge(a, b, "contradiction")  # pending
+    facade.graph.add_edge(a, c, "contradiction")
+    facade.resolve(_pair(a, c), a)  # resolved -> excluded from the pending view
+
+    pairs = facade.contradictions()
+    assert len(pairs) == 1
+    assert pairs[0]["id"] == _pair(a, b)
+    assert pairs[0]["status"] == "pending"
+
+
+def test_reapprove_rejected_swaps_states_and_keeps_link(facade):
+    """FR-010: re-approving a rejected fact flips it to active and demotes its
+    active contradictor, keeping the link. FR-009: a fact linked only via a
+    separate contradiction is not touched (no auto-cascade)."""
+    a = facade.create({"title": "A", "content": "Use tabs."})["id"]
+    b = facade.create({"title": "B", "content": "Use spaces."})["id"]
+    facade.graph.add_edge(a, b, "contradiction")
+    facade.resolve(_pair(a, b), a)  # a active, b rejected, linked contradicted_by
+    assert facade.get(a)["state"] == "active"
+    assert facade.get(b)["state"] == "rejected"
+
+    # A separate fact d also contradicts a (pending) — must survive re-approval.
+    d = facade.create({"title": "D", "content": "Use four spaces."})["id"]
+    facade.graph.add_edge(a, d, "contradiction")
+
+    result = facade.promote(b)  # re-approve the rejected fact
+    assert result["state"] == "active"
+    assert facade.get(b)["state"] == "active"
+    assert facade.get(a)["state"] == "rejected"  # direct contradictor demoted
+    assert facade.get(d)["state"] == "proposed"   # FR-009: untouched (created state)
+    # The b<->a pair stays linked (resolved).
+    assert frozenset((a, b)) in _edge_pairs(facade, "contradicted_by")
+    # The action reports the demoted fact, with its other-contradictions flag.
+    demoted = {r["id"]: r["hasOtherContradictions"] for r in result.get("rejected", [])}
+    assert demoted.get(a) is True  # a also contradicts d
+
+
+def test_reject_reports_other_contradictions(facade):
+    """FR-008: a manual reject reports whether the fact has any contradiction."""
+    a = facade.create({"title": "A", "content": "Alpha note."})["id"]
+    b = facade.create({"title": "B", "content": "Beta note."})["id"]
+    facade.graph.add_edge(a, b, "contradiction")
+    assert facade.reject(a, reason="noise")["hasOtherContradictions"] is True
+
+    lone = facade.create({"title": "L", "content": "Lonely note."})["id"]
+    assert facade.reject(lone)["hasOtherContradictions"] is False
+
+
+def test_resolve_loser_other_contradictions_flag(facade):
+    """FR-008/SC-007: the resolve response flags whether the rejected loser has a
+    contradiction other than the one just resolved."""
+    x = facade.create({"title": "X", "content": "X note."})["id"]
+    y = facade.create({"title": "Y", "content": "Y note."})["id"]
+    facade.graph.add_edge(x, y, "contradiction")
+    assert facade.resolve(_pair(x, y), x)["hasOtherContradictions"] is False
+
+    p = facade.create({"title": "P", "content": "P note."})["id"]
+    q = facade.create({"title": "Q", "content": "Q note."})["id"]
+    r = facade.create({"title": "R", "content": "R note."})["id"]
+    facade.graph.add_edge(p, q, "contradiction")
+    facade.graph.add_edge(q, r, "contradiction")  # q's other contradiction
+    assert facade.resolve(_pair(p, q), p)["hasOtherContradictions"] is True  # loser q
+
+
+# --- US3: delete gating -----------------------------------------------------
+
+
+def test_delete_gated_to_proposed_or_rejected(facade):
+    """FR-014: an active fact can't be deleted (reject first); proposed/rejected can."""
+    active = facade.create({"title": "A", "content": "Active note."})["id"]
+    facade.promote(active)  # -> active
+    with pytest.raises(DeletionError):
+        facade.delete(active)
+    assert facade.get(active) is not None  # untouched
+
+    proposed = facade.create({"title": "P", "content": "Proposed note."})["id"]
+    facade.delete(proposed)
+    assert facade.get(proposed) is None
+
+    rejected = facade.create({"title": "R", "content": "Rejected note."})["id"]
+    facade.reject(rejected)
+    facade.delete(rejected)
+    assert facade.get(rejected) is None
+
+
+def test_delete_removes_contradiction_links(facade):
+    """FR-015/SC-005: deleting a fact removes its edges; the contradictor no longer
+    lists it."""
+    a = facade.create({"title": "A", "content": "A note."})["id"]
+    b = facade.create({"title": "B", "content": "B note."})["id"]
+    facade.graph.add_edge(a, b, "contradiction")
+    facade.reject(a)  # make it deletable
+    facade.delete(a)
+    assert facade.get(a) is None
+    assert _contra_status(facade.get(b)) == {}  # b no longer linked to a
+    assert _edge_pairs(facade, "contradiction") == set()

@@ -24,6 +24,7 @@ export function buildNewCandidate(input: CandidateWriteInput, id?: string): Cand
     provenance,
     createdAt: now,
     contradictionIds: [],
+    contradictions: [],
     auditTrail: [
       {
         action: "created",

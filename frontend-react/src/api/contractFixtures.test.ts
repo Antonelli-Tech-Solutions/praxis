@@ -35,6 +35,33 @@ describe("contract v1 fixtures", () => {
     expect(candidates[2].contradictionIds).toEqual(["cand_16"]);
   });
 
+  it("parses rich contradictions into pending/resolved links", () => {
+    const candidate = candidateFromMapping({
+      id: "cand_9",
+      title: "Rich",
+      contradictions: [
+        { id: "cand_16", status: "pending" },
+        { id: "cand_22", status: "resolved" },
+      ],
+    });
+    expect(candidate.contradictionIds).toEqual(["cand_16", "cand_22"]);
+    expect(candidate.contradictions).toEqual([
+      { id: "cand_16", status: "pending" },
+      { id: "cand_22", status: "resolved" },
+    ]);
+  });
+
+  it("synthesizes pending links when only contradiction_ids are present", () => {
+    const candidate = candidateFromMapping({
+      id: "cand_9",
+      title: "Flat",
+      contradiction_ids: ["cand_16"],
+    });
+    expect(candidate.contradictions).toEqual([
+      { id: "cand_16", status: "pending" },
+    ]);
+  });
+
   it("promotes proposed directly to active", () => {
     expect(buildPromoteBody("proposed")).toEqual({ targetState: "active" });
   });
