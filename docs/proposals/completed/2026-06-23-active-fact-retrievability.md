@@ -1,7 +1,7 @@
 # Proposal: active-fact retrievability for the application eval suite
 
 **Owner:** Dominic Antonelli — eval harness / knowledge graph
-**Status:** Implemented — Option A (the `ingest_state` axis) shipped: `EvalCase.ingest_state` (default `proposed`), honored in `run._seed_knowledge` + the seed-cache signature, with the 14 `matt/applications/*` cases set to `ingest_state: active`. The application suite now grounds (empty-context → 11.9k-char reference). Follow-up: the grounding-aware rubric judge ([`2026-06-23-grounding-aware-rubric-judge.md`](../2026-06-23-grounding-aware-rubric-judge.md)).
+**Status:** Implemented — Option A (the `ingest_state` axis) shipped: `EvalCase.ingest_state` (default `proposed`), honored in `run._seed_knowledge` + the seed-cache signature, with the 14 `matt/applications/*` cases set to `ingest_state: active`. The application suite now grounds (empty-context → 11.9k-char reference). Follow-up: the grounding-aware rubric judge ([`2026-06-23-grounding-aware-rubric-judge.md`](2026-06-23-grounding-aware-rubric-judge.md)).
 **Date:** 2026-06-23
 **Scope:** how the eval harness seeds `seeded_insight.via_ingestor` knowledge for cases that need it
 to be *retrievable* — specifically the `matt/applications/*` suite. Eval-infra only; the production

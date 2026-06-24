@@ -6,7 +6,7 @@
 
 **Status**: Draft
 
-**Input**: User description: "docs\proposals\2026-06-23-fact-rejection-contradiction-lifecycle.md"
+**Input**: User description: "docs\proposals\completed\2026-06-23-fact-rejection-contradiction-lifecycle.md"
 
 ## Clarifications
 
