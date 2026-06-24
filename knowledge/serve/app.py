@@ -444,21 +444,29 @@ def create_app(conn: Any | None = None) -> FastAPI:
         """List browsable sources in the org: every member + their snapshots.
 
         Within an org (the trust boundary) any member may browse any other
-        member's live graph or saved snapshots. Each member's snapshot names are
-        read from their own cache partition.
+        member's saved snapshots. Each member's snapshots (name + node count)
+        are read from their own cache partition.
         """
         sources: list[dict[str, Any]] = []
         for member in orgs_store.members(org):
             uid = member["user_id"]
+            is_self = uid == principal.sub
             snapshots = [
-                e["key"].split("snapshot:", 1)[1]
+                {
+                    "name": e["key"].split("snapshot:", 1)[1],
+                    "count": e["count"],
+                }
                 for e in live_graph(org, uid).list_caches("snapshot:")
             ]
             sources.append(
                 {
                     "userId": uid,
+                    # Emails aren't stored app-side (org_members keys on the
+                    # Cognito sub), so we can only resolve the caller's own
+                    # username from their token; teammates fall back to the id.
+                    "username": principal.email if is_self else None,
                     "role": member["role"],
-                    "isSelf": uid == principal.sub,
+                    "isSelf": is_self,
                     "snapshots": snapshots,
                 }
             )

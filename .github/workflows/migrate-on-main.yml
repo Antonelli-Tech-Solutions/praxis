@@ -1,8 +1,9 @@
 # Apply database migrations on merges into main.
 #
-# Runs the idempotent schema bootstrap followed by every one-off migration module
-# under migrations/. Both the bootstrap and the migrations are
-# written to be safe to re-run, so re-running this workflow is harmless.
+# Runs the idempotent schema bootstrap, then applies any unapplied yoyo
+# migrations under migrations/. yoyo records applied migrations in its
+# `_yoyo_migration` ledger so each runs exactly once; re-running this workflow
+# only applies what's new (and the bootstrap is additive), so it's harmless.
 #
 # Triggers:
 #   - push to main, scoped to migration-relevant paths (schema + migrations dir
@@ -23,17 +24,18 @@
 #     ADDITIVE-ONLY: every statement is CREATE/ADD ... IF NOT EXISTS. It can add
 #     missing tables/columns/indexes but never DROPs or ALTERs existing objects.
 #   * Destructive or transforming changes (drop a table/column, change a type,
-#     re-tenant rows) MUST be expressed as an idempotent m*.py migration module —
-#     the migration loop below runs those after bootstrap. Example: dropping the
-#     dead `candidates` table happens in m2026_06_23_unify_facts.py, NOT schema.sql.
+#     re-tenant rows) MUST be expressed as a yoyo migration under migrations/
+#     (NNNN_*.sql for pure SQL, NNNN_*.py for steps needing app code) — yoyo
+#     applies those after bootstrap. Example: dropping the dead `candidates`
+#     table happens in migrations/0003_drop_candidates.sql, NOT schema.sql.
 #   => Remote ends up matching local only insofar as every local schema change is
-#      captured either as additive DDL in schema.sql OR as an m*.py migration.
+#      captured either as additive DDL in schema.sql OR as a yoyo migration.
 #      There is no automatic schema-diffing; parity depends on authoring migrations.
 #
 # Some migrations may need extra secrets when they have rows to process (e.g.
-# m2026_06_23_unify_facts re-embeds via OpenRouter and would need OPENROUTER_API_KEY
-# if `candidates` still has rows). Add such secrets to env: below as needed; the
-# migrations no-op safely when there is nothing to process.
+# 0001_reembed_candidates re-embeds via OpenRouter and needs OPENROUTER_API_KEY
+# when `candidates` still has rows — already wired into the apply step's env).
+# Migrations no-op safely when there is nothing to process.
 #
 # KNOWN LIMITATION (not solved here): the RDS instance must be reachable from the
 # GitHub-hosted runner. Runner egress IPs are large and dynamic, so the DB security
@@ -91,12 +93,14 @@ jobs:
       - name: Bootstrap schema (idempotent)
         run: uv run python -m knowledge.serve.db
 
-      - name: Run migrations
+      - name: Apply migrations (yoyo)
+        env:
+          # The reembed migration embeds candidate text via OpenRouter when there
+          # are rows to lift; no-ops (and so needs no key) once candidates is gone.
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
         run: |
           set -euo pipefail
-          shopt -s nullglob
-          for f in migrations/m*.py; do
-            mod="migrations.$(basename "$f" .py)"
-            echo "== Running migration: $mod =="
-            uv run python -m "$mod"
-          done
+          # yoyo selects its backend from the DSN scheme; psycopg (v3) is what the
+          # project ships, exposed as the `postgresql+psycopg` scheme.
+          YOYO_DB="${PRAXIS_DB_URL/postgresql:\/\//postgresql+psycopg://}"
+          uv run yoyo apply --batch --database "$YOYO_DB" ./migrations

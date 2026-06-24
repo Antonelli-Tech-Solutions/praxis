@@ -1,9 +1,12 @@
 """One-off, idempotent backfill + re-evaluate migration for the structural
 contradiction path (U7 of the structural-contradiction-detection plan).
 
-Run once against the configured Postgres:
+This is a MANUAL one-off, deliberately NOT a yoyo migration: it derives new
+data with an LLM (claim extraction), so it needs ``OPENROUTER_API_KEY`` and must
+not run unattended in the deploy-time migrate workflow. Run it by hand against
+the configured Postgres once, with a key set:
 
-    python -m migrations.m2026_06_24_claims_backfill
+    OPENROUTER_API_KEY=... python -m scripts.claims_backfill
 
 It does two guarded, re-runnable things, over BOTH the live spine
 (``facts``/``fact_edges``) and every cached state (``cached_facts``/
@@ -282,7 +285,14 @@ def _backfill_scope(
         facts_processed += 1
         if has_claims:
             continue  # idempotent: never re-extract a fact that already has claims
-        extracted = extractor.extract(text or "")
+        try:
+            extracted = extractor.extract(text or "")
+        except Exception as exc:  # one bad fact must not abort the whole backfill
+            # e.g. a model response truncated mid-JSON (max-tokens cutoff). Skip
+            # this fact (it stays claim-less and is retried on a later re-run) and
+            # keep going so the rest of the tenant still gets backfilled.
+            print(f"  {label}: SKIP fact {fact_id} — extract failed: {type(exc).__name__}: {exc}")
+            continue
         if not extracted:
             continue  # no source / no checkable claim -> skip without error
         _insert_claims(conn, claims_table, org, user, fact_id, cache_key, extracted)
