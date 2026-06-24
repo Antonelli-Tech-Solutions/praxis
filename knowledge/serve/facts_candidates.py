@@ -91,17 +91,29 @@ class FactsCandidates:
         )
 
     # --- internal helpers --------------------------------------------------
-    def _rival_map(self) -> dict[str, list[str]]:
-        """Map each fact id to the ids it contradicts (both edge directions)."""
-        links: dict[str, set[str]] = {}
-        for src, dst, _kind in self.graph.all_edges("contradiction"):
-            links.setdefault(src, set()).add(dst)
-            links.setdefault(dst, set()).add(src)
-        return {k: sorted(v) for k, v in links.items()}
+    def _rival_map(self) -> dict[str, dict[str, str]]:
+        """Map each fact id to ``{rival_id: status}`` over both edge kinds.
 
-    def _to_candidate(self, fact: Any, rivals: dict[str, list[str]] | None = None) -> Candidate:
-        rival_ids = (rivals or self._rival_map()).get(fact.id)
-        return fact_to_candidate(fact, state=fact.state, rival_ids=rival_ids)
+        ``status`` is ``pending`` for a ``contradiction`` edge (no winner chosen)
+        and ``resolved`` for a ``contradicted_by`` edge (a winner is active, the
+        loser rejected). Both directions are recorded so a fact sees every rival.
+        """
+        links: dict[str, dict[str, str]] = {}
+        for kind, status in (("contradiction", "pending"), ("contradicted_by", "resolved")):
+            for src, dst, _kind in self.graph.all_edges(kind):
+                links.setdefault(src, {})[dst] = status
+                links.setdefault(dst, {})[src] = status
+        return links
+
+    def _to_candidate(
+        self, fact: Any, rivals: dict[str, dict[str, str]] | None = None
+    ) -> Candidate:
+        rival_status = (rivals if rivals is not None else self._rival_map()).get(fact.id)
+        return fact_to_candidate(fact, state=fact.state, rivals=rival_status)
+
+    def _has_other_contradictions(self, fact_id: str, exclude: str | None = None) -> bool:
+        """FR-008: does ``fact_id`` have a contradiction other than ``exclude``?"""
+        return any(rid != exclude for rid in self._rival_map().get(fact_id, {}))
 
     def _append_audit(
         self,
@@ -159,6 +171,10 @@ class FactsCandidates:
         fact = self.graph.get_fact(cid)
         if fact is None:
             raise KeyError(cid)
+        if fact.state == "rejected":
+            if target is not None and target != "active":
+                raise PromotionError(f"cannot re-approve to {target!r}")
+            return self._reapprove(cid, fact)
         nxt = _NEXT_STATE.get(fact.state)
         if nxt is None:
             raise PromotionError(f"cannot promote from state {fact.state!r}")
@@ -170,6 +186,37 @@ class FactsCandidates:
         assert candidate is not None
         return candidate
 
+    def _reapprove(self, cid: str, fact: Any) -> Candidate:
+        """FR-010: flip a rejected fact to active and demote every currently-active
+        fact it contradicts (so the pair is never both active, FR-005), keeping the
+        link as ``contradicted_by``. Only direct contradictors change — no cascade
+        into their other links (FR-009). The response lists each demoted fact with
+        its other-contradictions flag for the review notice (FR-008)."""
+        self.graph.set_state(cid, "active")
+        self._append_audit(fact, "promoted_to_active", note="re-approved")
+        rejected_info: list[dict[str, Any]] = []
+        for rival_id in self._rival_map().get(cid, {}):
+            rival = self.graph.get_fact(rival_id)
+            if rival is None or rival.state != "active":
+                continue
+            self.graph.set_state(rival_id, "rejected")
+            self.graph.flip_edge_kind(
+                cid, rival_id, from_kind="contradiction", to_kind="contradicted_by"
+            )
+            self._append_audit(rival, "superseded", note=f"demoted by re-approval of {cid}")
+            rejected_info.append(
+                {
+                    "id": rival_id,
+                    "hasOtherContradictions": self._has_other_contradictions(
+                        rival_id, exclude=cid
+                    ),
+                }
+            )
+        candidate = self.get(cid)
+        assert candidate is not None
+        candidate["rejected"] = rejected_info
+        return candidate
+
     def reject(self, cid: str, reason: str | None = None) -> Candidate:
         fact = self.graph.get_fact(cid)
         if fact is None:
@@ -178,6 +225,8 @@ class FactsCandidates:
         self._append_audit(fact, "rejected", note=reason)
         candidate = self.get(cid)
         assert candidate is not None
+        # Manual reject has no causing contradiction, so any link counts (FR-008).
+        candidate["hasOtherContradictions"] = self._has_other_contradictions(cid)
         return candidate
 
     def update(self, cid: str, body: dict[str, Any]) -> Candidate:
@@ -223,7 +272,10 @@ class FactsCandidates:
 
     # --- contradictions ----------------------------------------------------
     def contradictions(self) -> list[Candidate]:
-        return serialize_pairs(self.list())
+        """Global pending-contradictions view (FR-013a): pairs where at least one
+        side is still pending (a ``contradiction`` edge). Resolved pairs are
+        discoverable per-fact but drop out of this list."""
+        return serialize_pairs(self.list(), status_filter="pending")
 
     def resolve(self, pair_id: str, keep_id: str) -> Candidate:
         a, _, b = pair_id.partition("__")
@@ -248,6 +300,12 @@ class FactsCandidates:
             )
         candidate = self.get(keep_id)
         assert candidate is not None
+        # FR-008: flag whether the rejected loser has a contradiction beyond this one.
+        candidate["hasOtherContradictions"] = (
+            self._has_other_contradictions(loser_id, exclude=keep_id)
+            if loser is not None
+            else False
+        )
         return candidate
 
     def resolve_custom(self, pair_id: str, custom_text: str) -> Candidate:

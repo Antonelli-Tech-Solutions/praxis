@@ -91,17 +91,17 @@ description: "Task list for REJECTED state + retained-contradiction lifecycle"
 
 ### Tests for User Story 2 — backend (write first, must fail)
 
-- [ ] T020 [P] [US2] Test that `GET /candidates/{cid}` returns contradictions including **both** pending and resolved, each with the contradictor's `state` and `status` ∈ `pending|resolved`, in `knowledge/serve/tests/test_server.py` (FR-012).
-- [ ] T021 [US2] Test that `GET /contradictions` lists only pending pairs (`kind='contradiction'`) and that a resolved pair drops out of it while staying visible per-fact, in `knowledge/serve/tests/test_server.py` (FR-013a, US2 #6). *(Same file as T020 — sequence after it.)*
-- [ ] T022 [P] [US2] Test re-approval: promoting a `rejected` fact flips it to `active`, demotes its active contradictor to `rejected`, and keeps the `contradicted_by` link, in `knowledge/serve/tests/test_facts_candidates.py` (FR-010, SC-003). **Also assert no auto-cascade (FR-009)**: a fact linked to the re-approved fact only through a *separate* contradiction is **not** touched — only the direct contradictor changes state.
-- [ ] T023 [US2] Test `hasOtherContradictions`: a rejected fact with another contradiction reports `true`; the just-resolved pair alone reports `false`, in `knowledge/serve/tests/test_facts_candidates.py` (FR-008, SC-007). *(Same file as T022 — sequence after it.)*
+- [X] T020 [P] [US2] Test that `GET /candidates/{cid}` returns contradictions including **both** pending and resolved, each with the contradictor's `state` and `status` ∈ `pending|resolved`, in `knowledge/serve/tests/test_server.py` (FR-012).
+- [X] T021 [US2] Test that `GET /contradictions` lists only pending pairs (`kind='contradiction'`) and that a resolved pair drops out of it while staying visible per-fact, in `knowledge/serve/tests/test_server.py` (FR-013a, US2 #6). *(Same file as T020 — sequence after it.)*
+- [X] T022 [P] [US2] Test re-approval: promoting a `rejected` fact flips it to `active`, demotes its active contradictor to `rejected`, and keeps the `contradicted_by` link, in `knowledge/serve/tests/test_facts_candidates.py` (FR-010, SC-003). **Also assert no auto-cascade (FR-009)**: a fact linked to the re-approved fact only through a *separate* contradiction is **not** touched — only the direct contradictor changes state.
+- [X] T023 [US2] Test `hasOtherContradictions`: a rejected fact with another contradiction reports `true`; the just-resolved pair alone reports `false`, in `knowledge/serve/tests/test_facts_candidates.py` (FR-008, SC-007). *(Same file as T022 — sequence after it.)*
 
 ### Implementation for User Story 2 — backend
 
-- [ ] T024 [US2] Update `_rival_map` in `knowledge/serve/facts_candidates.py` to read **both** `contradiction` and `contradicted_by` edges, and surface per-rival `state` + `status` through `fact_to_candidate` in `knowledge/serve/pipeline_adapter.py` and `serialize_pairs` in `knowledge/serve/contradiction_adapter.py` (FR-012).
-- [ ] T025 [US2] Compute `hasOtherContradictions` in `knowledge/serve/facts_candidates.py` (edge touching the fact other than the just-resolved A↔B row) and include it in the `reject` / `promote` / `resolve` responses (FR-008).
-- [ ] T026 [US2] Extend `FactsCandidates.promote` (`knowledge/serve/facts_candidates.py`) to allow `rejected → active` re-approval: demote the currently-active contradictor(s) to `rejected`, keep the `contradicted_by` edge (FR-010).
-- [ ] T027 [US2] In `knowledge/serve/app.py`, filter `GET /contradictions` to pending (`kind='contradiction'`) and ensure the `resolve` / `reject` / `promote` route responses carry `hasOtherContradictions` (FR-013a, FR-008).
+- [X] T024 [US2] Update `_rival_map` in `knowledge/serve/facts_candidates.py` to read **both** `contradiction` and `contradicted_by` edges, and surface per-rival `state` + `status` through `fact_to_candidate` in `knowledge/serve/pipeline_adapter.py` and `serialize_pairs` in `knowledge/serve/contradiction_adapter.py` (FR-012).
+- [X] T025 [US2] Compute `hasOtherContradictions` in `knowledge/serve/facts_candidates.py` (edge touching the fact other than the just-resolved A↔B row) and include it in the `reject` / `promote` / `resolve` responses (FR-008).
+- [X] T026 [US2] Extend `FactsCandidates.promote` (`knowledge/serve/facts_candidates.py`) to allow `rejected → active` re-approval: demote the currently-active contradictor(s) to `rejected`, keep the `contradicted_by` edge (FR-010).
+- [X] T027 [US2] In `knowledge/serve/app.py`, filter `GET /contradictions` to pending (`kind='contradiction'`) and ensure the `resolve` / `reject` / `promote` route responses carry `hasOtherContradictions` (FR-013a, FR-008).
 
 **Checkpoint**: US1 + US2 backend behavior complete and tested via the API.
 
