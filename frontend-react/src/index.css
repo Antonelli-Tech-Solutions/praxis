@@ -185,6 +185,11 @@ code,
   gap: var(--space-2);
 }
 
+/* Center the data source control in the space below the badge. */
+.dashboard-header__meta .data-source-control {
+  margin-block: auto;
+}
+
 /* ---- Header tools (modal openers) ------------------------------------- */
 .dashboard-header__tools {
   margin-top: var(--space-3);
