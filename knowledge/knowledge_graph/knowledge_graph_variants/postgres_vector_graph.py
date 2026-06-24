@@ -24,7 +24,7 @@ from pgvector import Vector
 from knowledge.knowledge_graph.knowledge_graph_def import Claim, Fact, SearchHit
 from knowledge.knowledge_graph.parent_searchable_graph import SearchableGraph
 from knowledge.knowledge_graph.write_policy.parent_write_step import WriteStep
-from knowledge.knowledge_graph.write_policy.write_policy_def import WriteDecision
+from knowledge.knowledge_graph.write_policy.write_policy_def import ClaimHit, WriteDecision
 from knowledge.knowledge_graph.write_policy.write_step_variants import (
     ConflictFlagger,
     ConflictJudge,
@@ -198,9 +198,13 @@ class PostgresVectorGraph(SearchableGraph):
         decision.scope = scope
         decision.category = category
         decision.meta = meta or {}
+        claim_recalled = False
         for step in self.policy:
             if step.consumes_candidates and decision.embedding is None:
                 self._recall(decision)  # embed once + one shared candidate pass
+            if step.consumes_claim_candidates and not claim_recalled:
+                self._recall_claims(decision)  # slot recall, after ClaimExtractor ran
+                claim_recalled = True
             step.apply(decision)
         if decision.dropped:
             return None
@@ -747,6 +751,41 @@ class PostgresVectorGraph(SearchableGraph):
         decision.embedding = self._embed(decision.text)
         hits = self._search_vec(_fit(decision.embedding), top_k=self.recall_k, state=None)
         decision.candidates = [h for h in hits if h.score >= self.recall_floor]
+
+    def _recall_claims(self, decision: WriteDecision) -> None:
+        """Fill ``decision.claim_candidates`` via the functional (subject, attribute) slot.
+
+        For each functional claim on the incoming write, find existing facts that
+        hold a functional claim on the same normalized slot (index ``claims_slot``).
+        Only functional slots are considered — multi-valued attributes never conflict.
+        """
+        slots = {c.slot for c in decision.claims if c.functional}
+        if not slots:
+            return
+        subjects = [s for s, _ in slots]
+        attributes = [a for _, a in slots]
+        sql = (
+            "SELECT c.subject, c.attribute, c.value, f.id, f.text, f.state "
+            f"FROM {self._claims_table} c "
+            f"JOIN {self._facts_table} f ON f.org_id=c.org_id AND f.user_id=c.user_id "
+            "AND f.id=c.fact_id "
+            "WHERE c.org_id=%s AND c.user_id=%s AND c.functional "
+            "AND (c.subject, c.attribute) IN (SELECT unnest(%s::text[]), unnest(%s::text[]))"
+        )
+        params: list[object] = [self.org_id, self.user_id, subjects, attributes]
+        if self._cache_key is not None:
+            sql += " AND c.cache_key=%s AND f.cache_key=%s"
+            params.extend([self._cache_key, self._cache_key])
+        rows = self._conn.execute(sql, params).fetchall()
+        decision.claim_candidates = [
+            ClaimHit(
+                fact=SearchHit(fact=Fact(id=r[3], text=r[4], state=r[5]), score=1.0),
+                subject=r[0],
+                attribute=r[1],
+                value=r[2],
+            )
+            for r in rows
+        ]
 
     # --- internals ----------------------------------------------------------
     def _embed(self, text: str) -> list[float]:

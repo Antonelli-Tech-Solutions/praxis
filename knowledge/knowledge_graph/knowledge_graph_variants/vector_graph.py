@@ -20,7 +20,7 @@ import uuid
 from knowledge.knowledge_graph.knowledge_graph_def import Contradiction, Fact, SearchHit
 from knowledge.knowledge_graph.parent_searchable_graph import SearchableGraph
 from knowledge.knowledge_graph.write_policy.parent_write_step import WriteStep
-from knowledge.knowledge_graph.write_policy.write_policy_def import WriteDecision
+from knowledge.knowledge_graph.write_policy.write_policy_def import ClaimHit, WriteDecision
 from knowledge.knowledge_graph.write_policy.write_step_variants import (
     ConflictFlagger,
     ConflictJudge,
@@ -93,9 +93,13 @@ class VectorGraph(SearchableGraph):
         if not content:
             return
         decision = WriteDecision(text=content, state="active" if state == "active" else "proposed")
+        claim_recalled = False
         for step in self.policy:
             if step.consumes_candidates and decision.embedding is None:
                 self._recall(decision)  # embed once + one shared candidate pass
+            if step.consumes_claim_candidates and not claim_recalled:
+                self._recall_claims(decision)  # slot recall, after ClaimExtractor ran
+                claim_recalled = True
             step.apply(decision)
         if decision.dropped:
             return
@@ -187,6 +191,31 @@ class VectorGraph(SearchableGraph):
                 for h in hits
                 if h.fact.id not in chosen and tagset.intersection(h.fact.tags)
             ][: self.tag_recall_k]
+
+    def _recall_claims(self, decision: WriteDecision) -> None:
+        """Fill ``decision.claim_candidates`` with facts sharing a functional slot.
+
+        For each functional claim on the incoming write, find existing facts that
+        hold a functional claim on the same normalized (subject, attribute) slot.
+        Multi-valued claims are ignored — only functional slots can contradict.
+        """
+        incoming = [c for c in decision.claims if c.functional]
+        if not incoming:
+            return
+        wanted = {c.slot for c in incoming}
+        hits: list[ClaimHit] = []
+        for f in self._facts:
+            for c in f.claims:
+                if c.functional and c.slot in wanted:
+                    hits.append(
+                        ClaimHit(
+                            fact=SearchHit(fact=f, score=1.0),
+                            subject=c.slot[0],
+                            attribute=c.slot[1],
+                            value=c.value,
+                        )
+                    )
+        decision.claim_candidates = hits
 
     @property
     def facts(self) -> list[Fact]:
