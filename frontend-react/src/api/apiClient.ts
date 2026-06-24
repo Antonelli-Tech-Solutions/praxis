@@ -786,6 +786,166 @@ export async function deleteSnapshot(
   return { deleted: typeof row.deleted === "string" ? row.deleted : name };
 }
 
+/** A foldable source: an org member's live graph plus their saved snapshots. */
+export interface OrgSource {
+  userId: string;
+  role: string;
+  isSelf: boolean;
+  snapshots: string[];
+}
+
+/** A single fact within a source, grouped by skill. */
+export interface SourceFact {
+  id: string;
+  text: string;
+  scope: string;
+  clusterLabel: string;
+  source: string;
+  state: string;
+}
+
+/** A skill group of facts within a source. */
+export interface SourceFactGroup {
+  key: string;
+  label: string;
+  facts: SourceFact[];
+}
+
+export interface SourceFacts {
+  userId: string;
+  source: string;
+  groups: SourceFactGroup[];
+}
+
+export interface FoldInConflict {
+  newId: string;
+  rivalId: string;
+}
+
+export interface FoldInResult {
+  folded: number;
+  deduped: number;
+  conflicts: FoldInConflict[];
+}
+
+function normalizeOrgSource(payload: unknown): OrgSource {
+  const row =
+    payload && typeof payload === "object" ? (payload as Record<string, unknown>) : {};
+  return {
+    userId: typeof row.userId === "string" ? row.userId : String(row.user_id ?? ""),
+    role: typeof row.role === "string" ? row.role : "",
+    isSelf: Boolean(row.isSelf ?? row.is_self),
+    snapshots: toStringArray(row.snapshots),
+  };
+}
+
+function normalizeOrgSourceList(payload: unknown): OrgSource[] {
+  const row =
+    payload && typeof payload === "object" ? (payload as Record<string, unknown>) : {};
+  const list = Array.isArray(row.sources) ? row.sources : [];
+  return list.map(normalizeOrgSource);
+}
+
+function normalizeSourceFact(payload: unknown): SourceFact {
+  const row =
+    payload && typeof payload === "object" ? (payload as Record<string, unknown>) : {};
+  return {
+    id: typeof row.id === "string" ? row.id : String(row.id ?? ""),
+    text: typeof row.text === "string" ? row.text : "",
+    scope: typeof row.scope === "string" ? row.scope : "",
+    clusterLabel:
+      typeof row.clusterLabel === "string"
+        ? row.clusterLabel
+        : String(row.cluster_label ?? ""),
+    source: typeof row.source === "string" ? row.source : "",
+    state: typeof row.state === "string" ? row.state : "",
+  };
+}
+
+function normalizeSourceFactGroup(payload: unknown): SourceFactGroup {
+  const row =
+    payload && typeof payload === "object" ? (payload as Record<string, unknown>) : {};
+  const facts = Array.isArray(row.facts) ? row.facts.map(normalizeSourceFact) : [];
+  return {
+    key: typeof row.key === "string" ? row.key : String(row.key ?? ""),
+    label: typeof row.label === "string" ? row.label : "",
+    facts,
+  };
+}
+
+function normalizeSourceFacts(payload: unknown): SourceFacts {
+  const row =
+    payload && typeof payload === "object" ? (payload as Record<string, unknown>) : {};
+  const groups = Array.isArray(row.groups)
+    ? row.groups.map(normalizeSourceFactGroup)
+    : [];
+  return {
+    userId: typeof row.userId === "string" ? row.userId : String(row.user_id ?? ""),
+    source: typeof row.source === "string" ? row.source : "",
+    groups,
+  };
+}
+
+function normalizeFoldInResult(payload: unknown): FoldInResult {
+  const row =
+    payload && typeof payload === "object" ? (payload as Record<string, unknown>) : {};
+  const rawConflicts = Array.isArray(row.conflicts) ? row.conflicts : [];
+  const conflicts: FoldInConflict[] = rawConflicts.map((c) => {
+    const cr =
+      c && typeof c === "object" ? (c as Record<string, unknown>) : {};
+    return {
+      newId: typeof cr.newId === "string" ? cr.newId : String(cr.new_id ?? ""),
+      rivalId: typeof cr.rivalId === "string" ? cr.rivalId : String(cr.rival_id ?? ""),
+    };
+  });
+  return {
+    folded: Number(row.folded ?? 0),
+    deduped: Number(row.deduped ?? 0),
+    conflicts,
+  };
+}
+
+/** `GET /org/sources` — list this org's foldable sources (members + snapshots). */
+export async function listOrgSources(
+  apiBaseUrl: string,
+  auth?: string | ApiDataProviderAuth,
+): Promise<OrgSource[]> {
+  return normalizeOrgSourceList(
+    await snapshotRequest(apiBaseUrl, "GET", "/org/sources", auth),
+  );
+}
+
+/**
+ * `GET /org/sources/{userId}/facts?source=live|snapshot:<name>` — fetch a
+ * source's facts grouped by skill.
+ */
+export async function getSourceFacts(
+  apiBaseUrl: string,
+  userId: string,
+  source: string,
+  auth?: string | ApiDataProviderAuth,
+): Promise<SourceFacts> {
+  const path = `/org/sources/${encodeURIComponent(userId)}/facts?source=${encodeURIComponent(source)}`;
+  return normalizeSourceFacts(await snapshotRequest(apiBaseUrl, "GET", path, auth));
+}
+
+/** `POST /fold-in` — fold the chosen facts of a source into the caller's graph. */
+export async function foldIn(
+  apiBaseUrl: string,
+  sourceUser: string,
+  source: string,
+  factIds: string[],
+  auth?: string | ApiDataProviderAuth,
+): Promise<FoldInResult> {
+  return normalizeFoldInResult(
+    await snapshotRequest(apiBaseUrl, "POST", "/fold-in", auth, {
+      sourceUser,
+      source,
+      factIds,
+    }),
+  );
+}
+
 export {
   ApiClientError,
   ApiConflictError,
