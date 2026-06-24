@@ -786,6 +786,191 @@ export async function deleteSnapshot(
   return { deleted: typeof row.deleted === "string" ? row.deleted : name };
 }
 
+/** One saved snapshot in a source: its name and node count. */
+export interface SourceSnapshot {
+  name: string;
+  count: number;
+}
+
+/** A foldable source: an org member and their saved snapshots. */
+export interface OrgSource {
+  userId: string;
+  /** Display name (the member's email); null for teammates whose email isn't known. */
+  username: string | null;
+  role: string;
+  isSelf: boolean;
+  snapshots: SourceSnapshot[];
+}
+
+/** A single fact within a snapshot, grouped into a folder by scope. */
+export interface SourceFact {
+  id: string;
+  text: string;
+  scope: string;
+  clusterLabel: string;
+  state: string;
+}
+
+/** A folder of facts within a snapshot (grouped by scope). */
+export interface SourceFactGroup {
+  key: string;
+  label: string;
+  facts: SourceFact[];
+}
+
+export interface SourceFacts {
+  userId: string;
+  snapshot: string;
+  groups: SourceFactGroup[];
+}
+
+export type FoldInMode = "add" | "replace";
+
+export interface FoldInConflict {
+  newId: string;
+  rivalId: string;
+}
+
+export interface FoldInResult {
+  folded: number;
+  deduped: number;
+  conflicts: FoldInConflict[];
+  mode: FoldInMode;
+}
+
+function normalizeSourceSnapshot(payload: unknown): SourceSnapshot {
+  // Tolerate both the object shape ({name, count}) and a bare name string.
+  if (typeof payload === "string") return { name: payload, count: 0 };
+  const row =
+    payload && typeof payload === "object" ? (payload as Record<string, unknown>) : {};
+  return {
+    name: typeof row.name === "string" ? row.name : String(row.name ?? ""),
+    count: typeof row.count === "number" ? row.count : Number(row.count ?? 0),
+  };
+}
+
+function normalizeOrgSource(payload: unknown): OrgSource {
+  const row =
+    payload && typeof payload === "object" ? (payload as Record<string, unknown>) : {};
+  const snapshots = Array.isArray(row.snapshots) ? row.snapshots : [];
+  return {
+    userId: typeof row.userId === "string" ? row.userId : String(row.user_id ?? ""),
+    username: typeof row.username === "string" ? row.username : null,
+    role: typeof row.role === "string" ? row.role : "",
+    isSelf: Boolean(row.isSelf ?? row.is_self),
+    snapshots: snapshots.map(normalizeSourceSnapshot),
+  };
+}
+
+function normalizeOrgSourceList(payload: unknown): OrgSource[] {
+  const row =
+    payload && typeof payload === "object" ? (payload as Record<string, unknown>) : {};
+  const list = Array.isArray(row.sources) ? row.sources : [];
+  return list.map(normalizeOrgSource);
+}
+
+function normalizeSourceFact(payload: unknown): SourceFact {
+  const row =
+    payload && typeof payload === "object" ? (payload as Record<string, unknown>) : {};
+  return {
+    id: typeof row.id === "string" ? row.id : String(row.id ?? ""),
+    text: typeof row.text === "string" ? row.text : "",
+    scope: typeof row.scope === "string" ? row.scope : "",
+    clusterLabel:
+      typeof row.clusterLabel === "string"
+        ? row.clusterLabel
+        : String(row.cluster_label ?? ""),
+    state: typeof row.state === "string" ? row.state : "",
+  };
+}
+
+function normalizeSourceFactGroup(payload: unknown): SourceFactGroup {
+  const row =
+    payload && typeof payload === "object" ? (payload as Record<string, unknown>) : {};
+  const facts = Array.isArray(row.facts) ? row.facts.map(normalizeSourceFact) : [];
+  return {
+    key: typeof row.key === "string" ? row.key : String(row.key ?? ""),
+    label: typeof row.label === "string" ? row.label : "",
+    facts,
+  };
+}
+
+function normalizeSourceFacts(payload: unknown): SourceFacts {
+  const row =
+    payload && typeof payload === "object" ? (payload as Record<string, unknown>) : {};
+  const groups = Array.isArray(row.groups)
+    ? row.groups.map(normalizeSourceFactGroup)
+    : [];
+  return {
+    userId: typeof row.userId === "string" ? row.userId : String(row.user_id ?? ""),
+    snapshot: typeof row.snapshot === "string" ? row.snapshot : String(row.snapshot ?? ""),
+    groups,
+  };
+}
+
+function normalizeFoldInResult(payload: unknown): FoldInResult {
+  const row =
+    payload && typeof payload === "object" ? (payload as Record<string, unknown>) : {};
+  const rawConflicts = Array.isArray(row.conflicts) ? row.conflicts : [];
+  const conflicts: FoldInConflict[] = rawConflicts.map((c) => {
+    const cr =
+      c && typeof c === "object" ? (c as Record<string, unknown>) : {};
+    return {
+      newId: typeof cr.newId === "string" ? cr.newId : String(cr.new_id ?? ""),
+      rivalId: typeof cr.rivalId === "string" ? cr.rivalId : String(cr.rival_id ?? ""),
+    };
+  });
+  return {
+    folded: Number(row.folded ?? 0),
+    deduped: Number(row.deduped ?? 0),
+    conflicts,
+    mode: row.mode === "replace" ? "replace" : "add",
+  };
+}
+
+/** `GET /org/sources` — list this org's foldable sources (members + snapshots). */
+export async function listOrgSources(
+  apiBaseUrl: string,
+  auth?: string | ApiDataProviderAuth,
+): Promise<OrgSource[]> {
+  return normalizeOrgSourceList(
+    await snapshotRequest(apiBaseUrl, "GET", "/org/sources", auth),
+  );
+}
+
+/**
+ * `GET /org/sources/{userId}/snapshots/{name}/facts` — fetch a snapshot's
+ * facts grouped into folders (by scope).
+ */
+export async function getSnapshotFacts(
+  apiBaseUrl: string,
+  userId: string,
+  snapshotName: string,
+  auth?: string | ApiDataProviderAuth,
+): Promise<SourceFacts> {
+  const path = `/org/sources/${encodeURIComponent(userId)}/snapshots/${encodeURIComponent(snapshotName)}/facts`;
+  return normalizeSourceFacts(await snapshotRequest(apiBaseUrl, "GET", path, auth));
+}
+
+/** `POST /fold-in` — fold the chosen snapshot facts into the caller's graph. */
+export async function foldIn(
+  apiBaseUrl: string,
+  sourceUser: string,
+  snapshotName: string,
+  factIds: string[],
+  mode: FoldInMode,
+  auth?: string | ApiDataProviderAuth,
+): Promise<FoldInResult> {
+  return normalizeFoldInResult(
+    await snapshotRequest(apiBaseUrl, "POST", "/fold-in", auth, {
+      sourceUser,
+      snapshot: snapshotName,
+      factIds,
+      mode,
+    }),
+  );
+}
+
 export {
   ApiClientError,
   ApiConflictError,

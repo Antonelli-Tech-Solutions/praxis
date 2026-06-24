@@ -10,10 +10,11 @@ import { CandidateCards } from "./components/CandidateCards";
 import { CandidateDetail } from "./components/CandidateDetail";
 import { GraphDataLoader } from "./components/GraphDataLoader";
 import { SnapshotManager } from "./components/SnapshotManager";
+import { SourceFoldIn } from "./components/SourceFoldIn";
 import { CandidateTable } from "./components/CandidateTable";
 import {
   ContradictionsReview,
-  uniqueContradictionPairs,
+  contradictionClusters,
 } from "./components/ContradictionsReview";
 import { GraphExplorer } from "./components/graph/GraphExplorer";
 import { McpSetupGuide } from "./components/McpSetupGuide";
@@ -98,7 +99,7 @@ export default function App() {
   );
 
   const contradictionCount = useMemo(
-    () => uniqueContradictionPairs(candidates).length,
+    () => contradictionClusters(candidates).length,
     [candidates],
   );
 
@@ -436,6 +437,12 @@ export default function App() {
             apiBaseUrl={config.apiBaseUrl}
             auth={auth}
             onLoaded={handleRefresh}
+          />
+          <SourceFoldIn
+            apiBaseUrl={config.apiBaseUrl}
+            auth={auth}
+            onFolded={handleRefresh}
+            onViewContradictions={() => setViewTab("contradictions")}
           />
           <GraphDataLoader
             apiBaseUrl={config.apiBaseUrl}
