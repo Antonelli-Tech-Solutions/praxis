@@ -11,6 +11,8 @@ import {
 interface ApiKeysPanelProps {
   apiBaseUrl: string;
   auth?: string | ApiDataProviderAuth;
+  /** When rendered inside a modal: always-open body, no collapse header. */
+  embedded?: boolean;
 }
 
 function formatTimestamp(value: string | null): string {
@@ -23,7 +25,7 @@ function formatTimestamp(value: string | null): string {
  * In-page management of scoped API keys: create (one-time reveal of the raw
  * `pxk_...` key), list, and revoke without leaving the dashboard.
  */
-export function ApiKeysPanel({ apiBaseUrl, auth }: ApiKeysPanelProps) {
+export function ApiKeysPanel({ apiBaseUrl, auth, embedded }: ApiKeysPanelProps) {
   const [keys, setKeys] = useState<ApiKey[]>([]);
   const [label, setLabel] = useState("");
   const [busy, setBusy] = useState(false);
@@ -95,23 +97,27 @@ export function ApiKeysPanel({ apiBaseUrl, auth }: ApiKeysPanelProps) {
     })();
   }
 
-  return (
-    <section className="eval-runner">
-      <header className="eval-runner__head">
-        <button
-          type="button"
-          className="eval-runner__collapse"
-          onClick={() => setOpen((v) => !v)}
-          aria-expanded={open}
-        >
-          {open ? "▾" : "▸"} <span className="eval-runner__title">API keys</span>
-        </button>
-        <span className="eval-runner__hint">
-          Create, view, and revoke scoped API keys for programmatic access.
-        </span>
-      </header>
+  const expanded = embedded || open;
 
-      {open ? (
+  return (
+    <section className={embedded ? "eval-runner eval-runner--embedded" : "eval-runner"}>
+      {!embedded && (
+        <header className="eval-runner__head">
+          <button
+            type="button"
+            className="eval-runner__collapse"
+            onClick={() => setOpen((v) => !v)}
+            aria-expanded={open}
+          >
+            {open ? "▾" : "▸"} <span className="eval-runner__title">API keys</span>
+          </button>
+          <span className="eval-runner__hint">
+            Create, view, and revoke scoped API keys for programmatic access.
+          </span>
+        </header>
+      )}
+
+      {expanded ? (
         <>
           <div className="eval-runner__row">
             <label className="eval-runner__field">

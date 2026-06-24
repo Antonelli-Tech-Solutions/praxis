@@ -24,6 +24,7 @@ import { ContentSplit } from "./components/layout/ContentSplit";
 import { DashboardHeader } from "./components/layout/DashboardHeader";
 import { FilterBar } from "./components/layout/FilterBar";
 import { CandidateEditorModal } from "./components/ui/CandidateEditorModal";
+import { Modal } from "./components/ui/Modal";
 import { TranscriptPanel } from "./components/transcript/TranscriptPanel";
 import { useApiHealth } from "./hooks/useApiHealth";
 import { useDataSource } from "./hooks/useDataSource";
@@ -82,6 +83,9 @@ export default function App() {
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [viewTab, setViewTab] = useState<ViewTab>("table");
+  const [activePanel, setActivePanel] = useState<
+    null | "snapshots" | "foldin" | "eval" | "apikeys"
+  >(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [deferMessage, setDeferMessage] = useState<string | null>(null);
   const [reviewNotice, setReviewNotice] = useState<string | null>(null);
@@ -411,6 +415,39 @@ export default function App() {
         ? "Local Claude logs"
         : "Mock fixtures (evals)";
 
+  const headerTools = (
+    <div className="header-tools">
+      <button
+        type="button"
+        className="header-tools__btn"
+        onClick={() => setActivePanel("snapshots")}
+      >
+        Snapshots
+      </button>
+      <button
+        type="button"
+        className="header-tools__btn"
+        onClick={() => setActivePanel("foldin")}
+      >
+        Fold in skills
+      </button>
+      <button
+        type="button"
+        className="header-tools__btn"
+        onClick={() => setActivePanel("eval")}
+      >
+        Load eval data
+      </button>
+      <button
+        type="button"
+        className="header-tools__btn"
+        onClick={() => setActivePanel("apikeys")}
+      >
+        API keys
+      </button>
+    </div>
+  );
+
   return (
     <AppShell>
       <DashboardHeader
@@ -423,6 +460,7 @@ export default function App() {
         onDataSourceLoad={handleDataSourceLoad}
         onLoadLocalLogs={handleLoadLocalLogs}
         onClearLocalLogs={handleClearLocalLogs}
+        tools={mode === "live" && config.apiBaseUrl ? headerTools : undefined}
       />
 
       {mode === "local-logs" ? (
@@ -432,26 +470,50 @@ export default function App() {
         </div>
       ) : null}
 
-      {mode === "live" && config.apiBaseUrl ? (
-        <>
+      {mode === "live" && config.apiBaseUrl && activePanel === "snapshots" ? (
+        <Modal title="Snapshots" onClose={() => setActivePanel(null)}>
           <SnapshotManager
             apiBaseUrl={config.apiBaseUrl}
             auth={auth}
             onLoaded={handleRefresh}
+            embedded
           />
+        </Modal>
+      ) : null}
+
+      {mode === "live" && config.apiBaseUrl && activePanel === "foldin" ? (
+        <Modal
+          title="Browse snapshots & fold in skills"
+          onClose={() => setActivePanel(null)}
+        >
           <SourceFoldIn
             apiBaseUrl={config.apiBaseUrl}
             auth={auth}
             onFolded={handleRefresh}
-            onViewContradictions={() => setViewTab("contradictions")}
+            onViewContradictions={() => {
+              setViewTab("contradictions");
+              setActivePanel(null);
+            }}
+            embedded
           />
+        </Modal>
+      ) : null}
+
+      {mode === "live" && config.apiBaseUrl && activePanel === "eval" ? (
+        <Modal title="Load eval data into graph" onClose={() => setActivePanel(null)}>
           <GraphDataLoader
             apiBaseUrl={config.apiBaseUrl}
             auth={auth}
             onLoaded={handleRefresh}
+            embedded
           />
-          <ApiKeysPanel apiBaseUrl={config.apiBaseUrl} auth={auth} />
-        </>
+        </Modal>
+      ) : null}
+
+      {mode === "live" && config.apiBaseUrl && activePanel === "apikeys" ? (
+        <Modal title="API keys" onClose={() => setActivePanel(null)}>
+          <ApiKeysPanel apiBaseUrl={config.apiBaseUrl} auth={auth} embedded />
+        </Modal>
       ) : null}
 
       {lastAction ? <div className="success-banner">{lastAction}</div> : null}

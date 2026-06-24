@@ -199,6 +199,134 @@ code,
   color: var(--accent);
 }
 
+/* ---- Header tools (modal openers) ------------------------------------- */
+.dashboard-header__tools {
+  margin-top: var(--space-3);
+}
+
+.header-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.header-tools__btn {
+  appearance: none;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--secondary);
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 600;
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+}
+
+.header-tools__btn:hover {
+  background: #eff4ff;
+  border-color: var(--accent);
+  color: var(--accent-dark);
+}
+
+.header-tools__btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* ---- Modal ------------------------------------------------------------ */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-4);
+  background: rgba(15, 23, 42, 0.45);
+}
+
+.modal-overlay .modal-panel {
+  width: 92vw;
+  max-width: 1280px;
+  height: auto;
+  max-height: 88vh;
+  overflow-y: auto;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-panel);
+  padding: var(--space-6);
+}
+
+.modal-panel__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+
+.modal-panel__title {
+  margin: 0;
+  font-size: 1.05rem;
+  color: var(--h2);
+}
+
+.modal-panel__close {
+  appearance: none;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 1.2rem;
+  line-height: 1;
+  width: 1.85rem;
+  height: 1.85rem;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+}
+
+.modal-panel__close:hover {
+  background: #eff4ff;
+  border-color: var(--accent);
+  color: var(--accent-dark);
+}
+
+.modal-panel__close:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* Embedded panels live inside the modal card — drop the outer chrome and
+   render a single airy surface (no nested card, comfortable vertical rhythm). */
+.eval-runner--embedded {
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  padding: 0;
+  margin-bottom: 0;
+}
+
+/* The body of an embedded panel is itself a fragment of rows; space them out. */
+.eval-runner--embedded > * + * {
+  margin-top: var(--space-4);
+}
+
+/* Strip the inner folder-browser card so it sits flat in the modal. */
+.eval-runner--embedded .eval-runner__browser {
+  border: none;
+  border-radius: 0;
+  margin-bottom: 0;
+  overflow: visible;
+}
+
+/* Tables (API keys) and the fold-in list get a touch more separation. */
+.eval-runner--embedded .mcp-tools-table {
+  margin-top: var(--space-2);
+}
+
 .filter-bar {
   display: flex;
   flex-wrap: wrap;
