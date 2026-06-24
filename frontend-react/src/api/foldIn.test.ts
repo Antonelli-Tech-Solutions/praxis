@@ -36,8 +36,14 @@ describe("listOrgSources", () => {
     expect(headers?.get("Authorization")).toBe("Bearer token-123");
     expect(headers?.get("X-Praxis-Org")).toBe("monica-demo");
     expect(sources).toEqual([
-      { userId: "me", role: "owner", isSelf: true, snapshots: ["v1"] },
-      { userId: "ada", role: "member", isSelf: false, snapshots: [] },
+      {
+        userId: "me",
+        username: null,
+        role: "owner",
+        isSelf: true,
+        snapshots: [{ name: "v1", count: 0 }],
+      },
+      { userId: "ada", username: null, role: "member", isSelf: false, snapshots: [] },
     ]);
   });
 

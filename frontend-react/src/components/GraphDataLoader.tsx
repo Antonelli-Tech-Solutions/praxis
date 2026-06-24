@@ -15,10 +15,12 @@ interface GraphDataLoaderProps {
   auth?: string | ApiDataProviderAuth;
   /** Called after a successful load so the dashboard can refresh candidates/graph. */
   onLoaded?: () => void;
+  /** When rendered inside a modal: always-open body, no collapse header. */
+  embedded?: boolean;
 }
 
 /** Pick eval folders/cases and ingest their seed knowledge into the graph view. */
-export function GraphDataLoader({ apiBaseUrl, auth, onLoaded }: GraphDataLoaderProps) {
+export function GraphDataLoader({ apiBaseUrl, auth, onLoaded, embedded }: GraphDataLoaderProps) {
   const [scopes, setScopes] = useState<EvalScope[]>([]);
   const [selected, setSelected] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
@@ -104,23 +106,27 @@ export function GraphDataLoader({ apiBaseUrl, auth, onLoaded }: GraphDataLoaderP
     }
   }
 
-  return (
-    <section className="eval-runner">
-      <header className="eval-runner__head">
-        <button
-          type="button"
-          className="eval-runner__collapse"
-          onClick={() => setOpen((v) => !v)}
-          aria-expanded={open}
-        >
-          {open ? "▾" : "▸"} <span className="eval-runner__title">Load eval data into graph</span>
-        </button>
-        <span className="eval-runner__hint">
-          Load the seed text from selected folders/cases (fast), or run the distillation pipeline.
-        </span>
-      </header>
+  const expanded = embedded || open;
 
-      {open ? (
+  return (
+    <section className={embedded ? "eval-runner eval-runner--embedded" : "eval-runner"}>
+      {!embedded && (
+        <header className="eval-runner__head">
+          <button
+            type="button"
+            className="eval-runner__collapse"
+            onClick={() => setOpen((v) => !v)}
+            aria-expanded={open}
+          >
+            {open ? "▾" : "▸"} <span className="eval-runner__title">Load eval data into graph</span>
+          </button>
+          <span className="eval-runner__hint">
+            Load the seed text from selected folders/cases (fast), or run the distillation pipeline.
+          </span>
+        </header>
+      )}
+
+      {expanded ? (
         <>
           <ScopePicker scopes={scopes} selected={selected} onChange={setSelected} cached={cached} />
           <div className="eval-runner__row">

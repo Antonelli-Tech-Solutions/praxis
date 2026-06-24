@@ -15,6 +15,8 @@ interface DashboardHeaderProps {
   onDataSourceLoad: (presetId: string, customApiBaseUrl?: string) => void;
   onLoadLocalLogs?: (files: LocalLogFileInput[]) => void;
   onClearLocalLogs?: () => void;
+  /** Compact action buttons rendered under the subtitle (e.g. modal openers). */
+  tools?: React.ReactNode;
 }
 
 export function DashboardHeader({
@@ -27,6 +29,7 @@ export function DashboardHeader({
   onDataSourceLoad,
   onLoadLocalLogs,
   onClearLocalLogs,
+  tools,
 }: DashboardHeaderProps) {
   return (
     <header className="dashboard-header">
@@ -39,6 +42,7 @@ export function DashboardHeader({
         <p className="dashboard-header__subtitle">
           Review and approve AI-learned knowledge facts from agent sessions.
         </p>
+        {tools ? <div className="dashboard-header__tools">{tools}</div> : null}
       </div>
       <div className="dashboard-header__meta">
         <EnvironmentBadge

@@ -13,10 +13,12 @@ interface SnapshotManagerProps {
   auth?: string | ApiDataProviderAuth;
   /** Called after a destructive load so the dashboard can refresh candidates/graph. */
   onLoaded?: () => void;
+  /** When rendered inside a modal: always-open body, no collapse header. */
+  embedded?: boolean;
 }
 
 /** Save the live graph as a named snapshot, or restore one (destructive). */
-export function SnapshotManager({ apiBaseUrl, auth, onLoaded }: SnapshotManagerProps) {
+export function SnapshotManager({ apiBaseUrl, auth, onLoaded, embedded }: SnapshotManagerProps) {
   const [snapshots, setSnapshots] = useState<Snapshot[]>([]);
   const [selected, setSelected] = useState<string>("");
   const [busy, setBusy] = useState(false);
@@ -116,23 +118,27 @@ export function SnapshotManager({ apiBaseUrl, auth, onLoaded }: SnapshotManagerP
     });
   }
 
-  return (
-    <section className="eval-runner">
-      <header className="eval-runner__head">
-        <button
-          type="button"
-          className="eval-runner__collapse"
-          onClick={() => setOpen((v) => !v)}
-          aria-expanded={open}
-        >
-          {open ? "▾" : "▸"} <span className="eval-runner__title">Snapshots</span>
-        </button>
-        <span className="eval-runner__hint">
-          Save the current live graph, or restore a saved copy (replaces the live graph).
-        </span>
-      </header>
+  const expanded = embedded || open;
 
-      {open ? (
+  return (
+    <section className={embedded ? "eval-runner eval-runner--embedded" : "eval-runner"}>
+      {!embedded && (
+        <header className="eval-runner__head">
+          <button
+            type="button"
+            className="eval-runner__collapse"
+            onClick={() => setOpen((v) => !v)}
+            aria-expanded={open}
+          >
+            {open ? "▾" : "▸"} <span className="eval-runner__title">Snapshots</span>
+          </button>
+          <span className="eval-runner__hint">
+            Save the current live graph, or restore a saved copy (replaces the live graph).
+          </span>
+        </header>
+      )}
+
+      {expanded ? (
         <>
           <div className="eval-runner__row">
             <label className="eval-runner__field">
