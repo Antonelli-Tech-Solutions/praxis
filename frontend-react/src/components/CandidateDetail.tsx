@@ -22,7 +22,7 @@ interface CandidateDetailProps {
     keepId: string,
     rivalTitle: string,
   ) => Promise<void>;
-  onDefer: (primaryTitle: string, rivalTitle: string) => void;
+  onDelete: (id: string) => Promise<void> | void;
   /** Current data-source mode — selects Phoenix proxy (live) vs fixture. */
   dataSourceMode?: DataSourceMode;
 }
@@ -36,7 +36,7 @@ export function CandidateDetail({
   onRefreshCandidate,
   refreshingId,
   onResolve,
-  onDefer,
+  onDelete,
   dataSourceMode = "mock",
 }: CandidateDetailProps) {
   const detailPanelId = "candidate-detail-panel";
@@ -157,7 +157,7 @@ export function CandidateDetail({
           onPromote={onPromote}
           onReject={onReject}
           onResolve={onResolve}
-          onDefer={onDefer}
+          onDelete={onDelete}
         />
       ) : (
         <p className="status-ok" role="status">

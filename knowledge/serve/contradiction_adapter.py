@@ -31,6 +31,16 @@ def contradiction_ids(c: Candidate) -> list[str]:
     return [str(x.get("id") if isinstance(x, dict) else x) for x in raw]
 
 
+def contradiction_links(c: Candidate) -> list[tuple[str, str]]:
+    """``[(rival_id, status)]`` for a candidate, from the rich ``contradictions``
+    field (``{id, status}``) or, failing that, the flat ``contradiction_ids``
+    (treated as all ``pending``)."""
+    rich = c.get("contradictions")
+    if rich and isinstance(rich[0], dict):
+        return [(str(x["id"]), str(x.get("status", "pending"))) for x in rich]
+    return [(str(x), "pending") for x in (c.get("contradiction_ids") or [])]
+
+
 def _summary(c: Candidate) -> dict[str, Any]:
     return {
         "id": _cid(c),
@@ -41,13 +51,22 @@ def _summary(c: Candidate) -> dict[str, Any]:
     }
 
 
-def serialize_pairs(candidates: list[Candidate]) -> list[dict[str, Any]]:
-    """Unique contradiction pairs in the candidate-api shape (best id first)."""
+def serialize_pairs(
+    candidates: list[Candidate], *, status_filter: str | None = None
+) -> list[dict[str, Any]]:
+    """Unique contradiction pairs in the candidate-api shape (best id first).
+
+    Each pair carries its ``status`` (``pending`` | ``resolved``) from the edge.
+    Pass ``status_filter="pending"`` for the global pending-contradictions view
+    (FR-013a); omit it to include resolved pairs too.
+    """
     by_id = {_cid(c): c for c in candidates}
     seen: set[str] = set()
     out: list[dict[str, Any]] = []
     for c in candidates:
-        for rival_id in contradiction_ids(c):
+        for rival_id, status in contradiction_links(c):
+            if status_filter is not None and status != status_filter:
+                continue
             rival = by_id.get(rival_id)
             if rival is None:
                 continue
@@ -55,7 +74,7 @@ def serialize_pairs(candidates: list[Candidate]) -> list[dict[str, Any]]:
             if a in (None, "") or f"{a}__{b}" in seen:
                 continue
             seen.add(f"{a}__{b}")
-            out.append({"id": f"{a}__{b}", "status": "pending", "a": _summary(by_id[a]), "b": _summary(by_id[b])})
+            out.append({"id": f"{a}__{b}", "status": status, "a": _summary(by_id[a]), "b": _summary(by_id[b])})
     return out
 
 
@@ -70,6 +89,8 @@ def _member(c: Candidate, slot_info: SlotInfo) -> dict[str, Any]:
 def serialize_clusters(
     candidates: list[Candidate],
     slot_info: SlotInfo | None = None,
+    *,
+    status_filter: str | None = None,
 ) -> list[dict[str, Any]]:
     """Group contradiction pairs into one cluster per conflicting claim slot.
 
@@ -82,10 +103,11 @@ def serialize_clusters(
 
     ``slot_info`` maps a fact id to its functional claim's (slot, value); pass it
     from the claims table (or in-memory ``Fact.claims``). When empty, every pair
-    degrades to its own cluster of two.
+    degrades to its own cluster of two. ``status_filter`` is forwarded to
+    :func:`serialize_pairs` (pass ``"pending"`` for the global pending view).
     """
     slot_info = slot_info or {}
-    pairs = serialize_pairs(candidates)
+    pairs = serialize_pairs(candidates, status_filter=status_filter)
     by_id = {_cid(c): c for c in candidates}
 
     # Union-find over fact ids: merge pair endpoints and same-slot facts.

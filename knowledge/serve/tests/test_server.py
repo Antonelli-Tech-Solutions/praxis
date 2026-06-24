@@ -91,11 +91,11 @@ def test_promote_advances_proposed_to_active(client):
     assert res.json()["state"] == "active"
 
 
-def test_reject_decays(client):
+def test_reject_rejects(client):
     cid = _create(client)["id"]
     res = client.post(f"/candidates/{cid}/reject", json={"reason": "noise"})
     assert res.status_code == 200
-    assert res.json()["state"] == "decayed"
+    assert res.json()["state"] == "rejected"
 
 
 def test_patch_updates_candidate(client):
@@ -103,6 +103,23 @@ def test_patch_updates_candidate(client):
     res = client.patch(f"/candidates/{cid}", json={"title": "New lesson (edited)"})
     assert res.status_code == 200
     assert res.json()["title"] == "New lesson (edited)"
+
+
+def test_delete_active_is_refused_with_409(client):
+    cid = _create(client)["id"]
+    client.post(f"/candidates/{cid}/promote")  # -> active
+    res = client.delete(f"/candidates/{cid}")
+    assert res.status_code == 409
+    assert "reject" in res.json()["detail"].lower()
+    assert client.get(f"/candidates/{cid}").status_code == 200  # still there
+
+
+def test_delete_proposed_and_rejected_succeed(client):
+    proposed = _create(client, title="P", content="A proposed note to remove.")["id"]
+    assert client.delete(f"/candidates/{proposed}").status_code == 200
+    rejected = _create(client, title="R", content="A note to reject then remove.")["id"]
+    client.post(f"/candidates/{rejected}/reject")
+    assert client.delete(f"/candidates/{rejected}").status_code == 200
 
 
 def test_delete_then_get_is_404(client):
@@ -181,7 +198,7 @@ def test_clear_graph_empties_the_users_graph(client):
 def test_insight_then_context_round_trips(client):
     res = client.post("/insights", json={"insight": "use uv, not pip, in this repo"})
     assert res.status_code == 200
-    assert res.json()["action"] in {"added", "merged", "overwrote"}
+    assert res.json()["action"] in {"added", "merged"}
 
     ctx = client.get("/context", params={"query": "how do I install deps?"}).json()
     assert "uv" in ctx["context"]

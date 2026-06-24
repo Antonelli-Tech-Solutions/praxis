@@ -51,12 +51,18 @@ def fact_to_candidate(
     *,
     state: str | None = None,
     rival_ids: list[str] | None = None,
+    rivals: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     """Map a stored ``Fact`` to the dashboard candidate read model.
 
     The candidate id IS the raw fact id — the candidate/contradiction routes now
     project directly off the facts spine, so there is no separate id namespace to
     translate. Contradiction rival ids are likewise raw fact ids.
+
+    Contradiction links are emitted two ways: the flat ``contradiction_ids`` (kept
+    for back-compat) and the richer ``contradictions`` ``[{id, status}]`` where
+    ``status`` is ``pending`` | ``resolved`` (FR-012). Callers pass either ``rivals``
+    (``{id: status}``) or the legacy ``rival_ids`` (treated as all ``pending``).
     """
     provenance = fact.source or f"pipeline/fact:{fact.id}"
     meta = fact.meta or {}
@@ -88,8 +94,16 @@ def fact_to_candidate(
         "confidenceBreakdown": _confidence_breakdown(fact),
         "auditTrail": audit_trail,
     }
+    rival_status: dict[str, str] = dict(rivals) if rivals else {}
     if rival_ids:
-        candidate["contradiction_ids"] = sorted(set(rival_ids))
+        for rid in rival_ids:
+            rival_status.setdefault(rid, "pending")
+    if rival_status:
+        ids = sorted(rival_status)
+        candidate["contradiction_ids"] = ids
+        candidate["contradictions"] = [
+            {"id": rid, "status": rival_status[rid]} for rid in ids
+        ]
     if fact.category:
         candidate["category"] = fact.category
     if fact.scope:

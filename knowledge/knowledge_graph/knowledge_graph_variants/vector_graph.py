@@ -88,7 +88,7 @@ class VectorGraph(SearchableGraph):
         """Return the ``active`` fact texts concatenated (context ignored).
 
         Only ``active`` facts are retrievable: ``proposed`` (staged) and
-        ``decayed`` (retired) facts are excluded from what the agent reads,
+        ``rejected`` (retired) facts are excluded from what the agent reads,
         matching ``search``'s gating.
         """
         return "\n\n".join(f.text for f in self._facts if f.state == "active")
@@ -270,4 +270,4 @@ class VectorGraph(SearchableGraph):
                 fact.tags = list(decision.tags)
                 fact.claims = list(decision.claims)
             elif fact.id in targets:
-                fact.state = "decayed"
+                fact.state = "rejected"

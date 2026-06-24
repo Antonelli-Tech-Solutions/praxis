@@ -117,6 +117,7 @@ export function useCandidates(options: UseCandidatesOptions) {
       const affectedIds = Array.from(new Set(contradictionId.split("__")));
       await Promise.all(affectedIds.map((id) => refreshCandidateFromProvider(id)));
       setLastAction(`Resolved contradiction — kept ${keepId} over ${rivalTitle}.`);
+      return updated;
     },
     [provider, applyCandidate, refreshCandidateFromProvider],
   );
@@ -128,7 +129,7 @@ export function useCandidates(options: UseCandidatesOptions) {
       }
       const created = await provider.resolveContradictionCustom(contradictionId, customText);
       applyCandidate(created);
-      // Both original sides are decayed server-side — refresh them so the UI drops
+      // Both original sides are rejected server-side — refresh them so the UI drops
       // them from the active queue.
       const affectedIds = Array.from(new Set(contradictionId.split("__")));
       await Promise.all(affectedIds.map((id) => refreshCandidateFromProvider(id)));
