@@ -52,7 +52,11 @@ from knowledge.knowledge_graph.write_policy.write_step_variants import (  # noqa
 from knowledge.llm.llm_variants.openrouter_llm import OpenRouterLlm  # noqa: E402
 from knowledge.serve import db, graph_adapter  # noqa: E402
 from knowledge.serve.auth import Principal, current_user  # noqa: E402
-from knowledge.serve.facts_candidates import FactsCandidates, PromotionError  # noqa: E402
+from knowledge.serve.facts_candidates import (  # noqa: E402
+    DeletionError,
+    FactsCandidates,
+    PromotionError,
+)
 from knowledge.serve.orgs_store import OrgsStore  # noqa: E402
 from knowledge.serve.regenerate import (  # noqa: E402
     PipelineConfig,
@@ -263,6 +267,8 @@ def create_app(conn: Any | None = None) -> FastAPI:
             return {"deleted": cid}
         except KeyError:
             raise HTTPException(status_code=404, detail=f"unknown candidate {cid}")
+        except DeletionError as exc:
+            raise HTTPException(status_code=409, detail=str(exc))
 
     # --- contradictions ----------------------------------------------------
     @app.get("/contradictions")
@@ -641,6 +647,15 @@ def create_app(conn: Any | None = None) -> FastAPI:
                     scope=seed.scope,
                     category=seed.category,
                 )
+            # Define-pass: tag the cached facts with topic clusters so the graph
+            # view can collapse them into labeled super-nodes. Persisted into the
+            # cache, so a later /evals/load carries the labels into the live graph
+            # verbatim (no re-clustering). Best-effort: a flat graph still loads if
+            # embeddings/clustering deps are unavailable.
+            try:
+                eval_graph.recluster()
+            except Exception:
+                pass
             regenerated.append(cid)
         return regenerated, from_cache
 
@@ -744,9 +759,11 @@ def create_app(conn: Any | None = None) -> FastAPI:
     ) -> dict[str, Any]:
         """Ingest a fully-approved insight into the live ``facts`` store.
 
-        Force-overwrite policy: a contradicting add supersedes the conflicting
-        fact in place. The in-chat confirmation is the human gate, so the insight
-        enters ``active`` at full credibility.
+        Non-destructive resolution: a contradicting add lands as a fresh ``active``
+        fact and each conflicting fact is rejected (its text preserved) and linked
+        back via a ``contradicted_by`` edge, rather than being overwritten in place.
+        The in-chat confirmation is the human gate, so the insight enters ``active``
+        at full credibility.
         """
         insight = (body.get("insight") or "").strip()
         if not insight:
@@ -763,8 +780,12 @@ def create_app(conn: Any | None = None) -> FastAPI:
         after = graph.search(insight, top_k=1, state=None)
         prior = before[0].fact if before else None
         top = after[0].fact if after else None
+        # Non-destructive resolution: an approved contradiction is always a fresh
+        # add (the new fact gets a new id), so a same-id top means a dedup merge
+        # bumped the existing fact; otherwise the insight was added (possibly
+        # rejecting + linking conflicting facts).
         if prior is not None and top is not None and prior.id == top.id:
-            action = "overwrote" if top.text != prior.text else "merged"
+            action = "merged"
         else:
             action = "added"
         return {

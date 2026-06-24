@@ -1084,7 +1084,7 @@ code,
   border-color: var(--state-active-border);
 }
 
-.state-badge--decayed,
+.state-badge--rejected,
 .state-badge--unrecognized {
   background: var(--state-muted-bg);
   color: var(--state-muted-text);
@@ -1225,6 +1225,28 @@ code,
   margin-top: var(--space-4);
   padding-top: var(--space-4);
   border-top: 1px dashed var(--line);
+}
+
+.contradiction-status {
+  display: inline-block;
+  margin: var(--space-2) 0;
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  font-size: 0.78rem;
+  font-weight: 600;
+  border: 1px solid var(--line);
+}
+
+.contradiction-status--pending {
+  background: #fef3c7;
+  color: #92400e;
+  border-color: #fcd34d;
+}
+
+.contradiction-status--resolved {
+  background: #dcfce7;
+  color: #166534;
+  border-color: #86efac;
 }
 
 .deferred-section {
@@ -1956,7 +1978,7 @@ code,
   background: var(--state-active-border);
 }
 
-.state-funnel__bar--decayed {
+.state-funnel__bar--rejected {
   background: var(--state-muted-border);
 }
 
@@ -3159,6 +3181,23 @@ li.eval-runner__entry.is-checked {
   font-size: 0.75rem;
   color: var(--secondary);
   font-weight: 600;
+}
+
+/* Topic-cluster label chip, shown in the table + card candidate views. */
+.topic-chip {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  padding: 0.15rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  background: rgba(37, 99, 235, 0.08);
+  color: var(--accent-dark);
+  border: 1px solid #c7d2fe;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* --- Graph drill-in: back button + uniform card height ------------------- */

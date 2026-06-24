@@ -10,9 +10,39 @@ from pydantic import BaseModel, Field
 #   * "proposed" -- passively added by the system (e.g. distilled by the
 #     ingestor); staged, not yet endorsed.
 #   * "active"   -- the user directly approved this write; it is live knowledge.
-#   * "decayed"  -- superseded/retired (e.g. lost a contradiction to a newer
+#   * "rejected" -- superseded/retired (e.g. lost a contradiction to a newer
 #     approved fact); kept for provenance but no longer authoritative.
-FactState = Literal["proposed", "active", "decayed"]
+#     (Renamed from the former "decayed" value; see specs/003-fact-rejection-lifecycle.)
+FactState = Literal["proposed", "active", "rejected"]
+
+
+class Claim(BaseModel):
+    """An atomic (subject, attribute, value) assertion extracted from a fact.
+
+    The unit the structural contradiction detector reasons over: two facts whose
+    claims share a ``subject`` and a *functional* ``attribute`` but hold
+    incompatible ``value``s contradict each other. ``subject`` and ``attribute``
+    are stored normalized (lowercased, whitespace-collapsed) so slot matching is
+    robust to surface variation; ``value`` keeps its raw form.
+    """
+
+    subject: str
+    attribute: str
+    value: str
+    # True when the attribute is single-valued for this subject (an event's year,
+    # a birth year) -> a differing value is a contradiction. False for naturally
+    # multi-valued attributes (discoveries, list members) -> values coexist.
+    functional: bool = False
+
+    @staticmethod
+    def norm(s: str) -> str:
+        """Normalize a subject/attribute for slot matching."""
+        return " ".join(s.lower().split())
+
+    @property
+    def slot(self) -> tuple[str, str]:
+        """The normalized (subject, attribute) key this claim occupies."""
+        return (self.norm(self.subject), self.norm(self.attribute))
 
 
 class Fact(BaseModel):
@@ -45,6 +75,10 @@ class Fact(BaseModel):
     # Controlled-vocabulary aspect labels assigned at write time (Tier-B gated
     # experiment): a second, non-similarity recall key for the conflict path.
     tags: list[str] = Field(default_factory=list)
+    # Atomic (subject, attribute, value) claims extracted from ``text`` at write
+    # time; the structural contradiction detector reasons over these. Persisted to
+    # the ``claims`` table (Postgres) or held on the fact (in-memory).
+    claims: list["Claim"] = Field(default_factory=list)
 
 
 class SearchHit(BaseModel):

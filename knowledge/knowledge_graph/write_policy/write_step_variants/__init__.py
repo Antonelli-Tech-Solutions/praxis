@@ -4,11 +4,13 @@ from knowledge.knowledge_graph.write_policy.write_step_variants.aspect_tagger im
     AspectJudge,
     AspectTagger,
 )
-from knowledge.knowledge_graph.write_policy.write_step_variants.conflict_flagger import (
-    ConflictFlagger,
+from knowledge.knowledge_graph.write_policy.write_step_variants.claim_extractor import (
+    ClaimExtractionJudge,
+    ClaimExtractor,
 )
-from knowledge.knowledge_graph.write_policy.write_step_variants.conflict_judge import (
-    ConflictJudge,
+from knowledge.knowledge_graph.write_policy.write_step_variants.claim_conflict_detector import (
+    ClaimConflictDetector,
+    ClaimValueJudge,
 )
 from knowledge.knowledge_graph.write_policy.write_step_variants.conflict_overwriter import (
     ConflictOverwriter,
@@ -21,9 +23,11 @@ __all__ = [
     "Redactor",
     "Deduper",
     "MergeJudge",
-    "ConflictFlagger",
-    "ConflictJudge",
     "ConflictOverwriter",
     "AspectTagger",
     "AspectJudge",
+    "ClaimExtractor",
+    "ClaimExtractionJudge",
+    "ClaimConflictDetector",
+    "ClaimValueJudge",
 ]

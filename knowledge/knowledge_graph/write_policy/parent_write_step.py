@@ -20,8 +20,14 @@ class WriteStep(ABC):
     """One stage of the write-time policy pipeline."""
 
     # True if ``apply`` reads ``decision.candidates`` (dedup/conflict steps). The
-    # store fills the shared recall pass before the first such step runs.
+    # store fills the shared cosine recall pass before the first such step runs.
     consumes_candidates: bool = False
+
+    # True if ``apply`` reads ``decision.claim_candidates`` (the structural
+    # contradiction detector). The store fills the claim-keyed slot recall before
+    # the first such step runs — separately from the cosine pass, because it must
+    # happen AFTER ClaimExtractor has populated ``decision.claims``.
+    consumes_claim_candidates: bool = False
 
     @abstractmethod
     def apply(self, decision: WriteDecision) -> None:

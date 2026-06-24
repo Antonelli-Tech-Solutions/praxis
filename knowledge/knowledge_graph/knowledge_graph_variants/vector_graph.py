@@ -20,10 +20,12 @@ import uuid
 from knowledge.knowledge_graph.knowledge_graph_def import Contradiction, Fact, SearchHit
 from knowledge.knowledge_graph.parent_searchable_graph import SearchableGraph
 from knowledge.knowledge_graph.write_policy.parent_write_step import WriteStep
-from knowledge.knowledge_graph.write_policy.write_policy_def import WriteDecision
+from knowledge.knowledge_graph.write_policy.write_policy_def import ClaimHit, WriteDecision
 from knowledge.knowledge_graph.write_policy.write_step_variants import (
-    ConflictFlagger,
-    ConflictJudge,
+    ClaimConflictDetector,
+    ClaimExtractionJudge,
+    ClaimExtractor,
+    ClaimValueJudge,
     Deduper,
     Redactor,
 )
@@ -41,13 +43,21 @@ def _cosine(a: list[float], b: list[float]) -> float:
 
 
 def default_write_policy(llm: Llm | None = None) -> list[WriteStep]:
-    """The baseline pipeline: redact, then dedup, then conflict-flag.
+    """The baseline pipeline: redact, dedup, extract claims, then detect conflicts.
 
-    ``llm`` powers the contradiction check; defaults to OpenRouter. Detection is
-    best-effort — ``ConflictFlagger`` skips silently if the LLM is unavailable
-    (e.g. no API key offline), so this is safe to leave on by default.
+    The structural contradiction path: ``ClaimExtractor`` decomposes the write into
+    (subject, attribute, value) claims and ``ClaimConflictDetector`` flags
+    same-functional-slot value clashes. ``llm`` powers extraction and the gray-zone
+    value judge; both skip silently when the LLM is unavailable (offline), so this
+    is safe to leave on by default.
     """
-    return [Redactor(), Deduper(), ConflictFlagger(judge=ConflictJudge(llm=llm or OpenRouterLlm()))]
+    base = llm or OpenRouterLlm()
+    return [
+        Redactor(),
+        Deduper(),
+        ClaimExtractor(judge=ClaimExtractionJudge(llm=base)),
+        ClaimConflictDetector(judge=ClaimValueJudge(llm=base)),
+    ]
 
 
 class VectorGraph(SearchableGraph):
@@ -78,7 +88,7 @@ class VectorGraph(SearchableGraph):
         """Return the ``active`` fact texts concatenated (context ignored).
 
         Only ``active`` facts are retrievable: ``proposed`` (staged) and
-        ``decayed`` (retired) facts are excluded from what the agent reads,
+        ``rejected`` (retired) facts are excluded from what the agent reads,
         matching ``search``'s gating.
         """
         return "\n\n".join(f.text for f in self._facts if f.state == "active")
@@ -93,9 +103,13 @@ class VectorGraph(SearchableGraph):
         if not content:
             return
         decision = WriteDecision(text=content, state="active" if state == "active" else "proposed")
+        claim_recalled = False
         for step in self.policy:
             if step.consumes_candidates and decision.embedding is None:
                 self._recall(decision)  # embed once + one shared candidate pass
+            if step.consumes_claim_candidates and not claim_recalled:
+                self._recall_claims(decision)  # slot recall, after ClaimExtractor ran
+                claim_recalled = True
             step.apply(decision)
         if decision.dropped:
             return
@@ -188,6 +202,31 @@ class VectorGraph(SearchableGraph):
                 if h.fact.id not in chosen and tagset.intersection(h.fact.tags)
             ][: self.tag_recall_k]
 
+    def _recall_claims(self, decision: WriteDecision) -> None:
+        """Fill ``decision.claim_candidates`` with facts sharing a functional slot.
+
+        For each functional claim on the incoming write, find existing facts that
+        hold a functional claim on the same normalized (subject, attribute) slot.
+        Multi-valued claims are ignored — only functional slots can contradict.
+        """
+        incoming = [c for c in decision.claims if c.functional]
+        if not incoming:
+            return
+        wanted = {c.slot for c in incoming}
+        hits: list[ClaimHit] = []
+        for f in self._facts:
+            for c in f.claims:
+                if c.functional and c.slot in wanted:
+                    hits.append(
+                        ClaimHit(
+                            fact=SearchHit(fact=f, score=1.0),
+                            subject=c.slot[0],
+                            attribute=c.slot[1],
+                            value=c.value,
+                        )
+                    )
+        decision.claim_candidates = hits
+
     @property
     def facts(self) -> list[Fact]:
         """Stored facts (read-only view for export/adapters)."""
@@ -203,6 +242,7 @@ class VectorGraph(SearchableGraph):
                 embedding=decision.embedding,  # reuse the vector embedded in _recall
                 flags=list(decision.flags),
                 tags=list(decision.tags),
+                claims=list(decision.claims),
             )
         )
 
@@ -228,5 +268,6 @@ class VectorGraph(SearchableGraph):
                 fact.confidence = 1.0
                 fact.embedding = decision.embedding  # reuse the vector from _recall
                 fact.tags = list(decision.tags)
+                fact.claims = list(decision.claims)
             elif fact.id in targets:
-                fact.state = "decayed"
+                fact.state = "rejected"
