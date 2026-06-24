@@ -10,6 +10,7 @@ import { CandidateCards } from "./components/CandidateCards";
 import { CandidateDetail } from "./components/CandidateDetail";
 import { GraphDataLoader } from "./components/GraphDataLoader";
 import { SnapshotManager } from "./components/SnapshotManager";
+import { SourceFoldIn } from "./components/SourceFoldIn";
 import { CandidateTable } from "./components/CandidateTable";
 import {
   ContradictionsReview,
@@ -436,6 +437,12 @@ export default function App() {
             apiBaseUrl={config.apiBaseUrl}
             auth={auth}
             onLoaded={handleRefresh}
+          />
+          <SourceFoldIn
+            apiBaseUrl={config.apiBaseUrl}
+            auth={auth}
+            onFolded={handleRefresh}
+            onViewContradictions={() => setViewTab("contradictions")}
           />
           <GraphDataLoader
             apiBaseUrl={config.apiBaseUrl}

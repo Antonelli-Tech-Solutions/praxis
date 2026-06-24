@@ -35,11 +35,18 @@ load_dotenv()
 from fastapi import Body, Depends, FastAPI, Header, HTTPException  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 
+from knowledge.knowledge_graph.knowledge_graph_variants.org_source_reader import (  # noqa: E402
+    OrgSourceReader,
+)
 from knowledge.knowledge_graph.knowledge_graph_variants.postgres_vector_graph import (  # noqa: E402
     PostgresVectorGraph,
     default_write_policy,
 )
 from knowledge.knowledge_graph.write_policy.write_step_variants import (  # noqa: E402
+    ClaimConflictDetector,
+    ClaimExtractionJudge,
+    ClaimExtractor,
+    ClaimValueJudge,
     ConflictOverwriter,
     Deduper,
     Redactor,
@@ -401,6 +408,198 @@ def create_app(conn: Any | None = None) -> FastAPI:
     ) -> dict[str, Any]:
         live_graph(org, principal.sub).delete_cache(f"snapshot:{name}")
         return {"deleted": name}
+
+    # --- skill sharing: browse another member's facts + fold them in -------
+    def _fact_brief(fact: Any) -> dict[str, Any]:
+        """Compact read model for the browse view (one fact in a source)."""
+        return {
+            "id": fact.id,
+            "text": fact.text,
+            "scope": fact.scope,
+            "clusterLabel": fact.cluster_label,
+            "state": fact.state,
+        }
+
+    def _group_facts(facts: list[Any]) -> list[dict[str, Any]]:
+        """Group facts into folders for the browse view.
+
+        Grouping key is the fact ``scope`` (the folder concept the dashboard
+        already groups by today), falling back to a stable "ungrouped" bucket.
+        """
+        groups: dict[str, dict[str, Any]] = {}
+        order: list[str] = []
+        for fact in facts:
+            key = fact.scope or "ungrouped"
+            if key not in groups:
+                groups[key] = {"key": key, "label": key, "facts": []}
+                order.append(key)
+            groups[key]["facts"].append(_fact_brief(fact))
+        return [groups[k] for k in order]
+
+    @app.get("/org/sources")
+    def org_sources(
+        principal: Principal = Depends(current_user),
+        org: str = Depends(active_org),
+    ) -> dict[str, Any]:
+        """List browsable sources in the org: every member + their snapshots.
+
+        Within an org (the trust boundary) any member may browse any other
+        member's live graph or saved snapshots. Each member's snapshot names are
+        read from their own cache partition.
+        """
+        sources: list[dict[str, Any]] = []
+        for member in orgs_store.members(org):
+            uid = member["user_id"]
+            snapshots = [
+                e["key"].split("snapshot:", 1)[1]
+                for e in live_graph(org, uid).list_caches("snapshot:")
+            ]
+            sources.append(
+                {
+                    "userId": uid,
+                    "role": member["role"],
+                    "isSelf": uid == principal.sub,
+                    "snapshots": snapshots,
+                }
+            )
+        return {"sources": sources}
+
+    @app.get("/org/sources/{user_id}/snapshots/{name}/facts")
+    def org_source_snapshot_facts(
+        user_id: str,
+        name: str,
+        principal: Principal = Depends(current_user),
+        org: str = Depends(active_org),
+    ) -> dict[str, Any]:
+        """Browse one member's snapshot facts, grouped by folder (``scope``).
+
+        ``active_org`` already proved the caller is a member of ``org``; full
+        within-org trust means any member is a valid ``user_id`` target. The
+        org-scoped reader pins ``org_id`` so no other org's rows are reachable.
+        404 if ``user_id`` is not a member or the snapshot holds no facts.
+        """
+        if not orgs_store.is_member(org, user_id):
+            raise HTTPException(
+                status_code=404, detail=f"{user_id!r} is not a member of org {org!r}"
+            )
+        if live_graph(org, user_id).cache_count(f"snapshot:{name}") == 0:
+            raise HTTPException(status_code=404, detail=f"unknown snapshot {name!r}")
+        reader = OrgSourceReader(conn, org, user_id, cache_key=f"snapshot:{name}")
+        return {
+            "userId": user_id,
+            "snapshot": name,
+            "groups": _group_facts(reader.all_facts()),
+        }
+
+    @app.post("/fold-in")
+    def fold_in(
+        body: dict[str, Any] = Body(default={}),
+        principal: Principal = Depends(current_user),
+        org: str = Depends(active_org),
+    ) -> dict[str, Any]:
+        """Copy selected snapshot facts from a source into the caller's live graph.
+
+        Each selected fact is written through a distillation-free policy
+        (``Deduper`` then ``ConflictFlagger`` — no ``Redactor``, no LLM
+        re-distillation): already-atomic facts are deduped against the caller's
+        graph and conflicts are flagged, never silently overwritten. Copies land
+        ``active`` (an explicit user action) and carry provenance in ``meta``.
+        Edges whose both endpoints are in the selection are carried with the
+        copy, remapped to the caller's new fact ids.
+
+        ``mode="replace"`` truncates the caller's own live graph before copying
+        (so the caller ends up holding exactly the folded facts); ``mode="add"``
+        (default) merges the selection into the existing graph.
+        """
+        source_user = str(body.get("sourceUser") or "").strip()
+        snapshot = str(body.get("snapshot") or "").strip()
+        mode = str(body.get("mode") or "add").strip().lower()
+        fact_ids = body.get("factIds") or []
+        if not source_user:
+            raise HTTPException(status_code=400, detail="sourceUser required")
+        if not snapshot:
+            raise HTTPException(status_code=400, detail="snapshot required")
+        if mode not in ("add", "replace"):
+            raise HTTPException(status_code=400, detail="mode must be 'add' or 'replace'")
+        if not isinstance(fact_ids, list) or not fact_ids:
+            raise HTTPException(status_code=400, detail="factIds must be a non-empty list")
+        if not orgs_store.is_member(org, source_user):
+            raise HTTPException(
+                status_code=404, detail=f"{source_user!r} is not a member of org {org!r}"
+            )
+        cache_key = f"snapshot:{snapshot}"
+        reader = OrgSourceReader(conn, org, source_user, cache_key=cache_key)
+        src_facts = reader.get_facts([str(i) for i in fact_ids])
+        if not src_facts:
+            raise HTTPException(status_code=404, detail="no matching facts in source")
+
+        # mode=replace: truncate the caller's live graph before copying (same
+        # zero-cache-load truncation as /graph/clear). Dedup/conflict are then
+        # moot on the now-empty graph, but the policy stays identical.
+        if mode == "replace":
+            live_graph(org, principal.sub).load_caches([])
+
+        # Distillation-free fold-in policy: dedup the already-atomic facts, then
+        # the structural claim path (extract -> detect) flags genuine value
+        # conflicts as contradiction edges. No Redactor (source facts are already
+        # vetted) and no LLM re-distillation of the text itself.
+        base_llm = OpenRouterLlm()
+        graph = PostgresVectorGraph(
+            conn,
+            org,
+            principal.sub,
+            policy=[
+                Deduper(),
+                ClaimExtractor(judge=ClaimExtractionJudge(llm=base_llm)),
+                ClaimConflictDetector(judge=ClaimValueJudge(llm=base_llm)),
+            ],
+        )
+        before_edges = set(graph.all_edges("contradiction"))
+        existing_ids = {f.id for f in graph.all_facts()}
+        id_map: dict[str, str] = {}
+        deduped = 0
+        for fact in src_facts:
+            meta = dict(fact.meta or {})
+            meta["foldedFrom"] = {"userId": source_user, "source": cache_key}
+            meta["foldedFromFactId"] = fact.id
+            if fact.cluster_label:
+                meta.setdefault("sourceClusterLabel", fact.cluster_label)
+            new_id = graph.write(
+                fact.text,
+                state="active",
+                source=fact.source,
+                scope=fact.scope,
+                category=fact.category,
+                meta=meta,
+            )
+            if new_id is None:
+                continue
+            # A returned id that already existed means dedup merged into it; a
+            # fresh id is a genuinely new fact in the caller's graph.
+            if new_id in existing_ids:
+                deduped += 1
+            else:
+                existing_ids.add(new_id)
+            id_map[fact.id] = new_id
+
+        # Carry edges whose both endpoints came along, remapped to new ids.
+        for src_id, dst_id, kind in reader.edges_among(list(id_map.keys())):
+            if src_id in id_map and dst_id in id_map:
+                graph.add_edge(id_map[src_id], id_map[dst_id], kind)
+
+        new_ids = set(id_map.values())
+        after_edges = set(graph.all_edges("contradiction"))
+        new_conflicts = [
+            {"newId": s, "rivalId": d}
+            for (s, d, _k) in (after_edges - before_edges)
+            if s in new_ids
+        ]
+        return {
+            "folded": len(id_map) - deduped,
+            "deduped": deduped,
+            "conflicts": new_conflicts,
+            "mode": mode,
+        }
 
     # --- eval cache (per case) + loading into the live graph ---------------
     @app.get("/evals/cached")
