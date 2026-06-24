@@ -122,11 +122,13 @@ export function ScopePicker({ scopes, selected, onChange, cached }: ScopePickerP
                     </span>
                     <span className="eval-runner__entry-name">{leafName(c.scope)}</span>
                     {!isDir ? (
-                      // The cache is keyed by the bare case id (eval:<case_id>),
-                      // which is the path's leaf — not the full folder path. Match
-                      // on leafName so nested cases (e.g. matt/foo) light up too.
+                      // The cache is keyed by the bare case id (eval:<case_id>).
+                      // The folder name need not match that id (e.g. volta_video →
+                      // matt_volta_video_mock), so prefer the backend-supplied
+                      // caseId, falling back to the path leaf for older payloads.
                       (() => {
-                        const isCached = cached?.has(leafName(c.scope)) ?? false;
+                        const cacheKey = c.caseId ?? leafName(c.scope);
+                        const isCached = cached?.has(cacheKey) ?? false;
                         // Not cached → keep the plain red dot (no count). Cached →
                         // a green circle showing the cached node count.
                         if (!isCached) {
@@ -138,7 +140,7 @@ export function ScopePicker({ scopes, selected, onChange, cached }: ScopePickerP
                             />
                           );
                         }
-                        const nodes = cached?.get(leafName(c.scope)) ?? 0;
+                        const nodes = cached?.get(cacheKey) ?? 0;
                         return (
                           <span
                             className="eval-runner__node-badge is-cached"

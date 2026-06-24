@@ -547,6 +547,8 @@ export async function postRegenerateEvals(
 export interface EvalScope {
   scope: string;
   caseCount: number;
+  /** The case id for a leaf-case folder (its folder name need not match). */
+  caseId?: string;
 }
 
 export interface EvalScopesResponse {
