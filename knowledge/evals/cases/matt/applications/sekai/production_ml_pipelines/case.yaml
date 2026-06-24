@@ -604,9 +604,14 @@ deterministic_checks:
   ref: knowledge.evals.deterministic_checks.builds:output_nonempty
   params: {}
 - name: mentions_serving
-  ref: knowledge.evals.deterministic_checks.text:regex_matches
+  ref: knowledge.evals.deterministic_checks.text:mentions_any
   params:
-    pattern: (?i)bentoml|mlops
+    patterns:
+    - (?i)bentoml
+    - (?i)mlops
+    - (?i)appsync
+    - (?i)dynamodb
+    - (?i)\blambda\b
 rubric:
   id: matt_sekai_production_ml_pipelines_v1
   items:

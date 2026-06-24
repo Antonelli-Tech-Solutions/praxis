@@ -238,3 +238,75 @@ def test_judge_model_prefers_judge_env_then_runner_env(monkeypatch):
     assert OpenRouterJudge().client.model == "judge/model"  # judge env wins
     monkeypatch.delenv("OPENROUTER_JUDGE_MODEL")
     assert OpenRouterJudge().client.model == "runner/model"  # falls back to runner model
+
+
+# --- Grounding-aware reference (US1) ---
+
+
+def _rubric(criterion="grounded in the reference"):
+    return Rubric(id="r", items=[RubricItem(id="grounded", criterion=criterion)])
+
+
+def test_judge_includes_labeled_reference_block_when_given(capture_openrouter_prompt):
+    post, seen = capture_openrouter_prompt({"grounded": 1.0})
+    client = OpenRouterClient(api_key="k", post=post)
+    OpenRouterJudge(client=client)(
+        _rubric(), EvalContext(case_id="c", output="answer"), reference="SEED FACT: the sky is teal"
+    )
+    assert "REFERENCE" in seen["prompt"]
+    assert "SEED FACT: the sky is teal" in seen["prompt"]  # the raw seed is present
+
+
+def test_judge_omits_reference_block_and_is_byte_identical_without_seed(capture_openrouter_prompt):
+    from knowledge.evals.eval_def import build_judge_prompt
+
+    post, seen = capture_openrouter_prompt({"grounded": 1.0})
+    client = OpenRouterClient(api_key="k", post=post)
+    rubric, ctx = _rubric("good"), EvalContext(case_id="c", output="answer")
+    OpenRouterJudge(client=client)(rubric, ctx)  # reference defaults to None
+    assert "REFERENCE" not in seen["prompt"]
+    # byte-identical to the no-reference prompt (the SC-004 / SC-006 no-regression path)
+    assert seen["prompt"] == build_judge_prompt(rubric, ctx, None)
+
+
+def test_judge_reference_label_is_neutral_not_authoritative(capture_openrouter_prompt):
+    # FR-002/FR-007: the block must NOT tell the judge the answer has to obey the
+    # reference, or the safety/override case backslides.
+    post, seen = capture_openrouter_prompt({"grounded": 1.0})
+    client = OpenRouterClient(api_key="k", post=post)
+    OpenRouterJudge(client=client)(_rubric(), EvalContext(case_id="c", output="a"), reference="X")
+    p = seen["prompt"].lower()
+    assert "context for grading" in p  # framed as context...
+    assert "override or set it aside" in p  # ...and override is explicitly allowed
+    for forbidden in ("must obey", "must comply", "must match", "authoritative", "ground truth"):
+        assert forbidden not in p
+
+
+def test_judge_cassette_records_then_replays_deterministically(tmp_path):
+    # FR-012: the verdict cassette makes the judge offline + deterministic — record
+    # once, then replay with NO further model call.
+    from knowledge.llm.verdict_cassette import VerdictCassette
+
+    calls = {"n": 0}
+
+    def post(url, payload, headers, timeout):
+        calls["n"] += 1
+        return _chat_response('{"per_item": {"grounded": 0.9}}')
+
+    rubric, ctx = _rubric(), EvalContext(case_id="c", output="grounded answer")
+    cache = tmp_path / "rubric.json"
+
+    rec = VerdictCassette(cache, model_id="m", allow_compute=True)
+    r1 = OpenRouterJudge(client=OpenRouterClient(api_key="k", post=post), cassette=rec)(
+        rubric, ctx, reference="REF"
+    )
+    assert r1.per_item["grounded"] == 0.9 and calls["n"] == 1
+
+    def boom(*a):
+        raise AssertionError("replay must not call the model")
+
+    replay = VerdictCassette(cache, model_id="m", allow_compute=False)
+    r2 = OpenRouterJudge(client=OpenRouterClient(api_key="k", post=boom), cassette=replay)(
+        rubric, ctx, reference="REF"
+    )
+    assert r2.per_item["grounded"] == 0.9 and calls["n"] == 1  # served from the cassette

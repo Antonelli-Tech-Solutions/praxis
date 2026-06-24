@@ -28,6 +28,7 @@ from knowledge.evals.eval_def import (
     JudgeResult,
     Rubric,
     align_per_item,
+    build_judge_prompt,
     rubric_score_schema,
     weighted_overall,
 )
@@ -330,31 +331,55 @@ class OpenRouterJudge:
     default (``OPENROUTER_MODEL`` / built-in).
     """
 
-    def __init__(self, client: OpenRouterClient | None = None, model: str | None = None) -> None:
+    def __init__(
+        self,
+        client: OpenRouterClient | None = None,
+        model: str | None = None,
+        cassette=None,
+    ) -> None:
         self.client = client or OpenRouterClient(
             model=model or os.getenv("OPENROUTER_JUDGE_MODEL")
         )
+        # Optional VerdictCassette: when present, the per-criterion verdict for a
+        # given (judge_model, prompt) is replayed/recorded so scoring is offline
+        # and deterministic (parity with the merge/conflict/aspect judges).
+        self.cassette = cassette
 
-    def __call__(self, rubric: Rubric, ctx: EvalContext) -> JudgeResult:
-        items = "\n".join(f"- {it.id}: {it.criterion}" for it in rubric.items)
-        prompt = (
-            "You are grading an artifact against a rubric. Score each criterion from "
-            "0.0 to 1.0, keyed by its exact id (the token before its colon). Do not "
-            "compute an overall — the harness applies the weights.\n\n"
-            f"RUBRIC:\n{items}\n\nARTIFACT:\n{ctx.output}\n"
-        )
+    def __call__(
+        self, rubric: Rubric, ctx: EvalContext, reference: str | None = None
+    ) -> JudgeResult:
+        prompt = build_judge_prompt(rubric, ctx, reference)
+        response_format = {
+            "type": "json_schema",
+            "json_schema": {
+                "name": "rubric_scores",
+                "strict": True,
+                "schema": rubric_score_schema(rubric),
+            },
+        }
+        if self.cassette is not None:
+
+            def compute() -> dict:
+                text, _ = self.client.complete_raw(
+                    [{"role": "user", "content": prompt}],
+                    temperature=0.0,
+                    max_tokens=512,
+                    response_format=response_format,
+                )
+                return {"per_item": _extract_json(text).get("per_item") or {}}
+
+            verdict = self.cassette.verdict(prompt, compute)
+            per_item = align_per_item(rubric, verdict.get("per_item"))
+            return JudgeResult(
+                overall=weighted_overall(rubric, per_item),
+                per_item=per_item,
+                raw_response=json.dumps(verdict),
+            )
         text, raw = self.client.complete_raw(
             [{"role": "user", "content": prompt}],
             temperature=0.0,
             max_tokens=512,
-            response_format={
-                "type": "json_schema",
-                "json_schema": {
-                    "name": "rubric_scores",
-                    "strict": True,
-                    "schema": rubric_score_schema(rubric),
-                },
-            },
+            response_format=response_format,
         )
         per_item = align_per_item(rubric, _extract_json(text).get("per_item"))
         return JudgeResult(

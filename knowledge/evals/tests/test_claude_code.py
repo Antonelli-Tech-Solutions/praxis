@@ -246,3 +246,40 @@ def test_judge_reads_structured_output_and_weights():
     assert result.overall == pytest.approx(1 / 3)
     assert result.per_item == {"meter": 0.0, "topic": 1.0}
     assert result.raw_response == raw  # raw envelope captured for the transcript
+
+
+# --- Grounding-aware reference parity (US1, FR-009) ---
+
+
+def test_judge_includes_reference_block_parity(capture_claude_prompt):
+    run_cli, seen = capture_claude_prompt({"q": 1.0})
+    rubric = Rubric(id="r", items=[RubricItem(id="q", criterion="grounded")])
+    ClaudeCodeJudge(run_cli=run_cli)(
+        rubric, EvalContext(case_id="c", output="a"), reference="SEED Z"
+    )
+    assert "REFERENCE" in seen["prompt"] and "SEED Z" in seen["prompt"]
+
+
+def test_judge_omits_reference_block_without_seed_parity(capture_claude_prompt):
+    run_cli, seen = capture_claude_prompt({"q": 1.0})
+    rubric = Rubric(id="r", items=[RubricItem(id="q", criterion="good")])
+    ClaudeCodeJudge(run_cli=run_cli)(rubric, EvalContext(case_id="c", output="answer"))
+    assert "REFERENCE" not in seen["prompt"]
+
+
+def test_both_judges_build_the_same_prompt(capture_claude_prompt, capture_openrouter_prompt):
+    # FR-009: results must not depend on which judge ran, so both build an
+    # identical prompt (reference block included) from the same rubric/ctx/reference.
+    from knowledge.evals.openrouter import OpenRouterClient, OpenRouterJudge
+
+    rubric = Rubric(id="r", items=[RubricItem(id="q", criterion="grounded")])
+    ctx = EvalContext(case_id="c", output="the answer")
+    reference = "SEED: the only true fact"
+
+    run_cli, claude_seen = capture_claude_prompt({"q": 1.0})
+    ClaudeCodeJudge(run_cli=run_cli)(rubric, ctx, reference=reference)
+
+    post, or_seen = capture_openrouter_prompt({"q": 1.0})
+    OpenRouterJudge(client=OpenRouterClient(api_key="k", post=post))(rubric, ctx, reference=reference)
+
+    assert claude_seen["prompt"] == or_seen["prompt"]

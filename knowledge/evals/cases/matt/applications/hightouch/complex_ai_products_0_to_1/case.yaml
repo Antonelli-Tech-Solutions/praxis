@@ -604,13 +604,20 @@ deterministic_checks:
   ref: knowledge.evals.deterministic_checks.builds:output_nonempty
   params: {}
 - name: mentions_praxis
-  ref: knowledge.evals.deterministic_checks.text:regex_matches
+  ref: knowledge.evals.deterministic_checks.text:mentions_any
   params:
-    pattern: (?i)praxis
+    patterns:
+    - (?i)praxis
+    - (?i)knowledge.graph
+    - (?i)just.?in.?time retrieval
 - name: mentions_rag_or_sql
-  ref: knowledge.evals.deterministic_checks.text:regex_matches
+  ref: knowledge.evals.deterministic_checks.text:mentions_any
   params:
-    pattern: (?i)rag|sql
+    patterns:
+    - (?i)\brag\b
+    - (?i)retrieval.?augmented
+    - (?i)\bsql\b
+    - (?i)text.?to.?sql
 rubric:
   id: matt_hightouch_complex_ai_products_0_to_1_v1
   items:

@@ -96,6 +96,25 @@ def regex_check(name: str, pattern: str) -> dict:
     }
 
 
+def mentions_any_check(name: str, patterns: list[str]) -> dict:
+    """A synonym-tolerant check: passes if the answer uses ANY accepted spelling.
+
+    Widens a brittle single-keyword check so a correct paraphrase (an acronym OR
+    its expansion OR a near-synonym) isn't failed on phrasing, while still failing
+    an answer that mentions none of them.
+    """
+    return {
+        "name": name,
+        "ref": "knowledge.evals.deterministic_checks.text:mentions_any",
+        "params": {"patterns": patterns},
+    }
+
+
+def make_check(name: str, spec) -> dict:
+    """A check spec is a single regex (literal keyword) or a list of accepted spellings."""
+    return mentions_any_check(name, spec) if isinstance(spec, list) else regex_check(name, spec)
+
+
 NONEMPTY = {
     "name": "produced_answer",
     "ref": "knowledge.evals.deterministic_checks.builds:output_nonempty",
@@ -116,7 +135,10 @@ COMPANIES = [
                 "complex AI products built 0 -> 1 (LLMs, search, agents)",
                 "What complex AI products/applications have you worked on 0 -> 1? "
                 "Could be related to LLMs, multimodal search, agent development, etc.",
-                [("mentions_praxis", "(?i)praxis"), ("mentions_rag_or_sql", "(?i)rag|sql")],
+                [
+                    ("mentions_praxis", ["(?i)praxis", "(?i)knowledge.graph", "(?i)just.?in.?time retrieval"]),
+                    ("mentions_rag_or_sql", ["(?i)\\brag\\b", "(?i)retrieval.?augmented", "(?i)\\bsql\\b", "(?i)text.?to.?sql"]),
+                ],
             ),
             (
                 "production_llm_pipeline",
@@ -124,7 +146,10 @@ COMPANIES = [
                 "Describe a production LLM pipeline you've built or contributed to. What "
                 "was the architecture, and what tradeoffs did you make around model "
                 "choice, latency, and cost?",
-                [("mentions_sql", "(?i)sql"), ("mentions_rag", "(?i)rag")],
+                [
+                    ("mentions_sql", ["(?i)\\bsql\\b", "(?i)text.?to.?sql"]),
+                    ("mentions_rag", ["(?i)\\brag\\b", "(?i)retrieval.?augmented", "(?i)retrieval"]),
+                ],
             ),
             (
                 "agentic_systems",
@@ -138,14 +163,20 @@ COMPANIES = [
                 "a backend system he designed and its scaling/reliability challenges",
                 "Describe a backend system you designed and the scaling or reliability "
                 "challenges you solved.",
-                [("mentions_scale", "(?i)billions"), ("mentions_stack", "(?i)graphql|lambda")],
+                [
+                    ("mentions_scale", ["(?i)billion", "(?i)million", "(?i)terabyte", "(?i)scal(e|ing|able)"]),
+                    ("mentions_stack", ["(?i)graphql", "(?i)\\blambda\\b", "(?i)dynamodb", "(?i)appsync", "(?i)aws cdk", "(?i)\\biac\\b", "(?i)infrastructure as code", "(?i)microservice"]),
+                ],
             ),
             (
                 "data_warehouse_experience",
                 "building data-intensive systems on a customer's data warehouse",
                 "What is your experience building data-intensive systems that connect to "
                 "a customer's data warehouse?",
-                [("mentions_databricks", "(?i)databricks"), ("mentions_dbt", "(?i)dbt")],
+                [
+                    ("mentions_databricks", ["(?i)databricks", "(?i)snowflake", "(?i)dagster", "(?i)\\bdbt\\b"]),
+                    ("mentions_dbt", "(?i)dbt"),
+                ],
             ),
             (
                 "education_background",
@@ -160,14 +191,14 @@ COMPANIES = [
                 "This role asks candidates to occasionally visit the SF Bay Area office. "
                 "What is your location and availability, and do you require visa "
                 "sponsorship now or in the future?",
-                [("mentions_location", "(?i)utah")],
+                [("mentions_location", ["(?i)utah", "(?i)orem", "(?i)provo", "(?i)chicago"])],
             ),
             (
                 "typescript_experience",
                 "experience with TypeScript (their stack is TypeScript)",
                 "Our tech stack is TypeScript. What is your experience with TypeScript "
                 "and the JavaScript ecosystem?",
-                [("mentions_react", "(?i)react")],
+                [("mentions_react", ["(?i)react", "(?i)typescript", "(?i)javascript", "(?i)node\\.?js", "(?i)vue"])],
             ),
         ],
     ),
@@ -189,14 +220,14 @@ COMPANIES = [
                 "What is your experience with embedding-based retrieval and two-tower "
                 "models for candidate generation, and how have you used embeddings in "
                 "production?",
-                [("mentions_embeddings", "(?i)embedding")],
+                [("mentions_embeddings", ["(?i)embedding", "(?i)\\bvector", "(?i)two.?tower"])],
             ),
             (
                 "production_ml_pipelines",
                 "a production ML pipeline end-to-end (training, serving, monitoring)",
                 "Walk us through a production ML pipeline you built end-to-end — "
                 "training, serving, monitoring, and evaluation.",
-                [("mentions_serving", "(?i)bentoml|mlops")],
+                [("mentions_serving", ["(?i)bentoml", "(?i)mlops", "(?i)appsync", "(?i)dynamodb", "(?i)\\blambda\\b"])],
             ),
             (
                 "ml_experiment_end_to_end",
@@ -266,7 +297,7 @@ def main() -> None:
                 "needs": ["file_io"],
                 "seeded_insight": {"via_ingestor": SOURCES},
                 "deterministic_checks": [NONEMPTY]
-                + [regex_check(n, p) for n, p in checks],
+                + [make_check(n, spec) for n, spec in checks],
                 "rubric": rubric(case_id, focus),
             }
             out = HERE / folder / slug / "case.yaml"

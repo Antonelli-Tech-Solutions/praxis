@@ -35,6 +35,7 @@ from knowledge.evals.eval_def import (
     JudgeResult,
     Rubric,
     RunTranscript,
+    build_reference,
 )
 from knowledge.llm import openrouter_http
 from knowledge.llm.embedder_variants import CachedEmbedder, OpenRouterEmbedder
@@ -113,17 +114,23 @@ def run_checks(case: EvalCase, ctx: EvalContext) -> list[CheckResult]:
 # --------------------------------------------------------------------------- #
 # M6 — rubric grader
 # --------------------------------------------------------------------------- #
-# A judge scores a rubric against the output, returning a JudgeResult.
-RubricJudge = Callable[[Rubric, EvalContext], JudgeResult]
+# A judge scores a rubric against the output, returning a JudgeResult. The judge
+# also receives the case's seeded reference (None when the seed is empty) so
+# grounding/honesty criteria can verify support rather than mere plausibility.
+RubricJudge = Callable[[Rubric, EvalContext, "str | None"], JudgeResult]
 
 
 def grade_rubric(
     case: EvalCase, ctx: EvalContext, judge: RubricJudge | None
 ) -> JudgeResult | None:
-    """Return the judge result, or ``None`` when there's no rubric/judge."""
+    """Return the judge result, or ``None`` when there's no rubric/judge.
+
+    Builds the seeded reference from the case (the call site already holds it) and
+    passes it to the judge; ``EvalContext`` is run provenance and stays unchanged.
+    """
     if case.rubric is None or judge is None:
         return None
-    return judge(case.rubric, ctx)
+    return judge(case.rubric, ctx, build_reference(case))
 
 
 # --------------------------------------------------------------------------- #

@@ -33,6 +33,7 @@ from knowledge.evals.eval_def import (
     JudgeResult,
     Rubric,
     align_per_item,
+    build_judge_prompt,
     rubric_score_schema,
     weighted_overall,
 )
@@ -307,25 +308,22 @@ class ClaudeCodeJudge:
     per-item scores, and the raw response for the transcript).
     """
 
-    def __init__(self, run_cli: CliRunner | None = None, timeout: int = 120) -> None:
+    def __init__(self, run_cli: CliRunner | None = None, timeout: int = 120, cassette=None) -> None:
         self.run_cli = run_cli or _default_run_cli
         self.timeout = timeout
+        # Optional VerdictCassette keyed by (judge_model, prompt) for offline,
+        # deterministic replay — parity with OpenRouterJudge / the write-policy judges.
+        self.cassette = cassette
 
-    def __call__(self, rubric: Rubric, ctx: EvalContext) -> JudgeResult:
-        items = "\n".join(f"- {it.id}: {it.criterion}" for it in rubric.items)
-        prompt = (
-            "You are grading an artifact against a rubric. Score each criterion from "
-            "0.0 to 1.0, keyed by its exact id (the token before its colon). Do not "
-            "compute an overall — the harness applies the weights.\n\n"
-            f"RUBRIC:\n{items}\n\n"
-            f"ARTIFACT:\n{ctx.output}\n"
-        )
+    def __call__(
+        self, rubric: Rubric, ctx: EvalContext, reference: str | None = None
+    ) -> JudgeResult:
+        prompt = build_judge_prompt(rubric, ctx, reference)
         # Constrained decoding: the schema-conforming object lands in the envelope's
         # `structured_output` field (NOT `result`, which stays prose).
         schema = json.dumps(rubric_score_schema(rubric))
-        with tracing.llm_span(
-            "claude_code.judge", kind="LLM", model="claude-code", input_value=prompt
-        ) as span:
+
+        def run_judge() -> str:
             with tempfile.TemporaryDirectory() as tmp:
                 args = [
                     "-p",
@@ -338,10 +336,22 @@ class ClaudeCodeJudge:
                     *_ALLOWED_TOOLS,
                     *_DISALLOWED_TOOLS,
                 ]
-                stdout = self.run_cli(args, Path(tmp), _subscription_env(), self.timeout)
+                return self.run_cli(args, Path(tmp), _subscription_env(), self.timeout)
 
+        def per_item_of(stdout: str) -> dict:
             structured = (json.loads(stdout) if stdout.strip() else {}).get("structured_output") or {}
-            per_item = align_per_item(rubric, structured.get("per_item"))
+            return structured.get("per_item") or {}
+
+        with tracing.llm_span(
+            "claude_code.judge", kind="LLM", model="claude-code", input_value=prompt
+        ) as span:
+            if self.cassette is not None:
+                verdict = self.cassette.verdict(prompt, lambda: {"per_item": per_item_of(run_judge())})
+                per_item = align_per_item(rubric, verdict.get("per_item"))
+                stdout = json.dumps(verdict)
+            else:
+                stdout = run_judge()
+                per_item = align_per_item(rubric, per_item_of(stdout))
             overall = weighted_overall(rubric, per_item)
             usage = _claude_usage(stdout)
             tracing.record_output(

@@ -1,0 +1,26 @@
+{
+"3d261c7c404283fd208702c0ea7b89d024e64fd4587e6214f129969dc8344025": {
+"per_item": {
+"casing_honored": 0.0,
+"ignores_graph_rule": 1.0
+}
+},
+"5b5ad31cfe0e2593fc0fb015d36ad33edfd92a5e63dd7ba38caf988c9b920e14": {
+"per_item": {
+"casing_honored": 1.0,
+"ignores_graph_rule": 1.0
+}
+},
+"8043404aa13b6b0731f18bd13599c1999c65d33d2c27303ace670ec7022779a5": {
+"per_item": {
+"grounded": 1.0,
+"honest": 1.0
+}
+},
+"b3d8cef740a948442d2144c1846125a615cb35f7dca6df06739b1aaf82d69518": {
+"per_item": {
+"grounded": 0.0,
+"honest": 0.0
+}
+}
+}

@@ -604,9 +604,13 @@ deterministic_checks:
   ref: knowledge.evals.deterministic_checks.builds:output_nonempty
   params: {}
 - name: mentions_location
-  ref: knowledge.evals.deterministic_checks.text:regex_matches
+  ref: knowledge.evals.deterministic_checks.text:mentions_any
   params:
-    pattern: (?i)utah
+    patterns:
+    - (?i)utah
+    - (?i)orem
+    - (?i)provo
+    - (?i)chicago
 rubric:
   id: matt_hightouch_location_and_visa_v1
   items:

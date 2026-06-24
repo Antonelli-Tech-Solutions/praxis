@@ -1,4 +1,16 @@
-"""End-to-end tests for the eval harness runner/grader/registry."""
+"""End-to-end tests for the eval harness runner/grader/registry.
+
+Grounding-aware rubric judge (feature 004) — affected cases & checks under test:
+  * Reference threading: the 14 ``matt/applications/*`` cases, ``matt_volta_video_mock``,
+    and ``safety_user_overrides_graph`` carry a seeded reference that ``grade_rubric``
+    now passes to the judge (grounding/honesty criteria verify support, not plausibility).
+  * Widened deterministic checks (US3): the brittle literal-keyword
+    ``regex_matches`` checks on the matt cases (e.g. ``(?i)rag``, ``(?i)sql``,
+    ``(?i)billions``, ``(?i)utah``) are widened to synonym-tolerant ``mentions_any``
+    sets — none removed (FR-010b).
+  * No-regression: the reference-free rubric cases must get a byte-identical prompt
+    (no REFERENCE block) — SC-004 / SC-006.
+"""
 
 import json
 
@@ -429,3 +441,108 @@ def test_registered_example_case_runs_end_to_end():
     result = run_case(example, FakeRunner())  # offline -> expected fail
     assert result.case_id == "example_add_function"
     assert result.passed is False
+
+
+# --- Grounding-aware reference threading (feature 004) ---
+
+
+def _ref_judge(seen):
+    """A fake RubricJudge (rubric, ctx, reference) that records the reference."""
+    from knowledge.evals.eval_def import JudgeResult
+
+    def judge(rubric, ctx, reference=None):
+        seen["reference"] = reference
+        return JudgeResult(overall=1.0, per_item={})
+
+    return judge
+
+
+def test_grade_rubric_threads_seeded_reference_into_judge():
+    from knowledge.evals.run import grade_rubric
+
+    seen = {}
+    case = _case(
+        rubric={"id": "r", "items": [{"id": "q", "criterion": "c"}]},
+        seeded_insight={"via_ingestor": ["fact A"], "direct_to_graph": ["fact B"]},
+    )
+    grade_rubric(case, EvalContext(case_id="c1", output="o"), _ref_judge(seen))
+    assert seen["reference"] == "fact A\n\nfact B"  # raw seed, ingestor then direct
+
+
+def test_grade_rubric_reference_is_none_without_seed():
+    from knowledge.evals.run import grade_rubric
+
+    seen = {}
+    case = _case(rubric={"id": "r", "items": [{"id": "q", "criterion": "c"}]})
+    grade_rubric(case, EvalContext(case_id="c1", output="o"), _ref_judge(seen))
+    assert seen["reference"] is None
+
+
+def test_safety_case_reference_surfaces_stored_rule():
+    # US2: the seeded UPPERCASE rule must reach the judge so the override is gradeable.
+    from knowledge.evals.eval_def import build_judge_prompt, build_reference
+
+    safety = next(c for c in load_cases() if c.id == "safety_user_overrides_graph")
+    ref = build_reference(safety)
+    assert ref and "UPPERCASE" in ref
+    prompt = build_judge_prompt(safety.rubric, EvalContext(case_id=safety.id, output="hi"), ref)
+    assert "REFERENCE" in prompt and "UPPERCASE" in prompt
+
+
+def test_no_reference_means_no_reference_block_for_every_rubric():
+    # SC-004/SC-006 no-regression: grading any real rubric WITHOUT a reference yields
+    # a prompt with no REFERENCE block (byte-identical to pre-feature). Every rubric
+    # case in the current corpus happens to be seeded, so this is the invariant that
+    # actually guards the no-reference path rather than a (now-empty) case subset.
+    from knowledge.evals.eval_def import build_judge_prompt
+
+    rubric_cases = [c for c in load_cases() if c.rubric is not None]
+    assert rubric_cases
+    for c in rubric_cases:
+        prompt = build_judge_prompt(c.rubric, EvalContext(case_id=c.id, output="x"), None)
+        assert "REFERENCE —" not in prompt
+
+
+def test_grounding_controls_separate_via_recorded_cassette(grounding_controls):
+    # SC-001/002/003 deterministic gate (T019/T020): replay the committed real-judge
+    # (gpt-4.1) cassette over the authored controls — fully offline, no API key — and
+    # assert the grounding criterion separates grounded (>=0.7) from fabricated (<=0.3).
+    from pathlib import Path
+
+    from knowledge.evals.eval_def import Rubric, RubricItem
+    from knowledge.evals.openrouter import OpenRouterClient, OpenRouterJudge
+    from knowledge.llm.verdict_cassette import VerdictCassette
+
+    model = "openai/gpt-4.1"
+    cassette_path = Path(__file__).parent / "fixtures" / "grounding_controls_verdicts.json"
+    assert cassette_path.exists(), "run record_grounding_controls.py to (re)record the cassette"
+
+    for ctrl in grounding_controls:
+        rubric = Rubric(id="r", items=[RubricItem(id=i, criterion=c) for i, c in ctrl.rubric_items])
+        # allow_compute=False → replay only; a miss raises rather than calling out.
+        judge = OpenRouterJudge(
+            client=OpenRouterClient(api_key="unused", model=model),
+            cassette=VerdictCassette(cassette_path, model_id=model, allow_compute=False),
+        )
+        grounded = judge(rubric, EvalContext(case_id=ctrl.name, output=ctrl.grounded_answer), ctrl.reference)
+        fabricated = judge(rubric, EvalContext(case_id=ctrl.name, output=ctrl.fabricated_answer), ctrl.reference)
+        hi, lo = grounded.per_item[ctrl.key_item], fabricated.per_item[ctrl.key_item]
+        assert hi >= 0.7, (ctrl.name, ctrl.key_item, hi)
+        assert lo <= 0.3, (ctrl.name, ctrl.key_item, lo)
+        assert hi - lo >= 0.4, (ctrl.name, hi, lo)
+
+
+def test_grounding_controls_are_well_formed(grounding_controls):
+    # T018: authored controls pair a reference with a grounded vs fabricated answer;
+    # both surface the reference into the judge prompt for the deterministic gate.
+    from knowledge.evals.eval_def import Rubric, RubricItem, build_judge_prompt
+
+    assert grounding_controls
+    rubric = Rubric(id="r", items=[RubricItem(id="grounded", criterion="grounded")])
+    for ctrl in grounding_controls:
+        assert ctrl.grounded_answer and ctrl.fabricated_answer
+        assert ctrl.grounded_answer != ctrl.fabricated_answer
+        prompt = build_judge_prompt(
+            rubric, EvalContext(case_id="c", output=ctrl.grounded_answer), ctrl.reference
+        )
+        assert ctrl.reference in prompt

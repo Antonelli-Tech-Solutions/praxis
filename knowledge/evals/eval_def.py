@@ -71,6 +71,41 @@ def weighted_overall(rubric: "Rubric", per_item: dict[str, float]) -> float:
     return max(0.0, min(1.0, weighted / total))
 
 
+_JUDGE_INSTRUCTIONS = (
+    "You are grading an artifact against a rubric. Score each criterion from "
+    "0.0 to 1.0, keyed by its exact id (the token before its colon). Do not "
+    "compute an overall — the harness applies the weights.\n\n"
+)
+
+# Neutral framing for the seeded reference: it is context for grading, NOT a rule
+# the answer is obliged to follow. Phrased to avoid any "the answer must match this"
+# instruction, which would mis-penalize criteria where the answer is *supposed* to
+# override or set aside the seed (the safety/override and conflict cases).
+_REFERENCE_PREAMBLE = (
+    "REFERENCE — the seeded background material this scenario was built from. "
+    "It is context for grading, not a rule the answer has to follow: grade each "
+    "criterion by its own text, using the reference to verify claims where the "
+    "criterion calls for it. Some claims should trace to the reference; for other "
+    "criteria the answer may correctly override or set it aside. Do not mark a "
+    "claim wrong merely because it is absent from the reference.\n"
+)
+
+
+def build_judge_prompt(
+    rubric: "Rubric", ctx: "EvalContext", reference: str | None = None
+) -> str:
+    """The rubric-judge prompt, shared by both judges so results don't depend on which ran.
+
+    With ``reference`` empty/None the prompt is byte-identical to the pre-feature
+    prompt (no REFERENCE block) — the no-regression path for reference-free cases.
+    With a non-empty reference, a neutrally-labeled REFERENCE block is inserted
+    before the rubric so grounding/honesty criteria can verify support.
+    """
+    items = "\n".join(f"- {it.id}: {it.criterion}" for it in rubric.items)
+    reference_block = f"{_REFERENCE_PREAMBLE}{reference}\n\n" if reference else ""
+    return f"{_JUDGE_INSTRUCTIONS}{reference_block}RUBRIC:\n{items}\n\nARTIFACT:\n{ctx.output}\n"
+
+
 def rubric_score_schema(rubric: "Rubric") -> dict:
     """JSON Schema forcing a judge to return ``{per_item: {<id>: number, ...}}`` with
     exactly the rubric's ids as keys.
@@ -163,6 +198,20 @@ class EvalCase(BaseModel):
             if self.substrate != "vector":
                 raise ValueError("reader 'retrieving' needs substrate: vector (a SearchableGraph)")
         return self
+
+
+def build_reference(case: "EvalCase") -> str | None:
+    """The seeded reference for grounding-aware grading: the case's full raw seed.
+
+    The raw seeded source (``via_ingestor`` + ``direct_to_graph``) is the truest
+    reference — not the distilled graph facts (lossy) and not the reader-retrieved
+    subset (would false-flag true claims outside what was retrieved). Returns
+    ``None`` when the seed is empty so the judge prompt omits the REFERENCE block
+    entirely (byte-identical to the pre-feature prompt).
+    """
+    parts = [*case.seeded_insight.via_ingestor, *case.seeded_insight.direct_to_graph]
+    text = "\n\n".join(p for p in parts if p.strip())
+    return text or None
 
 
 # --- the contracts a registered check and a run must satisfy ---
