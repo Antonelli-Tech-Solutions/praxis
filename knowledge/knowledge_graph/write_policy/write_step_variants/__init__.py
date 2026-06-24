@@ -4,6 +4,10 @@ from knowledge.knowledge_graph.write_policy.write_step_variants.aspect_tagger im
     AspectJudge,
     AspectTagger,
 )
+from knowledge.knowledge_graph.write_policy.write_step_variants.claim_extractor import (
+    ClaimExtractionJudge,
+    ClaimExtractor,
+)
 from knowledge.knowledge_graph.write_policy.write_step_variants.conflict_flagger import (
     ConflictFlagger,
 )
@@ -26,4 +30,6 @@ __all__ = [
     "ConflictOverwriter",
     "AspectTagger",
     "AspectJudge",
+    "ClaimExtractor",
+    "ClaimExtractionJudge",
 ]
