@@ -8,6 +8,10 @@ from knowledge.knowledge_graph.write_policy.write_step_variants.claim_extractor 
     ClaimExtractionJudge,
     ClaimExtractor,
 )
+from knowledge.knowledge_graph.write_policy.write_step_variants.claim_conflict_detector import (
+    ClaimConflictDetector,
+    ClaimValueJudge,
+)
 from knowledge.knowledge_graph.write_policy.write_step_variants.conflict_flagger import (
     ConflictFlagger,
 )
@@ -32,4 +36,6 @@ __all__ = [
     "AspectJudge",
     "ClaimExtractor",
     "ClaimExtractionJudge",
+    "ClaimConflictDetector",
+    "ClaimValueJudge",
 ]
