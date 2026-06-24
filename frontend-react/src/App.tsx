@@ -13,7 +13,7 @@ import { SnapshotManager } from "./components/SnapshotManager";
 import { CandidateTable } from "./components/CandidateTable";
 import {
   ContradictionsReview,
-  uniqueContradictionPairs,
+  contradictionClusters,
 } from "./components/ContradictionsReview";
 import { GraphExplorer } from "./components/graph/GraphExplorer";
 import { McpSetupGuide } from "./components/McpSetupGuide";
@@ -97,7 +97,7 @@ export default function App() {
   );
 
   const contradictionCount = useMemo(
-    () => uniqueContradictionPairs(candidates).length,
+    () => contradictionClusters(candidates).length,
     [candidates],
   );
 

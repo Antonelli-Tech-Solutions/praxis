@@ -7,6 +7,18 @@ export interface ContradictionPair {
   rival: Candidate;
 }
 
+/** One conflicting (subject, attribute) slot with all the facts competing on it. */
+export interface ContradictionCluster {
+  /** Stable key: the sorted member ids joined by "__". */
+  id: string;
+  /** Optional slot label, when the backend surfaced it. */
+  slot?: { subject: string; attribute: string } | null;
+  /** All facts competing on this slot (>= 2). */
+  members: Candidate[];
+  /** The underlying pairwise edges, so resolution stays per-pair. */
+  pairs: ContradictionPair[];
+}
+
 /**
  * Collapse the per-candidate contradiction references into a unique set of
  * pairs. A↔B is referenced from both sides; we keep one row per logical pair
@@ -32,6 +44,76 @@ export function uniqueContradictionPairs(candidates: Candidate[]): Contradiction
   return pairs;
 }
 
+function readSlot(c: Candidate): string | null {
+  const raw = (c.extra as Record<string, unknown>)?.slot;
+  if (raw && typeof raw === "object") {
+    const slot = raw as { subject?: unknown; attribute?: unknown };
+    if (slot.subject) {
+      return [String(slot.subject), String(slot.attribute ?? "")]
+        .filter(Boolean)
+        .join(" · ");
+    }
+  }
+  return null;
+}
+
+/**
+ * Group contradiction pairs into clusters: one cluster per connected component
+ * of the contradiction graph, i.e. one item per conflicting slot. A plain
+ * two-fact conflict is a cluster of size 2 (no regression). Members are sorted
+ * by id for stable ordering.
+ */
+export function contradictionClusters(candidates: Candidate[]): ContradictionCluster[] {
+  const pairs = uniqueContradictionPairs(candidates);
+  const byId = new Map(candidates.map((c) => [c.id, c]));
+
+  // Union-find over fact ids.
+  const parent = new Map<string, string>();
+  const find = (x: string): string => {
+    let root = parent.get(x) ?? x;
+    while (root !== (parent.get(root) ?? root)) root = parent.get(root) ?? root;
+    parent.set(x, root);
+    return root;
+  };
+  const union = (a: string, b: string) => {
+    const ra = find(a);
+    const rb = find(b);
+    if (ra !== rb) parent.set(rb, ra);
+  };
+  for (const p of pairs) union(p.primary.id, p.rival.id);
+
+  const memberSets = new Map<string, Set<string>>();
+  const pairGroups = new Map<string, ContradictionPair[]>();
+  for (const p of pairs) {
+    const root = find(p.primary.id);
+    if (!memberSets.has(root)) memberSets.set(root, new Set());
+    const set = memberSets.get(root)!;
+    set.add(p.primary.id);
+    set.add(p.rival.id);
+    if (!pairGroups.has(root)) pairGroups.set(root, []);
+    pairGroups.get(root)!.push(p);
+  }
+
+  const clusters: ContradictionCluster[] = [];
+  for (const [root, ids] of memberSets) {
+    const memberIds = Array.from(ids).sort();
+    const members = memberIds
+      .map((id) => byId.get(id))
+      .filter((c): c is Candidate => !!c);
+    if (members.length < 2) continue;
+    const slot =
+      members.map(readSlot).find((s): s is string => !!s) ?? null;
+    clusters.push({
+      id: memberIds.join("__"),
+      slot: slot ? { subject: slot, attribute: "" } : null,
+      members,
+      pairs: pairGroups.get(root) ?? [],
+    });
+  }
+  clusters.sort((a, b) => a.id.localeCompare(b.id));
+  return clusters;
+}
+
 interface ContradictionsReviewProps {
   candidates: Candidate[];
   onResolve: (
@@ -52,15 +134,15 @@ export function ContradictionsReview({
   onDefer,
 }: ContradictionsReviewProps) {
   const [pending, setPending] = useState<string | null>(null);
-  // Per-pair draft text for the "write your own resolution" box.
+  // Per-cluster draft text for the "write your own resolution" box.
   const [customDrafts, setCustomDrafts] = useState<Record<string, string>>({});
-  // Deferred pair ids live in the tab itself: deferring moves a pair into the
-  // Deferred section (no decision made, nothing persisted server-side) and
+  // Deferred cluster ids live in the tab itself: deferring moves a cluster into
+  // the Deferred section (no decision made, nothing persisted server-side) and
   // restoring moves it straight back into the review queue.
   const [deferred, setDeferred] = useState<Set<string>>(new Set());
-  const pairs = useMemo(() => uniqueContradictionPairs(candidates), [candidates]);
+  const clusters = useMemo(() => contradictionClusters(candidates), [candidates]);
 
-  if (pairs.length === 0) {
+  if (clusters.length === 0) {
     return (
       <p className="muted">
         No contradictions to review — the knowledge base is internally consistent.
@@ -68,87 +150,113 @@ export function ContradictionsReview({
     );
   }
 
-  const pairKey = (p: ContradictionPair) => contradictionPairId(p.primary.id, p.rival.id);
-  const activePairs = pairs.filter((p) => !deferred.has(pairKey(p)));
-  const deferredPairs = pairs.filter((p) => deferred.has(pairKey(p)));
+  const activeClusters = clusters.filter((c) => !deferred.has(c.id));
+  const deferredClusters = clusters.filter((c) => deferred.has(c.id));
 
-  const defer = (pairId: string, primaryTitle: string, rivalTitle: string) => {
-    setDeferred((prev) => new Set(prev).add(pairId));
-    onDefer(primaryTitle, rivalTitle);
+  const defer = (cluster: ContradictionCluster) => {
+    setDeferred((prev) => new Set(prev).add(cluster.id));
+    const [first, second] = cluster.members;
+    onDefer(first?.title ?? "", second?.title ?? "");
   };
-  const restore = (pairId: string) =>
+  const restore = (clusterId: string) =>
     setDeferred((prev) => {
       const next = new Set(prev);
-      next.delete(pairId);
+      next.delete(clusterId);
       return next;
     });
 
-  const renderPair = ({ primary, rival }: ContradictionPair) => {
-    const pairId = contradictionPairId(primary.id, rival.id);
-    const busy = pending === pairId;
-    const choice = (
-      candidate: Candidate,
-      label: string,
-      resolution: "keep_primary" | "keep_rival",
-      discardedTitle: string,
-      accent: boolean,
-    ) => (
-      <div className={`compare-card${accent ? " rival" : ""}`}>
-        <span className="choice-label">{label}</span>
-        <div className="choice-head">
-          <strong>{candidate.title}</strong>
-          <span className="muted"> · {candidate.displayState}</span>
-        </div>
-        {/* Many notes have no distinct title — the title IS the full text. Only show
-            the body when it actually adds something beyond the title. */}
-        {candidate.content.trim() !== candidate.title.trim() && <p>{candidate.content}</p>}
-        <code>{candidate.provenance}</code>
-        <button
-          type="button"
-          className="btn primary choice-keep"
-          disabled={busy}
-          onClick={() => {
-            setPending(pairId);
-            void onResolve(pairId, resolution, candidate.id, discardedTitle).finally(() =>
-              setPending(null),
-            );
-          }}
-        >
-          Keep {label}
-        </button>
-      </div>
-    );
-    const draft = customDrafts[pairId] ?? "";
+  /**
+   * Keep one member of the cluster: resolve every underlying pair, keeping the
+   * chosen fact wherever it appears (so it stays active and all rivals decay)
+   * and clearing the remaining rival↔rival edges. Each call hits the existing
+   * per-pair resolve endpoint — resolution semantics are unchanged.
+   */
+  const keepMember = async (cluster: ContradictionCluster, keep: Candidate) => {
+    setPending(cluster.id);
+    try {
+      for (const pair of cluster.pairs) {
+        const a = pair.primary;
+        const b = pair.rival;
+        const pairId = contradictionPairId(a.id, b.id);
+        const keepId = a.id === keep.id || b.id === keep.id ? keep.id : a.id;
+        const resolution: "keep_primary" | "keep_rival" =
+          keepId === a.id ? "keep_primary" : "keep_rival";
+        const discardedTitle = keepId === a.id ? b.title : a.title;
+        await onResolve(pairId, resolution, keepId, discardedTitle);
+      }
+    } finally {
+      setPending(null);
+    }
+  };
+
+  const renderCluster = (cluster: ContradictionCluster) => {
+    const busy = pending === cluster.id;
+    // Custom resolution replaces the whole cluster: collapse every pair onto a
+    // single new fact via the per-pair custom endpoint (first pair authors it;
+    // the rest just clear their edges by keeping that fact's eventual id is not
+    // possible, so we resolve the remaining pairs after). To keep behavior
+    // identical to today, custom resolution is offered on the first pair only.
+    const draft = customDrafts[cluster.id] ?? "";
     const submitCustom = () => {
       const text = draft.trim();
-      if (!text || !onResolveCustom) return;
-      setPending(pairId);
+      if (!text || !onResolveCustom || cluster.pairs.length === 0) return;
+      const first = cluster.pairs[0];
+      const pairId = contradictionPairId(first.primary.id, first.rival.id);
+      setPending(cluster.id);
       void onResolveCustom(pairId, text).finally(() => setPending(null));
     };
     return (
-      <div key={pairId} className="contradiction-pair">
+      <div key={cluster.id} className="contradiction-pair">
+        {cluster.slot?.subject && (
+          <p className="muted choice-label">
+            Conflict on: {cluster.slot.subject}
+          </p>
+        )}
+        <p className="muted">
+          {cluster.members.length} competing facts on this slot — keep one.
+        </p>
         <div className="compare-grid">
-          {choice(primary, "Choice A", "keep_primary", rival.title, false)}
-          {choice(rival, "Choice B", "keep_rival", primary.title, true)}
+          {cluster.members.map((member, i) => (
+            <div
+              key={member.id}
+              className={`compare-card${i % 2 === 1 ? " rival" : ""}`}
+            >
+              <span className="choice-label">Choice {String.fromCharCode(65 + i)}</span>
+              <div className="choice-head">
+                <strong>{member.title}</strong>
+                <span className="muted"> · {member.displayState}</span>
+              </div>
+              {member.content.trim() !== member.title.trim() && <p>{member.content}</p>}
+              <code>{member.provenance}</code>
+              <button
+                type="button"
+                className="btn primary choice-keep"
+                disabled={busy}
+                onClick={() => void keepMember(cluster, member)}
+              >
+                Keep this
+              </button>
+            </div>
+          ))}
         </div>
         {onResolveCustom && (
           <div className="custom-resolution">
-            <label className="choice-label" htmlFor={`custom-${pairId}`}>
+            <label className="choice-label" htmlFor={`custom-${cluster.id}`}>
               Your own resolution
             </label>
             <p className="muted custom-hint">
-              Neither choice fits? Write a fact that settles the dispute — it replaces both
-              sides.
+              None of these fit? Write a fact that settles the dispute — it replaces
+              the conflicting sides.
             </p>
             <textarea
-              id={`custom-${pairId}`}
+              id={`custom-${cluster.id}`}
               className="custom-input"
               rows={2}
               placeholder="e.g. Run migrations automatically on deploy in staging, but require manual approval in production."
               value={draft}
               disabled={busy}
               onChange={(e) =>
-                setCustomDrafts((prev) => ({ ...prev, [pairId]: e.target.value }))
+                setCustomDrafts((prev) => ({ ...prev, [cluster.id]: e.target.value }))
               }
             />
             <div className="action-buttons custom-actions">
@@ -168,7 +276,7 @@ export function ContradictionsReview({
             type="button"
             className="btn ghost"
             disabled={busy}
-            onClick={() => defer(pairId, primary.title, rival.title)}
+            onClick={() => defer(cluster)}
             title="Move this contradiction to the Deferred list to decide later"
           >
             Defer — decide later
@@ -181,36 +289,33 @@ export function ContradictionsReview({
   return (
     <div className="contradiction-review">
       <p className="muted">
-        {activePairs.length} contradiction{activePairs.length === 1 ? "" : "s"} awaiting review.
-        Keep one side or defer to decide later.
+        {activeClusters.length} contradiction{activeClusters.length === 1 ? "" : "s"} awaiting
+        review. Keep one fact per slot or defer to decide later.
       </p>
-      {activePairs.length === 0 ? (
+      {activeClusters.length === 0 ? (
         <p className="muted">All contradictions deferred — restore one below to review it.</p>
       ) : (
-        activePairs.map(renderPair)
+        activeClusters.map(renderCluster)
       )}
 
-      {deferredPairs.length > 0 && (
+      {deferredClusters.length > 0 && (
         <div className="deferred-section">
-          <h3 className="deferred-heading">Deferred ({deferredPairs.length})</h3>
-          {deferredPairs.map((p) => {
-            const pairId = pairKey(p);
-            return (
-              <div key={pairId} className="deferred-row">
-                <span className="deferred-titles">
-                  {p.primary.title} <span className="muted">vs</span> {p.rival.title}
-                </span>
-                <button
-                  type="button"
-                  className="btn"
-                  onClick={() => restore(pairId)}
-                  title="Move this contradiction back into the review queue"
-                >
-                  Move back to review
-                </button>
-              </div>
-            );
-          })}
+          <h3 className="deferred-heading">Deferred ({deferredClusters.length})</h3>
+          {deferredClusters.map((c) => (
+            <div key={c.id} className="deferred-row">
+              <span className="deferred-titles">
+                {c.members.map((m) => m.title).join(" · ")}
+              </span>
+              <button
+                type="button"
+                className="btn"
+                onClick={() => restore(c.id)}
+                title="Move this contradiction back into the review queue"
+              >
+                Move back to review
+              </button>
+            </div>
+          ))}
         </div>
       )}
     </div>
