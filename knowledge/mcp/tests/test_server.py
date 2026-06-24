@@ -91,8 +91,19 @@ def test_get_contradictions_formats_pairs(monkeypatch):
                 {
                     "id": "a__b",
                     "status": "pending",
-                    "a": {"id": "a", "content": "logs should be verbose", "state": "active"},
-                    "b": {"id": "b", "content": "logs should be terse", "state": "active"},
+                    "slot": {"subject": "log level", "attribute": "verbosity"},
+                    "members": [
+                        {"id": "a", "content": "logs should be verbose", "state": "active"},
+                        {"id": "b", "content": "logs should be terse", "state": "active"},
+                    ],
+                    "pairs": [
+                        {
+                            "id": "a__b",
+                            "status": "pending",
+                            "a": {"id": "a", "content": "logs should be verbose", "state": "active"},
+                            "b": {"id": "b", "content": "logs should be terse", "state": "active"},
+                        }
+                    ],
                 }
             ]
         )

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import pytest
 
+from knowledge.knowledge_graph.knowledge_graph_def import Claim
 from knowledge.knowledge_graph.write_policy.write_step_variants import Deduper, Redactor
 from knowledge.llm.embedder_variants.fake_embedder import FakeEmbedder
 from knowledge.serve import db
@@ -123,9 +124,11 @@ def test_contradiction_edge_surfaces_pair_and_resolves(facade):
     # no-LLM, so we wire the edge ourselves to exercise the pair path).
     facade.graph.add_edge(a, b, "contradiction")
 
-    pairs = facade.contradictions()
-    assert len(pairs) == 1
-    pair = pairs[0]
+    clusters = facade.contradictions()
+    assert len(clusters) == 1
+    cluster = clusters[0]
+    assert {m["id"] for m in cluster["members"]} == {a, b}
+    pair = cluster["pairs"][0]
     assert pair["id"] == f"{min(a, b)}__{max(a, b)}"
     assert {pair["a"]["id"], pair["b"]["id"]} == {a, b}
 
@@ -140,6 +143,74 @@ def test_contradiction_edge_surfaces_pair_and_resolves(facade):
     assert facade.contradictions() == []
     assert _edge_pairs(facade, "contradicted_by") == {frozenset((a, b))}
     assert _edge_pairs(facade, "contradiction") == set()
+
+
+def _slot_claim(subject: str, attribute: str, value: str) -> Claim:
+    return Claim(subject=subject, attribute=attribute, value=value, functional=True)
+
+
+def test_three_facts_on_one_slot_form_one_cluster(facade):
+    a = facade.create({"title": "A", "content": "Voltaic pile invented in 1799."})["id"]
+    b = facade.create({"title": "B", "content": "Voltaic pile invented in 1800."})["id"]
+    c = facade.create({"title": "C", "content": "Voltaic pile invented in 1801."})["id"]
+    # Same functional slot for all three -> they belong in one cluster.
+    for fid, year in ((a, "1799"), (b, "1800"), (c, "1801")):
+        facade.graph._persist_claims(fid, [_slot_claim("Voltaic pile", "invention year", year)])
+    # Pairwise contradiction edges among the three.
+    facade.graph.add_edge(a, b, "contradiction")
+    facade.graph.add_edge(a, c, "contradiction")
+    facade.graph.add_edge(b, c, "contradiction")
+
+    clusters = facade.contradictions()
+    assert len(clusters) == 1
+    cluster = clusters[0]
+    assert {m["id"] for m in cluster["members"]} == {a, b, c}
+    assert cluster["slot"] == {"subject": "voltaic pile", "attribute": "invention year"}
+    assert {m["value"] for m in cluster["members"]} == {"1799", "1800", "1801"}
+    # Resolving one member keeps it via the existing per-pair resolve endpoint.
+    pair = cluster["pairs"][0]
+    kept_id = pair["a"]["id"]
+    facade.resolve(pair["id"], kept_id)
+    assert facade.get(kept_id)["state"] == "active"
+
+
+def test_two_slots_form_two_clusters(facade):
+    a = facade.create({"title": "A", "content": "Pile invented 1799."})["id"]
+    b = facade.create({"title": "B", "content": "Pile invented 1800."})["id"]
+    c = facade.create({"title": "C", "content": "Use tabs."})["id"]
+    d = facade.create({"title": "D", "content": "Use spaces."})["id"]
+    facade.graph._persist_claims(a, [_slot_claim("pile", "year", "1799")])
+    facade.graph._persist_claims(b, [_slot_claim("pile", "year", "1800")])
+    facade.graph._persist_claims(c, [_slot_claim("indentation", "style", "tabs")])
+    facade.graph._persist_claims(d, [_slot_claim("indentation", "style", "spaces")])
+    facade.graph.add_edge(a, b, "contradiction")
+    facade.graph.add_edge(c, d, "contradiction")
+
+    clusters = facade.contradictions()
+    assert len(clusters) == 2
+    member_sets = sorted([{m["id"] for m in cl["members"]} for cl in clusters], key=sorted)
+    assert {a, b} in member_sets
+    assert {c, d} in member_sets
+
+
+def test_single_pair_is_cluster_of_two(facade):
+    a = facade.create({"title": "A", "content": "Use tabs for indentation."})["id"]
+    b = facade.create({"title": "B", "content": "Use spaces for indentation."})["id"]
+    facade.graph.add_edge(a, b, "contradiction")
+
+    clusters = facade.contradictions()
+    assert len(clusters) == 1
+    cluster = clusters[0]
+    assert {m["id"] for m in cluster["members"]} == {a, b}
+    # No claims stored -> no slot, degrades to a per-pair cluster.
+    assert cluster["slot"] is None
+    assert len(cluster["pairs"]) == 1
+
+    # Resolving the single underlying pair uses the existing endpoint.
+    kept = facade.resolve(cluster["pairs"][0]["id"], a)
+    assert kept["id"] == a and kept["state"] == "active"
+    assert facade.get(b)["state"] == "rejected"
+    assert facade.contradictions() == []
 
 
 def test_resolve_custom_rejects_both_and_creates_active(facade):

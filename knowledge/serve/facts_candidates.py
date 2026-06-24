@@ -24,7 +24,7 @@ from knowledge.knowledge_graph.knowledge_graph_variants.postgres_vector_graph im
     PostgresVectorGraph,
     default_write_policy,
 )
-from knowledge.serve.contradiction_adapter import serialize_pairs
+from knowledge.serve.contradiction_adapter import serialize_clusters, serialize_pairs
 from knowledge.serve.pipeline_adapter import fact_to_candidate
 
 Candidate = dict[str, Any]
@@ -283,11 +283,48 @@ class FactsCandidates:
         self.graph.delete_fact(cid)
 
     # --- contradictions ----------------------------------------------------
+    def _slot_info(self, fact_ids: list[str]) -> dict[str, tuple[tuple[str, str], str]]:
+        """Map each fact id to its functional claim's ((subject, attribute), value).
+
+        Reads slots from the claims table (PostgresVectorGraph.claims_for) when
+        available, otherwise from in-memory ``Fact.claims`` (VectorGraph). Facts
+        with no functional claim are omitted, so clustering degrades gracefully to
+        per-pair clusters when no claims exist.
+        """
+        out: dict[str, tuple[tuple[str, str], str]] = {}
+        claims_for = getattr(self.graph, "claims_for", None)
+        for fid in fact_ids:
+            claims = None
+            if callable(claims_for):
+                try:
+                    claims = claims_for(fid)
+                except Exception:
+                    claims = None
+            if claims is None:
+                fact = self.graph.get_fact(fid)
+                claims = getattr(fact, "claims", None) if fact is not None else None
+            for claim in claims or []:
+                if getattr(claim, "functional", False):
+                    out[fid] = (claim.slot, claim.value)
+                    break
+        return out
+
     def contradictions(self) -> list[Candidate]:
-        """Global pending-contradictions view (FR-013a): pairs where at least one
-        side is still pending (a ``contradiction`` edge). Resolved pairs are
-        discoverable per-fact but drop out of this list."""
-        return serialize_pairs(self.list(), status_filter="pending")
+        """Clustered pending-contradictions view (FR-013a): one item per conflicting
+        claim slot, restricted to pairs where at least one side is still pending.
+
+        Each cluster lists its competing member facts (with their value on the
+        slot) and the underlying pairwise ``pairs`` — so the per-pair resolve
+        endpoint keeps working unchanged. A 2-fact conflict is a cluster of 2.
+        Resolved pairs are discoverable per-fact but drop out of this list.
+        """
+        candidates = self.list()
+        pairs = serialize_pairs(candidates, status_filter="pending")
+        member_ids = sorted(
+            {side["id"] for p in pairs for side in (p["a"], p["b"])}
+        )
+        slot_info = self._slot_info(member_ids)
+        return serialize_clusters(candidates, slot_info, status_filter="pending")
 
     def resolve(self, pair_id: str, keep_id: str) -> Candidate:
         a, _, b = pair_id.partition("__")

@@ -21,13 +21,15 @@ import uuid
 import psycopg
 from pgvector import Vector
 
-from knowledge.knowledge_graph.knowledge_graph_def import Fact, SearchHit
+from knowledge.knowledge_graph.knowledge_graph_def import Claim, Fact, SearchHit
 from knowledge.knowledge_graph.parent_searchable_graph import SearchableGraph
 from knowledge.knowledge_graph.write_policy.parent_write_step import WriteStep
-from knowledge.knowledge_graph.write_policy.write_policy_def import WriteDecision
+from knowledge.knowledge_graph.write_policy.write_policy_def import ClaimHit, WriteDecision
 from knowledge.knowledge_graph.write_policy.write_step_variants import (
-    ConflictFlagger,
-    ConflictJudge,
+    ClaimConflictDetector,
+    ClaimExtractionJudge,
+    ClaimExtractor,
+    ClaimValueJudge,
     Deduper,
     Redactor,
 )
@@ -59,14 +61,28 @@ _FACT_COPY_COLS = (
     "observation_count, state, embedding, cluster_id, cluster_label, meta, created_at"
 )
 
+# Columns copied verbatim between `claims` and `cached_claims` (cache_key stamped
+# per copy). Keeps extracted claims in snapshots/eval cache losslessly.
+_CLAIM_COPY_COLS = (
+    "org_id, user_id, fact_id, seq, subject, attribute, value, functional, created_at"
+)
+
 
 def default_write_policy(llm: Llm | None = None) -> list[WriteStep]:
-    """The baseline pipeline: redact, then dedup, then conflict-flag.
+    """The baseline pipeline: redact, dedup, extract claims, then detect conflicts.
 
-    Mirrors ``VectorGraph``'s default; the forced-overwrite add path injects a
-    ``ConflictOverwriter`` policy instead.
+    The structural contradiction path: ``ClaimExtractor`` decomposes the write into
+    (subject, attribute, value) claims and ``ClaimConflictDetector`` flags
+    same-functional-slot value clashes. Mirrors ``VectorGraph``'s default; the
+    forced-overwrite add path injects a ``ConflictOverwriter`` policy instead.
     """
-    return [Redactor(), Deduper(), ConflictFlagger(judge=ConflictJudge(llm=llm or OpenRouterLlm()))]
+    base = llm or OpenRouterLlm()
+    return [
+        Redactor(),
+        Deduper(),
+        ClaimExtractor(judge=ClaimExtractionJudge(llm=base)),
+        ClaimConflictDetector(judge=ClaimValueJudge(llm=base)),
+    ]
 
 
 def _fit(vec: list[float]) -> Vector:
@@ -117,6 +133,10 @@ class PostgresVectorGraph(SearchableGraph):
             raise ValueError("cache_key must be None for the live facts tables")
         self._facts_table = facts_table
         self._edges_table = edges_table
+        # The claims table tracks the facts table: live facts -> `claims`,
+        # cached facts -> `cached_claims`. Not caller-controlled, so no allowlist
+        # check is needed beyond the facts_table validation above.
+        self._claims_table = "cached_claims" if is_cache else "claims"
         self._cache_key = cache_key
         self._conn = conn
         self.org_id = org_id
@@ -188,9 +208,13 @@ class PostgresVectorGraph(SearchableGraph):
         decision.scope = scope
         decision.category = category
         decision.meta = meta or {}
+        claim_recalled = False
         for step in self.policy:
             if step.consumes_candidates and decision.embedding is None:
                 self._recall(decision)  # embed once + one shared candidate pass
+            if step.consumes_claim_candidates and not claim_recalled:
+                self._recall_claims(decision)  # slot recall, after ClaimExtractor ran
+                claim_recalled = True
             step.apply(decision)
         if decision.dropped:
             return None
@@ -221,6 +245,52 @@ class PostgresVectorGraph(SearchableGraph):
             conflict_id = flag.split(":", 1)[1]
             if conflict_id and conflict_id != fact_id:
                 self.add_edge(fact_id, conflict_id, "contradiction")
+
+    def _persist_claims(self, fact_id: str, claims: list[Claim]) -> None:
+        """Replace the stored claims for ``fact_id`` with ``claims``.
+
+        Delete-then-insert so a rewritten fact's claims stay in sync. Subject and
+        attribute are stored normalized (the slot index matches on them); value is
+        raw. Cache-bound graphs stamp the bound ``cache_key``.
+        """
+        cache_cols = ["cache_key"] if self._cache_key is not None else []
+        del_sql = (
+            f"DELETE FROM {self._claims_table} "
+            "WHERE org_id=%s AND user_id=%s AND fact_id=%s"
+        )
+        del_params: list[object] = [self.org_id, self.user_id, fact_id]
+        if self._cache_key is not None:
+            del_sql += " AND cache_key=%s"
+            del_params.append(self._cache_key)
+        self._conn.execute(del_sql, del_params)
+        for seq, c in enumerate(claims):
+            cols = ["org_id", "user_id", *cache_cols, "fact_id", "seq",
+                    "subject", "attribute", "value", "functional"]
+            vals: list[object] = [self.org_id, self.user_id]
+            if self._cache_key is not None:
+                vals.append(self._cache_key)
+            vals += [fact_id, seq, Claim.norm(c.subject), Claim.norm(c.attribute),
+                     c.value, c.functional]
+            placeholders = ", ".join(["%s"] * len(vals))
+            self._conn.execute(
+                f"INSERT INTO {self._claims_table} ({', '.join(cols)}) "
+                f"VALUES ({placeholders}) ON CONFLICT DO NOTHING",
+                vals,
+            )
+
+    def claims_for(self, fact_id: str) -> list[Claim]:
+        """Stored claims for one fact, in seq order."""
+        sql = (
+            f"SELECT subject, attribute, value, functional FROM {self._claims_table} "
+            "WHERE org_id=%s AND user_id=%s AND fact_id=%s"
+        )
+        params: list[object] = [self.org_id, self.user_id, fact_id]
+        if self._cache_key is not None:
+            sql += " AND cache_key=%s"
+            params.append(self._cache_key)
+        sql += " ORDER BY seq"
+        rows = self._conn.execute(sql, params).fetchall()
+        return [Claim(subject=r[0], attribute=r[1], value=r[2], functional=r[3]) for r in rows]
 
     # --- SearchableGraph contract ------------------------------------------
     def search(
@@ -578,6 +648,9 @@ class PostgresVectorGraph(SearchableGraph):
             "DELETE FROM cached_fact_edges WHERE org_id=%s AND user_id=%s AND cache_key=%s", tenant
         )
         self._conn.execute(
+            "DELETE FROM cached_claims WHERE org_id=%s AND user_id=%s AND cache_key=%s", tenant
+        )
+        self._conn.execute(
             "DELETE FROM cached_facts WHERE org_id=%s AND user_id=%s AND cache_key=%s", tenant
         )
         self._conn.execute(
@@ -589,6 +662,11 @@ class PostgresVectorGraph(SearchableGraph):
             "INSERT INTO cached_fact_edges (org_id, user_id, cache_key, src_id, dst_id, kind) "
             "SELECT org_id, user_id, %s, src_id, dst_id, kind FROM fact_edges "
             "WHERE org_id=%s AND user_id=%s",
+            (cache_key, self.org_id, self.user_id),
+        )
+        self._conn.execute(
+            f"INSERT INTO cached_claims ({_CLAIM_COPY_COLS}, cache_key) "
+            f"SELECT {_CLAIM_COPY_COLS}, %s FROM claims WHERE org_id=%s AND user_id=%s",
             (cache_key, self.org_id, self.user_id),
         )
         row = self._conn.execute(
@@ -616,6 +694,9 @@ class PostgresVectorGraph(SearchableGraph):
             "DELETE FROM fact_edges WHERE org_id=%s AND user_id=%s", (self.org_id, self.user_id)
         )
         self._conn.execute(
+            "DELETE FROM claims WHERE org_id=%s AND user_id=%s", (self.org_id, self.user_id)
+        )
+        self._conn.execute(
             "DELETE FROM facts WHERE org_id=%s AND user_id=%s", (self.org_id, self.user_id)
         )
         if keys:
@@ -628,6 +709,12 @@ class PostgresVectorGraph(SearchableGraph):
             self._conn.execute(
                 "INSERT INTO fact_edges (org_id, user_id, src_id, dst_id, kind) "
                 "SELECT org_id, user_id, src_id, dst_id, kind FROM cached_fact_edges "
+                "WHERE org_id=%s AND user_id=%s AND cache_key = ANY(%s)",
+                (self.org_id, self.user_id, keys),
+            )
+            self._conn.execute(
+                f"INSERT INTO claims ({_CLAIM_COPY_COLS}) "
+                f"SELECT {_CLAIM_COPY_COLS} FROM cached_claims "
                 "WHERE org_id=%s AND user_id=%s AND cache_key = ANY(%s)",
                 (self.org_id, self.user_id, keys),
             )
@@ -674,6 +761,14 @@ class PostgresVectorGraph(SearchableGraph):
         self._conn.execute(
             "INSERT INTO fact_edges (org_id, user_id, src_id, dst_id, kind) "
             "SELECT org_id, user_id, src_id, dst_id, kind FROM cached_fact_edges "
+            "WHERE org_id=%s AND user_id=%s AND cache_key = ANY(%s)",
+            tenant_keys,
+        )
+        # Claims for the dropped fact ids cascaded on the facts delete above; refill
+        # them from the cache (a re-added eval replaces its own claim rows).
+        self._conn.execute(
+            f"INSERT INTO claims ({_CLAIM_COPY_COLS}) "
+            f"SELECT {_CLAIM_COPY_COLS} FROM cached_claims "
             "WHERE org_id=%s AND user_id=%s AND cache_key = ANY(%s)",
             tenant_keys,
         )
@@ -735,6 +830,41 @@ class PostgresVectorGraph(SearchableGraph):
         hits = self._search_vec(_fit(decision.embedding), top_k=self.recall_k, state=None)
         decision.candidates = [h for h in hits if h.score >= self.recall_floor]
 
+    def _recall_claims(self, decision: WriteDecision) -> None:
+        """Fill ``decision.claim_candidates`` via the functional (subject, attribute) slot.
+
+        For each functional claim on the incoming write, find existing facts that
+        hold a functional claim on the same normalized slot (index ``claims_slot``).
+        Only functional slots are considered — multi-valued attributes never conflict.
+        """
+        slots = {c.slot for c in decision.claims if c.functional}
+        if not slots:
+            return
+        subjects = [s for s, _ in slots]
+        attributes = [a for _, a in slots]
+        sql = (
+            "SELECT c.subject, c.attribute, c.value, f.id, f.text, f.state "
+            f"FROM {self._claims_table} c "
+            f"JOIN {self._facts_table} f ON f.org_id=c.org_id AND f.user_id=c.user_id "
+            "AND f.id=c.fact_id "
+            "WHERE c.org_id=%s AND c.user_id=%s AND c.functional "
+            "AND (c.subject, c.attribute) IN (SELECT unnest(%s::text[]), unnest(%s::text[]))"
+        )
+        params: list[object] = [self.org_id, self.user_id, subjects, attributes]
+        if self._cache_key is not None:
+            sql += " AND c.cache_key=%s AND f.cache_key=%s"
+            params.extend([self._cache_key, self._cache_key])
+        rows = self._conn.execute(sql, params).fetchall()
+        decision.claim_candidates = [
+            ClaimHit(
+                fact=SearchHit(fact=Fact(id=r[3], text=r[4], state=r[5]), score=1.0),
+                subject=r[0],
+                attribute=r[1],
+                value=r[2],
+            )
+            for r in rows
+        ]
+
     # --- internals ----------------------------------------------------------
     def _embed(self, text: str) -> list[float]:
         with tracing.llm_span("embed", kind="EMBEDDING", input_value=text) as span:
@@ -783,6 +913,7 @@ class PostgresVectorGraph(SearchableGraph):
             f"INSERT INTO {self._facts_table} ({', '.join(cols)}) VALUES ({placeholders})",
             vals,
         )
+        self._persist_claims(fact_id, decision.claims)
         return fact_id
 
     def _merge(self, decision: WriteDecision) -> None:
@@ -797,14 +928,14 @@ class PostgresVectorGraph(SearchableGraph):
     def _overwrite(self, decision: WriteDecision) -> str:
         """Non-destructive resolution of an approved contradiction (FR-003/FR-005).
 
-        The approved fact is added fresh (a normal ``_add`` at ``decision.state``);
-        every contradicting fact — the nearest (``update_target_id``) and the rest
-        (``supersede_ids``) — is treated uniformly as a loser: set ``rejected`` with
-        its ``text``/``embedding`` left untouched, and linked to the new fact with a
-        ``contradicted_by`` edge. No loser's content is destroyed (SC-001) and, since
-        every loser is rejected, no contradicting pair is left both ``active`` (SC-002).
-        Only the direct losers of *this* write change state — no cascade (FR-009).
-        Returns the new fact's id.
+        The approved fact is added fresh (a normal ``_add`` at ``decision.state``,
+        which also persists its extracted claims); every contradicting fact — the
+        nearest (``update_target_id``) and the rest (``supersede_ids``) — is treated
+        uniformly as a loser: set ``rejected`` with its ``text``/``embedding`` left
+        untouched, and linked to the new fact with a ``contradicted_by`` edge. No
+        loser's content is destroyed (SC-001) and, since every loser is rejected, no
+        contradicting pair is left both ``active`` (SC-002). Only the direct losers
+        of *this* write change state — no cascade (FR-009). Returns the new fact's id.
         """
         fact_id = self._add(decision)
         losers = [decision.update_target_id, *decision.supersede_ids]

@@ -150,14 +150,26 @@ def praxis_get_contradictions() -> str:
         resp.raise_for_status()
     except httpx.HTTPStatusError as exc:
         return _friendly(exc)
-    pairs = resp.json()
-    if not pairs:
+    clusters = resp.json()
+    if not clusters:
         return "No contradictions are currently flagged."
-    lines = [f"{len(pairs)} contradiction(s) flagged:"]
-    for p in pairs:
-        lines.append(f"\n[{p.get('id')}]  ({p.get('status', 'pending')})")
-        lines.append(_fmt_side("A", p.get("a", {})))
-        lines.append(_fmt_side("B", p.get("b", {})))
+    lines = [f"{len(clusters)} contradiction(s) flagged:"]
+    for c in clusters:
+        slot = c.get("slot") or {}
+        slot_label = (
+            f" on {slot.get('subject')}/{slot.get('attribute')}"
+            if slot.get("subject")
+            else ""
+        )
+        members = c.get("members") or []
+        lines.append(
+            f"\n[{c.get('id')}]  ({c.get('status', 'pending')}){slot_label}"
+            f" — {len(members)} competing fact(s)"
+        )
+        for i, m in enumerate(members):
+            lines.append(_fmt_side(chr(ord("A") + i), m))
+        for p in c.get("pairs") or []:
+            lines.append(f"    resolve pair id: {p.get('id')}")
     return "\n".join(lines)
 
 
