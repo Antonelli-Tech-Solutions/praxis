@@ -133,7 +133,7 @@ description: "Task list for REJECTED state + retained-contradiction lifecycle"
 
 ### Tests (write first, must fail)
 
-- [ ] T032 [P] [US2] Update the frontend contract/fixture tests for the renamed state value and the new response fields (`status`, `hasOtherContradictions`) in `frontend-react/src/api/contract.test.ts` and `frontend-react/src/api/contractFixtures.test.ts` (Principle III).
+- [X] T032 [P] [US2] Update the frontend contract/fixture tests for the renamed state value and the new response fields (`status`, `hasOtherContradictions`) in `frontend-react/src/api/contract.test.ts` and `frontend-react/src/api/contractFixtures.test.ts` (Principle III).
 
 ### Implementation — rename (FR-001, SC-006)
 
@@ -142,10 +142,10 @@ description: "Task list for REJECTED state + retained-contradiction lifecycle"
 
 ### Implementation — contradiction review UX
 
-- [ ] T035 [P] [US2] Update `frontend-react/src/components/ContradictionPanel.tsx` to show each contradictor with its `state` + pending/resolved `status` and exactly one state-gated action: "Reject" for active/proposed, "Approve" for rejected (FR-013).
-- [ ] T036 [P] [US2] Update `frontend-react/src/components/ContradictionsReview.tsx` to render the global pending-contradictions view from `GET /contradictions` (FR-013a).
-- [ ] T037 [US2] Show the review notice when an action returns `hasOtherContradictions: true` (link to the affected fact), and refresh affected facts after each action without a manual reload (FR-008, FR-017, SC-007).
-- [ ] T038 [P] [US3] Handle the 409 on delete-of-active using the existing `ApiConflictError { statusCode: 409 }` and show "reject the fact first" guidance (the delete call site / its colocated test in `frontend-react/src/api/`).
+- [X] T035 [P] [US2] Update `frontend-react/src/components/ContradictionPanel.tsx` to show each contradictor with its `state` + pending/resolved `status` and exactly one state-gated action: "Reject" for active/proposed, "Approve" for rejected (FR-013).
+- [X] T036 [P] [US2] Update `frontend-react/src/components/ContradictionsReview.tsx` to render the global pending-contradictions view from `GET /contradictions` (FR-013a).
+- [X] T037 [US2] Show the review notice when an action returns `hasOtherContradictions: true` (link to the affected fact), and refresh affected facts after each action without a manual reload (FR-008, FR-017, SC-007).
+- [X] T038 [P] [US3] Handle the 409 on delete-of-active using the existing `ApiConflictError { statusCode: 409 }` and show "reject the fact first" guidance (the delete call site / its colocated test in `frontend-react/src/api/`).
 
 **Checkpoint**: All three user stories are functional end-to-end.
 

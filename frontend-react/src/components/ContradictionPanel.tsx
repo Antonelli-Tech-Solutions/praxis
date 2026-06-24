@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { contradictionPairId } from "../api/contract";
-import { nextPromotionState } from "../api/candidateModel";
+import { contradictionStatusFor } from "../api/candidateModel";
 import type { Candidate } from "../types/candidate";
 import { StateBadge } from "./StateBadge";
 
@@ -15,16 +15,14 @@ interface ContradictionPanelProps {
   ) => Promise<void>;
   onPromote: (id: string) => Promise<void>;
   onReject: (id: string, reason?: string) => Promise<void>;
-  onDefer: (primaryTitle: string, rivalTitle: string) => void;
+  onDelete: (id: string) => Promise<void> | void;
 }
 
 export function ContradictionPanel({
   candidate,
   peersById,
   onResolve,
-  onPromote,
-  onReject,
-  onDefer,
+  onDelete,
 }: ContradictionPanelProps) {
   const [pending, setPending] = useState<string | null>(null);
   const rivals = candidate.contradictionIds
@@ -44,6 +42,7 @@ export function ContradictionPanel({
       <h4>Facts contradicted by this fact</h4>
       {rivals.map((rival) => {
         const pairId = contradictionPairId(candidate.id, rival.id);
+        const status = contradictionStatusFor(candidate, rival.id) ?? "pending";
         return (
           <div key={pairId} className="contradiction-pair">
             <div className="compare-grid">
@@ -60,98 +59,54 @@ export function ContradictionPanel({
                 <code>{rival.provenance}</code>
               </div>
             </div>
+            <span className={`contradiction-status contradiction-status--${status}`}>
+              {status === "resolved" ? "Resolved" : "Pending"}
+            </span>
             <div className="action-buttons">
-              {nextPromotionState(candidate.state) ? (
-                <button
-                  type="button"
-                  className="btn primary"
-                  disabled={pending === `${pairId}:approve-current`}
-                  onClick={() => {
-                    setPending(`${pairId}:approve-current`);
-                    void onPromote(candidate.id).finally(() => setPending(null));
-                  }}
-                >
-                  Approve this fact
-                </button>
-              ) : null}
-              {candidate.state !== "rejected" ? (
-                <button
-                  type="button"
-                  className="btn decay"
-                  disabled={pending === `${pairId}:reject-current`}
-                  onClick={() => {
-                    setPending(`${pairId}:reject-current`);
-                    void onReject(candidate.id, `Contradicts ${rival.title}`).finally(() =>
-                      setPending(null),
-                    );
-                  }}
-                >
-                  Reject this fact
-                </button>
-              ) : null}
-              {nextPromotionState(rival.state) ? (
-                <button
-                  type="button"
-                  className="btn primary"
-                  disabled={pending === `${pairId}:approve-rival`}
-                  onClick={() => {
-                    setPending(`${pairId}:approve-rival`);
-                    void onPromote(rival.id).finally(() => setPending(null));
-                  }}
-                >
-                  Approve rival
-                </button>
-              ) : null}
-              {rival.state !== "rejected" ? (
+              {rival.state === "rejected" ? (
+                <>
+                  <button
+                    type="button"
+                    className="btn primary"
+                    disabled={pending === `${pairId}:approve-rival`}
+                    onClick={() => {
+                      setPending(`${pairId}:approve-rival`);
+                      void onResolve(pairId, "keep_rival", rival.id, rival.title).finally(
+                        () => setPending(null),
+                      );
+                    }}
+                  >
+                    Approve
+                  </button>
+                  <button
+                    type="button"
+                    className="btn"
+                    disabled={pending === `${pairId}:delete-rival`}
+                    onClick={() => {
+                      setPending(`${pairId}:delete-rival`);
+                      void Promise.resolve(onDelete(rival.id)).finally(() =>
+                        setPending(null),
+                      );
+                    }}
+                  >
+                    Delete
+                  </button>
+                </>
+              ) : (
                 <button
                   type="button"
                   className="btn decay"
                   disabled={pending === `${pairId}:reject-rival`}
                   onClick={() => {
                     setPending(`${pairId}:reject-rival`);
-                    void onReject(rival.id, `Contradicted by ${candidate.title}`).finally(() =>
-                      setPending(null),
+                    void onResolve(pairId, "keep_primary", candidate.id, rival.title).finally(
+                      () => setPending(null),
                     );
                   }}
                 >
-                  Reject rival
+                  Reject
                 </button>
-              ) : null}
-              <button
-                type="button"
-                className="btn primary"
-                disabled={pending === pairId}
-                onClick={() => {
-                  setPending(pairId);
-                  void onResolve(pairId, "keep_primary", candidate.id, rival.title).finally(
-                    () => setPending(null),
-                  );
-                }}
-              >
-                Keep this candidate
-              </button>
-              <button
-                type="button"
-                className="btn"
-                disabled={pending === pairId}
-                onClick={() => {
-                  setPending(pairId);
-                  void onResolve(pairId, "keep_rival", rival.id, rival.title).finally(
-                    () => setPending(null),
-                  );
-                }}
-              >
-                Keep {rival.title.length > 28 ? `${rival.title.slice(0, 28)}…` : rival.title}
-              </button>
-              <button
-                type="button"
-                className="btn ghost"
-                onClick={() => onDefer(candidate.title, rival.title)}
-                aria-label={`Defer contradiction between ${candidate.title} and ${rival.title}`}
-                title="Leave both candidates in queue for later review"
-              >
-                Defer
-              </button>
+              )}
             </div>
           </div>
         );

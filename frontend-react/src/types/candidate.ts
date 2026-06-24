@@ -21,6 +21,13 @@ export interface AuditEntry {
   note?: string;
 }
 
+export type ContradictionStatus = "pending" | "resolved";
+
+export interface ContradictionLink {
+  id: string;
+  status: ContradictionStatus;
+}
+
 export interface CandidateWriteInput {
   title: string;
   content: string;
@@ -39,6 +46,7 @@ export interface Candidate {
   createdAt: string;
   confidenceBreakdown?: ConfidenceBreakdown;
   contradictionIds: string[];
+  contradictions: ContradictionLink[];
   auditTrail: AuditEntry[];
   extra: Record<string, unknown>;
 }

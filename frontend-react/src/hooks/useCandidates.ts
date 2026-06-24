@@ -117,6 +117,7 @@ export function useCandidates(options: UseCandidatesOptions) {
       const affectedIds = Array.from(new Set(contradictionId.split("__")));
       await Promise.all(affectedIds.map((id) => refreshCandidateFromProvider(id)));
       setLastAction(`Resolved contradiction — kept ${keepId} over ${rivalTitle}.`);
+      return updated;
     },
     [provider, applyCandidate, refreshCandidateFromProvider],
   );
