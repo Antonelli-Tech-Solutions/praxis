@@ -127,6 +127,11 @@ class ClaimConflictDetector(WriteStep):
     def _incompatible(self, slot: tuple[str, str], a: str, b: str) -> bool:
         if _norm(a) == _norm(b):
             return False  # same value -> agreement
+        if slot[1] == "stance":
+            # A stance value is constrained to one of the axis's two named poles, so
+            # two *different* poles are opposing by construction — a deterministic
+            # clash needing no value judge (the axis subject already encodes the poles).
+            return True
         an, bn = _numeric_tokens(a), _numeric_tokens(b)
         if an and bn:
             # Both carry numbers: a clear, deterministic clash (e.g. 1799 vs 1800)

@@ -39,12 +39,66 @@ _PROMPT = (
     "subject (a birth year, an event's year, a nationality) -> a different value is a "
     "contradiction. false if it is naturally MULTI-valued (a person's discoveries, "
     "roles held over time, a list of metals) -> different values coexist.\n"
+    "\n"
     "Emit only claims actually asserted; keep attributes specific so unrelated facts "
-    "don't collide. Return an empty list if the note makes no checkable claim.\n"
+    "don't collide. Return an empty claims list if the note makes no checkable claim.\n"
     "NOTE: {note}"
 )
 
-# Structured output: a list of claim objects.
+# A dedicated, single-task stance classifier. Folding this into the big extraction
+# prompt diluted it (poor recall on paraphrases); a focused call that does ONE thing
+# — map the note onto a controlled tradeoff axis + pole, or 'none' — recalls reliably,
+# which is what lets two differently-worded notes collide on the same axis slot.
+_STANCE_PROMPT = (
+    "Does the NOTE advocate a side of any of these software-engineering TRADEOFF "
+    "AXES? Decide by MEANING, not wording — paraphrases, metaphors, and indirect "
+    "phrasings about the same tradeoff map to the SAME axis. Set ``axis`` to the best "
+    "match and ``pole`` to the side favored (one of that axis's two poles), or set "
+    "``axis`` to 'none' if the note expresses no such preference.\n"
+    "{axes}"
+    "Examples (note -> axis, pole):\n"
+    "  'squeeze every cycle even if the code gets gnarly' -> axis:performance-vs-readability, performance\n"
+    "  'keep it easy for a newcomer to follow even if slower' -> axis:performance-vs-readability, readability\n"
+    "  'instrument everything, you can't have too much insight' -> axis:logging-verbose-vs-minimal, verbose\n"
+    "  'emit as little chatter as possible' -> axis:logging-verbose-vs-minimal, minimal\n"
+    "  'write a guide explaining each module' -> axis:documentation-explicit-vs-self-documenting, explicit\n"
+    "  'lean on expressive names so code needs no docs' -> axis:documentation-explicit-vs-self-documenting, self-documenting\n"
+    "  'halt loudly the moment something looks wrong' -> axis:error-fail-fast-vs-fail-safe, fail-fast\n"
+    "  'swallow the hiccup and return a safe default' -> axis:error-fail-fast-vs-fail-safe, fail-safe\n"
+    "  'hoist shared logic into a reusable layer' -> axis:abstraction-vs-directness, abstraction\n"
+    "  'spell each path out inline, copy-paste beats machinery' -> axis:abstraction-vs-directness, directness\n"
+    "  'test thoroughly before shipping' -> axis:testing-rigor-vs-speed, testing-rigor\n"
+    "  'ship fast, skip the exhaustive tests' -> axis:testing-rigor-vs-speed, speed\n"
+    "  'keep every knob in one central place' -> axis:config-centralized-vs-colocated, centralized\n"
+    "  'put each setting beside the code that reads it' -> axis:config-centralized-vs-colocated, colocated\n"
+    "  'reach for a battle-tested library' -> axis:dependency-library-vs-diy, library\n"
+    "  'roll your own to avoid the dependency' -> axis:dependency-library-vs-diy, diy\n"
+    "NOTE: {note}"
+)
+
+# Controlled vocabulary of tradeoff axes for STANCE claims. Closed-ish list forces
+# differently-phrased notes about the same tradeoff onto the SAME axis subject (the
+# canonicalization the recall step needs); the model may fall back to a free
+# 'axis:<a>-vs-<b>' when nothing fits. Each entry is (axis-subject, pole_a, pole_b).
+AXIS_VOCAB: list[tuple[str, str, str]] = [
+    ("axis:performance-vs-readability", "performance", "readability"),
+    ("axis:abstraction-vs-directness", "abstraction", "directness"),
+    ("axis:testing-rigor-vs-speed", "testing-rigor", "speed"),
+    ("axis:dependency-library-vs-diy", "library", "diy"),
+    ("axis:config-centralized-vs-colocated", "centralized", "colocated"),
+    ("axis:error-fail-fast-vs-fail-safe", "fail-fast", "fail-safe"),
+    ("axis:documentation-explicit-vs-self-documenting", "explicit", "self-documenting"),
+    ("axis:logging-verbose-vs-minimal", "verbose", "minimal"),
+]
+_AXES_BLOCK = "".join(
+    f"      {subj}  (poles: {a} | {b})\n" for subj, a, b in AXIS_VOCAB
+)
+# Enum of axis subjects (+ "none") for the schema-constrained stance field. The
+# enum is what actually forces canonicalization — the model must pick a listed
+# axis, so two differently-phrased notes on the same tradeoff land on one slot.
+_AXIS_ENUM = [subj for subj, _, _ in AXIS_VOCAB] + ["none"]
+
+# Structured output: atomic claims plus an enum-constrained stance.
 _SCHEMA = {
     "type": "json_schema",
     "json_schema": {
@@ -74,6 +128,24 @@ _SCHEMA = {
     },
 }
 
+# Dedicated stance schema: axis constrained to the controlled vocab (or "none").
+_STANCE_SCHEMA = {
+    "type": "json_schema",
+    "json_schema": {
+        "name": "stance",
+        "strict": True,
+        "schema": {
+            "type": "object",
+            "properties": {
+                "axis": {"type": "string", "enum": _AXIS_ENUM},
+                "pole": {"type": "string"},
+            },
+            "required": ["axis", "pole"],
+            "additionalProperties": False,
+        },
+    },
+}
+
 
 class ClaimExtractionJudge:
     """Extracts atomic (subject, attribute, value) claims from a note (or None to skip)."""
@@ -94,12 +166,18 @@ class ClaimExtractionJudge:
         return None  # no source -> skip
 
     def _compute(self, note: str) -> dict:
-        raw = self.llm.complete(
+        # Two focused calls: free-form atomic claims, plus a single-task stance
+        # classifier (enum-constrained axis). Keeping stance separate is what makes
+        # its recall reliable. Both persist in the cassette under one note key.
+        claims_raw = self.llm.complete(
             [ChatMessage(role="user", content=_PROMPT.format(note=note))],
             response_format=_SCHEMA,
         )
-        # Persist the method-agnostic dict in the cassette; coerce to Claims on read.
-        return {"claims": json.loads(raw)["claims"]}
+        stance_raw = self.llm.complete(
+            [ChatMessage(role="user", content=_STANCE_PROMPT.format(axes=_AXES_BLOCK, note=note))],
+            response_format=_STANCE_SCHEMA,
+        )
+        return {"claims": json.loads(claims_raw)["claims"], "stance": json.loads(stance_raw)}
 
     @staticmethod
     def _to_claims(raw: dict) -> list[Claim]:
@@ -116,6 +194,14 @@ class ClaimExtractionJudge:
                 )
             except (KeyError, TypeError):
                 continue  # precision-first: drop a malformed claim, don't fail the write
+        # A stance on a tradeoff axis becomes a functional claim keyed on the axis
+        # (subject) so two opposing stances collide on one slot and the detector flags
+        # them. axis == "none" (or missing) -> the note takes no position.
+        stance = raw.get("stance") or {}
+        axis = str(stance.get("axis", "none"))
+        pole = str(stance.get("pole", "")).strip()
+        if axis and axis != "none" and pole:
+            out.append(Claim(subject=axis, attribute="stance", value=pole, functional=True))
         return out
 
 

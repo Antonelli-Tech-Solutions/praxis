@@ -1,0 +1,24 @@
+# Implicit cross-vocabulary contradiction: two genuinely contradictory engineering
+# preferences phrased with DISJOINT vocabulary and no shared key noun, so cosine
+# recall never pairs them. A dedicated stance classifier maps each note onto a
+# controlled tradeoff axis (subject='axis:<a>-vs-<b>', attribute='stance',
+# value=<pole>, functional). Two opposing poles on the same axis collide on one
+# slot, and the detector flags differing stance poles deterministically (no value
+# judge needed). Replays offline from the committed claim_extract cassette.
+id: implicit_conflict_dependency_strategy
+component: knowledge_graph
+substrate: vector
+embedder: cached  # real vectors; the pair sits below the cosine floor by design
+conflict_model: openai/gpt-4o-mini  # ConflictJudge; replayed from the committed conflict cassette
+
+seeded_insight:
+  via_ingestor: []
+  direct_to_graph:
+    - "Reach for a battle-tested library instead of reinventing the wheel."
+    - "Roll your own; every outside package is a long-term liability."
+
+deterministic_checks:
+  - name: implicit_contradiction_flagged
+    ref: "knowledge.evals.deterministic_checks.text:regex_matches"
+    params:
+      pattern: "(?i)CONTRADICTION"

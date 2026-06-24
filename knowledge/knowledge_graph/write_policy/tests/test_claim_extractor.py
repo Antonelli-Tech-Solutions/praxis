@@ -60,7 +60,8 @@ def test_cassette_records_then_replays_without_llm(tmp_path):
     llm = FakeLlm(default=_PAYLOAD)
     rec = VerdictCassette(path, model_id="test-model", allow_compute=True)
     first = ClaimExtractionJudge(llm=llm, cassette=rec).extract("note text")
-    assert len(first) == 2 and len(llm.calls) == 1
+    # Two LLM calls per extract: free-form claims + the dedicated stance classifier.
+    assert len(first) == 2 and len(llm.calls) == 2
     # Replay with no llm and compute disabled: must serve from the cassette.
     replay = VerdictCassette(path, model_id="test-model", allow_compute=False)
     second = ClaimExtractionJudge(llm=None, cassette=replay).extract("note text")
