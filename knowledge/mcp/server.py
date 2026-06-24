@@ -1,4 +1,4 @@
-"""The ``praxis-knowledge`` MCP server: two tools over the backend's HTTP API.
+"""The ``praxis-knowledge`` MCP server: thin tools over the backend's HTTP API.
 
 Each tool is a thin authenticated client — it mints a fresh Cognito ID token
 from the cached login (:mod:`knowledge.mcp.identity`) and calls the backend with
@@ -126,6 +126,72 @@ def praxis_add_insight(
     except httpx.HTTPStatusError as exc:
         return _friendly(exc)
     return resp.json().get("summary", "")
+
+
+def _fmt_side(label: str, side: dict) -> str:
+    state = side.get("state", "")
+    sid = side.get("id", "")
+    content = side.get("content") or side.get("title") or ""
+    return f"  {label} [id={sid} | {state}]: {content}"
+
+
+@mcp.tool()
+def praxis_get_contradictions() -> str:
+    """List the flagged contradictions in the user's knowledge graph.
+
+    Each entry is a pair of facts the conflict detector judged to contradict each
+    other; both are kept in the graph until resolved. Use this to review what is
+    flagged and why, then call ``praxis_resolve_contradiction`` to settle a pair.
+    """
+    if (hint := _not_ready()) is not None:
+        return hint
+    try:
+        resp = httpx.get(f"{identity.api_base()}/contradictions", headers=_headers())
+        resp.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        return _friendly(exc)
+    pairs = resp.json()
+    if not pairs:
+        return "No contradictions are currently flagged."
+    lines = [f"{len(pairs)} contradiction(s) flagged:"]
+    for p in pairs:
+        lines.append(f"\n[{p.get('id')}]  ({p.get('status', 'pending')})")
+        lines.append(_fmt_side("A", p.get("a", {})))
+        lines.append(_fmt_side("B", p.get("b", {})))
+    return "\n".join(lines)
+
+
+@mcp.tool()
+def praxis_resolve_contradiction(
+    pair_id: str,
+    keep_id: str | None = None,
+    custom_text: str | None = None,
+) -> str:
+    """Resolve a flagged contradiction pair (from ``praxis_get_contradictions``).
+
+    Pass either ``keep_id`` — the id of the side to keep (the other is superseded)
+    — or ``custom_text`` to replace both sides with a single reconciled fact.
+    Confirm the choice with the user before calling; resolution mutates the graph.
+    """
+    if (hint := _not_ready()) is not None:
+        return hint
+    if not keep_id and not (custom_text and custom_text.strip()):
+        return "Pass keep_id (the side to keep) or custom_text (a reconciled fact)."
+    body: dict[str, object] = {}
+    if custom_text and custom_text.strip():
+        body["customText"] = custom_text
+    else:
+        body["keepId"] = keep_id
+    try:
+        resp = httpx.post(
+            f"{identity.api_base()}/contradictions/{pair_id}/resolve",
+            json=body,
+            headers=_headers(),
+        )
+        resp.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        return _friendly(exc)
+    return f"Resolved contradiction {pair_id}: {resp.json()}"
 
 
 @mcp.tool()

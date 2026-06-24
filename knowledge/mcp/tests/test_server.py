@@ -79,6 +79,80 @@ def test_get_context_gets_with_auth_and_returns_context(monkeypatch):
     assert captured["headers"]["X-Praxis-Org"] == "acme"
 
 
+def test_get_contradictions_formats_pairs(monkeypatch):
+    _patch_identity(monkeypatch)
+    captured = {}
+
+    def fake_get(url, headers):
+        captured["url"] = url
+        captured["headers"] = headers
+        return _Resp(
+            [
+                {
+                    "id": "a__b",
+                    "status": "pending",
+                    "a": {"id": "a", "content": "logs should be verbose", "state": "active"},
+                    "b": {"id": "b", "content": "logs should be terse", "state": "active"},
+                }
+            ]
+        )
+
+    monkeypatch.setattr(server.httpx, "get", fake_get)
+
+    out = server.praxis_get_contradictions()
+
+    assert captured["url"] == "http://api.test/contradictions"
+    assert captured["headers"]["Authorization"] == "Bearer id-tok"
+    assert captured["headers"]["X-Praxis-Org"] == "acme"
+    assert "a__b" in out
+    assert "logs should be verbose" in out and "logs should be terse" in out
+    assert "id=a" in out and "id=b" in out
+
+
+def test_get_contradictions_empty(monkeypatch):
+    _patch_identity(monkeypatch)
+    monkeypatch.setattr(server.httpx, "get", lambda url, headers: _Resp([]))
+    assert "No contradictions" in server.praxis_get_contradictions()
+
+
+def test_resolve_contradiction_keep_id(monkeypatch):
+    _patch_identity(monkeypatch)
+    captured = {}
+
+    def fake_post(url, json, headers):
+        captured["url"] = url
+        captured["json"] = json
+        return _Resp({"kept": "a", "removed": "b"})
+
+    monkeypatch.setattr(server.httpx, "post", fake_post)
+
+    out = server.praxis_resolve_contradiction("a__b", keep_id="a")
+
+    assert captured["url"] == "http://api.test/contradictions/a__b/resolve"
+    assert captured["json"] == {"keepId": "a"}
+    assert "a__b" in out
+
+
+def test_resolve_contradiction_custom_text(monkeypatch):
+    _patch_identity(monkeypatch)
+    captured = {}
+    monkeypatch.setattr(
+        server.httpx,
+        "post",
+        lambda url, json, headers: captured.update(json=json) or _Resp({"ok": True}),
+    )
+
+    server.praxis_resolve_contradiction("a__b", custom_text="logs verbose in dev, terse in prod")
+
+    assert captured["json"] == {"customText": "logs verbose in dev, terse in prod"}
+
+
+def test_resolve_contradiction_requires_a_choice(monkeypatch):
+    _patch_identity(monkeypatch)
+    out = server.praxis_resolve_contradiction("a__b")
+    assert "keep_id" in out and "custom_text" in out
+
+
 def test_data_tool_when_not_logged_in_guides_to_login(monkeypatch):
     monkeypatch.setattr(identity, "is_logged_in", lambda: False)
     out = server.praxis_get_context("anything")
