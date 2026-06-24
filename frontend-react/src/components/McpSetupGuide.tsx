@@ -52,11 +52,16 @@ export function McpSetupGuide() {
         <h2>Install the Praxis MCP server</h2>
         <p className="muted">
           The Praxis MCP server is a thin, authenticated HTTP client over the FastAPI
-          backend. It gives Claude Code and Claude Desktop two tools —{" "}
-          <code>praxis_get_context</code> (read your active facts) and{" "}
-          <code>praxis_add_insight</code> (write a fully-approved fact) — plus the{" "}
-          login/org tools. Your tenant <code>(org_id, user_id)</code> is resolved from a
-          cached Cognito login, so the local process never holds database credentials.
+          backend. It gives Claude Code and Claude Desktop tools to{" "}
+          <strong>read</strong> (<code>praxis_get_context</code>,{" "}
+          <code>praxis_list_graph</code>), <strong>write</strong>{" "}
+          (<code>praxis_add_insight</code> through the ingestion pipeline,{" "}
+          <code>praxis_insert_fact</code> raw, <code>praxis_edit_fact</code>), and{" "}
+          <strong>resolve contradictions</strong>{" "}
+          (<code>praxis_get_contradictions</code>,{" "}
+          <code>praxis_resolve_contradiction</code>) — plus the login/org tools. Your
+          tenant <code>(org_id, user_id)</code> is resolved from a cached Cognito login,
+          so the local process never holds database credentials.
         </p>
       </header>
 
@@ -205,6 +210,50 @@ export function McpSetupGuide() {
                 <code>scope</code> / <code>category</code> / <code>source</code> args are
                 accepted but not yet honored by the backend — scope and category are
                 derived during ingestion.)
+              </td>
+            </tr>
+            <tr>
+              <td>
+                <code>praxis_list_graph(state?)</code>
+              </td>
+              <td>
+                List the <em>entire</em> graph (not similarity-ranked). Optionally filter
+                by <code>state</code> (<code>active</code>, <code>proposed</code>,{" "}
+                <code>decayed</code>). Use it to audit what is stored and find fact ids.
+              </td>
+            </tr>
+            <tr>
+              <td>
+                <code>praxis_insert_fact(title, content, provenance?)</code>
+              </td>
+              <td>
+                <strong>Raw</strong> direct insert — bypasses the ingestion pipeline (no
+                redact/dedup/conflict) and lands in <code>proposed</code> for review. For
+                normal approved knowledge prefer <code>praxis_add_insight</code>.
+              </td>
+            </tr>
+            <tr>
+              <td>
+                <code>praxis_edit_fact(cid, title?, content?, provenance?)</code>
+              </td>
+              <td>Edit an existing fact in place; pass only the fields to change.</td>
+            </tr>
+            <tr>
+              <td>
+                <code>praxis_get_contradictions()</code>
+              </td>
+              <td>
+                List flagged contradiction pairs (both sides kept until resolved), with
+                each side&apos;s id, state, and content.
+              </td>
+            </tr>
+            <tr>
+              <td>
+                <code>praxis_resolve_contradiction(pair_id, keep_id?, custom_text?)</code>
+              </td>
+              <td>
+                Settle a pair — keep one side (<code>keep_id</code>) or replace both with a
+                single reconciled fact (<code>custom_text</code>).
               </td>
             </tr>
           </tbody>

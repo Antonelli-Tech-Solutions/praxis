@@ -17,6 +17,9 @@ dependencies = [
     "pycognito>=2024.5",
     "scikit-learn>=1.9.0",
     "umap-learn>=0.5.12",
+    "pillow>=11.0",
+    "psd-tools>=1.10",
+    "imagehash>=4.3",
 ]
 
 [project.scripts]

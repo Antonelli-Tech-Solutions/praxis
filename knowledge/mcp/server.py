@@ -1,4 +1,4 @@
-"""The ``praxis-knowledge`` MCP server: two tools over the backend's HTTP API.
+"""The ``praxis-knowledge`` MCP server: thin tools over the backend's HTTP API.
 
 Each tool is a thin authenticated client — it mints a fresh Cognito ID token
 from the cached login (:mod:`knowledge.mcp.identity`) and calls the backend with
@@ -126,6 +126,163 @@ def praxis_add_insight(
     except httpx.HTTPStatusError as exc:
         return _friendly(exc)
     return resp.json().get("summary", "")
+
+
+def _fmt_side(label: str, side: dict) -> str:
+    state = side.get("state", "")
+    sid = side.get("id", "")
+    content = side.get("content") or side.get("title") or ""
+    return f"  {label} [id={sid} | {state}]: {content}"
+
+
+@mcp.tool()
+def praxis_get_contradictions() -> str:
+    """List the flagged contradictions in the user's knowledge graph.
+
+    Each entry is a pair of facts the conflict detector judged to contradict each
+    other; both are kept in the graph until resolved. Use this to review what is
+    flagged and why, then call ``praxis_resolve_contradiction`` to settle a pair.
+    """
+    if (hint := _not_ready()) is not None:
+        return hint
+    try:
+        resp = httpx.get(f"{identity.api_base()}/contradictions", headers=_headers())
+        resp.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        return _friendly(exc)
+    pairs = resp.json()
+    if not pairs:
+        return "No contradictions are currently flagged."
+    lines = [f"{len(pairs)} contradiction(s) flagged:"]
+    for p in pairs:
+        lines.append(f"\n[{p.get('id')}]  ({p.get('status', 'pending')})")
+        lines.append(_fmt_side("A", p.get("a", {})))
+        lines.append(_fmt_side("B", p.get("b", {})))
+    return "\n".join(lines)
+
+
+@mcp.tool()
+def praxis_resolve_contradiction(
+    pair_id: str,
+    keep_id: str | None = None,
+    custom_text: str | None = None,
+) -> str:
+    """Resolve a flagged contradiction pair (from ``praxis_get_contradictions``).
+
+    Pass either ``keep_id`` — the id of the side to keep (the other is superseded)
+    — or ``custom_text`` to replace both sides with a single reconciled fact.
+    Confirm the choice with the user before calling; resolution mutates the graph.
+    """
+    if (hint := _not_ready()) is not None:
+        return hint
+    if not keep_id and not (custom_text and custom_text.strip()):
+        return "Pass keep_id (the side to keep) or custom_text (a reconciled fact)."
+    body: dict[str, object] = {}
+    if custom_text and custom_text.strip():
+        body["customText"] = custom_text
+    else:
+        body["keepId"] = keep_id
+    try:
+        resp = httpx.post(
+            f"{identity.api_base()}/contradictions/{pair_id}/resolve",
+            json=body,
+            headers=_headers(),
+        )
+        resp.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        return _friendly(exc)
+    return f"Resolved contradiction {pair_id}: {resp.json()}"
+
+
+@mcp.tool()
+def praxis_list_graph(state: str | None = None) -> str:
+    """List every fact in the user's knowledge graph (not similarity-ranked).
+
+    Unlike ``praxis_get_context`` (top-k by relevance), this returns the full
+    graph. Pass ``state`` to filter (e.g. "active", "proposed", "decayed");
+    omit it for all states. Use this to audit what is stored, find ids to edit
+    or resolve, or review the whole graph.
+    """
+    if (hint := _not_ready()) is not None:
+        return hint
+    params = {"state": state} if state else {}
+    try:
+        resp = httpx.get(
+            f"{identity.api_base()}/candidates", params=params, headers=_headers()
+        )
+        resp.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        return _friendly(exc)
+    facts = resp.json()
+    if not facts:
+        return "The knowledge graph is empty (for this filter)." if state else "The knowledge graph is empty."
+    lines = [f"{len(facts)} fact(s){f' in state {state!r}' if state else ''}:"]
+    for f in facts:
+        content = str(f.get("content") or f.get("title") or "")
+        if len(content) > 160:
+            content = content[:157] + "…"
+        lines.append(f"  [id={f.get('id')} | {f.get('state', '')}] {content}")
+    return "\n".join(lines)
+
+
+@mcp.tool()
+def praxis_insert_fact(title: str, content: str, provenance: str | None = None) -> str:
+    """Insert a fact directly into the graph, bypassing the ingestion pipeline.
+
+    This is a *raw* write — no redaction, dedup, or conflict handling — and the
+    fact lands in the "proposed" state for review. For normal human-approved
+    knowledge that should reconcile with existing facts, use ``praxis_add_insight``
+    (which runs the full ingestion pipeline and lands active) instead.
+    """
+    if (hint := _not_ready()) is not None:
+        return hint
+    body: dict[str, object] = {"title": title, "content": content}
+    if provenance is not None:
+        body["provenance"] = provenance
+    try:
+        resp = httpx.post(
+            f"{identity.api_base()}/candidates", json=body, headers=_headers()
+        )
+        resp.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        return _friendly(exc)
+    c = resp.json()
+    return f"Inserted fact id={c.get('id')} (state={c.get('state')})."
+
+
+@mcp.tool()
+def praxis_edit_fact(
+    cid: str,
+    title: str | None = None,
+    content: str | None = None,
+    provenance: str | None = None,
+) -> str:
+    """Edit an existing fact in place (find its id via ``praxis_list_graph``).
+
+    Pass only the fields to change — ``title``, ``content``, and/or
+    ``provenance``. Confirm edits with the user first; this mutates stored
+    knowledge.
+    """
+    if (hint := _not_ready()) is not None:
+        return hint
+    body: dict[str, object] = {}
+    if title is not None:
+        body["title"] = title
+    if content is not None:
+        body["content"] = content
+    if provenance is not None:
+        body["provenance"] = provenance
+    if not body:
+        return "Nothing to edit — pass title, content, and/or provenance."
+    try:
+        resp = httpx.patch(
+            f"{identity.api_base()}/candidates/{cid}", json=body, headers=_headers()
+        )
+        resp.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        return _friendly(exc)
+    c = resp.json()
+    return f"Edited fact id={c.get('id')} (state={c.get('state')})."
 
 
 @mcp.tool()
