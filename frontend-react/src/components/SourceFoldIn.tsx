@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   type ApiDataProviderAuth,
+  type FoldInMode,
   type FoldInResult,
   type OrgSource,
   type SourceFactGroup,
   type SourceFacts,
   foldIn,
-  getSourceFacts,
+  getSnapshotFacts,
   listOrgSources,
 } from "../api/apiClient";
 import {
@@ -26,32 +27,26 @@ interface SourceFoldInProps {
   onViewContradictions?: () => void;
 }
 
-/** A pickable source: a member's live graph, or one of their saved snapshots. */
-interface SourceOption {
-  value: string; // unique select value: `${userId}::${source}`
+/** A pickable snapshot: a member's saved snapshot (own or another's). */
+interface SnapshotOption {
+  value: string; // unique select value: `${userId}::${snapshot}`
   userId: string;
-  source: string; // "live" | "snapshot:<name>"
+  snapshot: string;
   label: string;
   isSelf: boolean;
 }
 
-function buildOptions(sources: OrgSource[]): SourceOption[] {
-  const options: SourceOption[] = [];
+/** Flatten every member's snapshots (own + others) into a single option list. */
+function buildOptions(sources: OrgSource[]): SnapshotOption[] {
+  const options: SnapshotOption[] = [];
   for (const s of sources) {
-    const who = s.isSelf ? `${s.userId} (you)` : s.userId;
-    options.push({
-      value: `${s.userId}::live`,
-      userId: s.userId,
-      source: "live",
-      label: `${who} — live graph`,
-      isSelf: s.isSelf,
-    });
+    const who = s.isSelf ? `${s.userId} (me)` : s.userId;
     for (const snap of s.snapshots) {
       options.push({
-        value: `${s.userId}::snapshot:${snap}`,
+        value: `${s.userId}::${snap}`,
         userId: s.userId,
-        source: `snapshot:${snap}`,
-        label: `${who} — snapshot "${snap}"`,
+        snapshot: snap,
+        label: `${who} / ${snap}`,
         isSelf: s.isSelf,
       });
     }
@@ -59,7 +54,7 @@ function buildOptions(sources: OrgSource[]): SourceOption[] {
   return options;
 }
 
-/** Group checkbox that reflects checked / indeterminate / unchecked. */
+/** Folder checkbox that reflects checked / indeterminate / unchecked. */
 function GroupCheckbox({
   group,
   selected,
@@ -78,6 +73,7 @@ function GroupCheckbox({
     <input
       ref={ref}
       type="checkbox"
+      className="eval-runner__entry-check"
       checked={state === "checked"}
       onChange={onToggle}
       aria-label={`Select all facts in ${group.label}`}
@@ -85,7 +81,7 @@ function GroupCheckbox({
   );
 }
 
-/** Browse another source's graph and fold selected skills into your own. */
+/** Browse a teammate's snapshot and fold selected folders into your own graph. */
 export function SourceFoldIn({
   apiBaseUrl,
   auth,
@@ -93,7 +89,7 @@ export function SourceFoldIn({
   onViewContradictions,
 }: SourceFoldInProps) {
   const [open, setOpen] = useState(false);
-  const [options, setOptions] = useState<SourceOption[]>([]);
+  const [options, setOptions] = useState<SnapshotOption[]>([]);
   const [picked, setPicked] = useState<string>("");
   const [facts, setFacts] = useState<SourceFacts | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -120,12 +116,12 @@ export function SourceFoldIn({
     if (open) void refreshSources();
   }, [open, refreshSources]);
 
-  async function loadFacts(option: SourceOption) {
+  async function loadFacts(option: SnapshotOption) {
     setBusy(true);
     setError(null);
     setResult(null);
     try {
-      const data = await getSourceFacts(apiBaseUrl, option.userId, option.source, auth);
+      const data = await getSnapshotFacts(apiBaseUrl, option.userId, option.snapshot, auth);
       setFacts(data);
       setSelected(defaultSelection(data.groups));
       setExpanded(new Set());
@@ -163,18 +159,31 @@ export function SourceFoldIn({
     });
   }
 
-  async function handleFoldIn() {
+  async function handleFoldIn(mode: FoldInMode) {
     if (!current || !facts) return;
     const ids = selectedFactIds(facts.groups, selected);
     if (ids.length === 0) {
-      setError("Select at least one skill or fact to fold in.");
+      setError("Select at least one folder or fact to fold in.");
       return;
+    }
+    if (mode === "replace") {
+      const ok = window.confirm(
+        "This replaces your current graph with the selected nodes. Continue?",
+      );
+      if (!ok) return;
     }
     setBusy(true);
     setError(null);
     setResult(null);
     try {
-      const res = await foldIn(apiBaseUrl, current.userId, current.source, ids, auth);
+      const res = await foldIn(
+        apiBaseUrl,
+        current.userId,
+        current.snapshot,
+        ids,
+        mode,
+        auth,
+      );
       setResult(res);
       onFolded?.();
     } catch (err) {
@@ -196,11 +205,11 @@ export function SourceFoldIn({
           aria-expanded={open}
         >
           {open ? "▾" : "▸"}{" "}
-          <span className="eval-runner__title">Browse sources &amp; fold in skills</span>
+          <span className="eval-runner__title">Browse snapshots &amp; fold in skills</span>
         </button>
         <span className="eval-runner__hint">
-          Pick a teammate&apos;s graph or snapshot, choose skills, and fold them into your
-          own graph.
+          Pick a teammate&apos;s snapshot, choose folders, and add or replace your own
+          graph with them.
         </span>
       </header>
 
@@ -208,17 +217,17 @@ export function SourceFoldIn({
         <>
           <div className="eval-runner__row">
             <label className="eval-runner__field">
-              <span>Source</span>
+              <span>Snapshot</span>
               <select
                 value={picked}
                 onChange={(e) => handlePick(e.target.value)}
                 disabled={busy || options.length === 0}
               >
                 {options.length === 0 ? (
-                  <option value="">No sources available</option>
+                  <option value="">No snapshots available</option>
                 ) : (
                   <>
-                    <option value="">Select a source…</option>
+                    <option value="">Select a snapshot…</option>
                     {options.map((o) => (
                       <option key={o.value} value={o.value}>
                         {o.label}
@@ -231,44 +240,53 @@ export function SourceFoldIn({
           </div>
 
           {facts && facts.groups.length > 0 ? (
-            <div className="eval-runner__row">
-              <ul className="fold-in__groups">
+            <div className="eval-runner__browser">
+              <ul className="eval-runner__list-folders">
                 {facts.groups.map((group) => {
                   const isExpanded = expanded.has(group.key);
+                  const checked = groupCheckState(group, selected) === "checked";
                   return (
-                    <li key={group.key} className="fold-in__group">
-                      <div className="fold-in__group-head">
-                        <label className="fold-in__group-label">
-                          <GroupCheckbox
-                            group={group}
-                            selected={selected}
-                            onToggle={() => handleToggleGroup(group)}
-                          />
-                          <span className="fold-in__group-name">{group.label}</span>
-                          <span className="fold-in__group-count">
-                            ({group.facts.length})
-                          </span>
-                        </label>
+                    <li
+                      key={group.key}
+                      className={`eval-runner__entry${checked ? " is-checked" : ""}`}
+                    >
+                      <div className="eval-runner__entry-row">
+                        <GroupCheckbox
+                          group={group}
+                          selected={selected}
+                          onToggle={() => handleToggleGroup(group)}
+                        />
                         <button
                           type="button"
-                          className="link-button"
+                          className="eval-runner__entry-main is-dir"
                           onClick={() => handleExpand(group.key)}
                           aria-expanded={isExpanded}
+                          title={isExpanded ? `Hide facts in ${group.label}` : `Show facts in ${group.label}`}
                         >
-                          {isExpanded ? "Hide facts" : "Override facts"}
+                          <span className="eval-runner__entry-icon" aria-hidden>
+                            📁
+                          </span>
+                          <span className="eval-runner__entry-name">{group.label}</span>
+                          <span className="eval-runner__entry-count">
+                            {group.facts.length}
+                          </span>
+                          <span className="eval-runner__entry-caret">
+                            {isExpanded ? "▾" : "›"}
+                          </span>
                         </button>
                       </div>
                       {isExpanded ? (
-                        <ul className="fold-in__facts">
+                        <ul className="eval-runner__list-folders fold-in__facts">
                           {group.facts.map((fact) => (
-                            <li key={fact.id} className="fold-in__fact">
-                              <label className="fold-in__fact-label">
+                            <li key={fact.id} className="eval-runner__entry">
+                              <label className="eval-runner__entry-row">
                                 <input
                                   type="checkbox"
+                                  className="eval-runner__entry-check"
                                   checked={selected.has(fact.id)}
                                   onChange={() => handleToggleFact(fact.id)}
                                 />
-                                <span>{fact.text}</span>
+                                <span className="eval-runner__entry-name">{fact.text}</span>
                               </label>
                             </li>
                           ))}
@@ -282,22 +300,33 @@ export function SourceFoldIn({
           ) : null}
 
           {facts && facts.groups.length === 0 ? (
-            <p className="eval-runner__hint">This source has no facts to fold in.</p>
+            <p className="eval-runner__hint">This snapshot has no facts to fold in.</p>
           ) : null}
 
-          {facts ? (
+          {facts && facts.groups.length > 0 ? (
             <div className="eval-runner__row">
               <div className="eval-runner__actions">
                 <button
                   type="button"
                   className="btn primary"
-                  onClick={handleFoldIn}
+                  onClick={() => void handleFoldIn("add")}
                   disabled={busy || selectedCount === 0}
-                  title="Fold the selected skills into your own graph"
+                  title="Add the selected nodes to your graph"
                 >
                   {busy
                     ? "Working…"
-                    : `Fold into my graph (${selectedCount} fact${selectedCount === 1 ? "" : "s"})`}
+                    : `Add to graph (${selectedCount} node${selectedCount === 1 ? "" : "s"})`}
+                </button>
+                <button
+                  type="button"
+                  className="btn primary"
+                  onClick={() => void handleFoldIn("replace")}
+                  disabled={busy || selectedCount === 0}
+                  title="Replace your graph with the selected nodes"
+                >
+                  {busy
+                    ? "Working…"
+                    : `Replace graph (${selectedCount} node${selectedCount === 1 ? "" : "s"})`}
                 </button>
               </div>
             </div>

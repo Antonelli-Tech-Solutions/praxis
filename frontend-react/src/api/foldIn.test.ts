@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { foldIn, getSourceFacts, listOrgSources } from "./apiClient";
+import { foldIn, getSnapshotFacts, listOrgSources } from "./apiClient";
 
 const AUTH = { getToken: async () => "token-123", orgId: "monica-demo" };
 
@@ -59,8 +59,8 @@ describe("listOrgSources", () => {
   });
 });
 
-describe("getSourceFacts", () => {
-  it("GETs the source facts endpoint with the source query and groups", async () => {
+describe("getSnapshotFacts", () => {
+  it("GETs the snapshot facts endpoint and normalizes folder groups", async () => {
     let requestedUrl = "";
     vi.stubGlobal(
       "fetch",
@@ -70,7 +70,7 @@ describe("getSourceFacts", () => {
           new Response(
             JSON.stringify({
               userId: "ada",
-              source: "snapshot:v1",
+              snapshot: "v1",
               groups: [
                 {
                   key: "g1",
@@ -81,7 +81,6 @@ describe("getSourceFacts", () => {
                       text: "Write tests first",
                       scope: "global",
                       clusterLabel: "Testing",
-                      source: "ada",
                       state: "active",
                     },
                   ],
@@ -94,18 +93,19 @@ describe("getSourceFacts", () => {
       }),
     );
 
-    const facts = await getSourceFacts("http://127.0.0.1:8000", "ada", "snapshot:v1");
+    const facts = await getSnapshotFacts("http://127.0.0.1:8000", "ada", "v1");
 
     expect(requestedUrl).toBe(
-      "http://127.0.0.1:8000/org/sources/ada/facts?source=snapshot%3Av1",
+      "http://127.0.0.1:8000/org/sources/ada/snapshots/v1/facts",
     );
+    expect(facts.snapshot).toBe("v1");
     expect(facts.groups).toHaveLength(1);
     expect(facts.groups[0].facts[0].text).toBe("Write tests first");
   });
 });
 
 describe("foldIn", () => {
-  it("POSTs sourceUser/source/factIds and normalizes the result", async () => {
+  it("POSTs sourceUser/snapshot/factIds/mode and normalizes the result", async () => {
     let requestedUrl = "";
     let requestedBody = "";
     vi.stubGlobal(
@@ -119,6 +119,7 @@ describe("foldIn", () => {
               folded: 3,
               deduped: 1,
               conflicts: [{ newId: "n1", rivalId: "r1" }],
+              mode: "add",
             }),
             { status: 200 },
           ),
@@ -129,25 +130,55 @@ describe("foldIn", () => {
     const result = await foldIn(
       "http://127.0.0.1:8000/",
       "ada",
-      "live",
+      "v1",
       ["f1", "f2"],
+      "add",
       AUTH,
     );
 
     expect(requestedUrl).toBe("http://127.0.0.1:8000/fold-in");
     expect(JSON.parse(requestedBody)).toEqual({
       sourceUser: "ada",
-      source: "live",
+      snapshot: "v1",
       factIds: ["f1", "f2"],
+      mode: "add",
     });
     expect(result).toEqual({
       folded: 3,
       deduped: 1,
       conflicts: [{ newId: "n1", rivalId: "r1" }],
+      mode: "add",
     });
   });
 
-  it("normalizes snake_case conflict ids", async () => {
+  it("sends mode=replace when replacing the graph", async () => {
+    let requestedBody = "";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation((_url: string, init: RequestInit) => {
+        requestedBody = String(init.body);
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({ folded: 2, deduped: 0, conflicts: [], mode: "replace" }),
+            { status: 200 },
+          ),
+        );
+      }),
+    );
+
+    const result = await foldIn(
+      "http://127.0.0.1:8000",
+      "ada",
+      "v1",
+      ["f1"],
+      "replace",
+    );
+
+    expect(JSON.parse(requestedBody).mode).toBe("replace");
+    expect(result.mode).toBe("replace");
+  });
+
+  it("normalizes snake_case conflict ids and defaults mode to add", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue(
@@ -162,7 +193,8 @@ describe("foldIn", () => {
       ),
     );
 
-    const result = await foldIn("http://127.0.0.1:8000", "ada", "live", ["f1"]);
+    const result = await foldIn("http://127.0.0.1:8000", "ada", "v1", ["f1"], "add");
     expect(result.conflicts).toEqual([{ newId: "n9", rivalId: "r9" }]);
+    expect(result.mode).toBe("add");
   });
 });
