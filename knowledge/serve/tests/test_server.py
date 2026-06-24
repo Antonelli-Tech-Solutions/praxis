@@ -181,7 +181,7 @@ def test_clear_graph_empties_the_users_graph(client):
 def test_insight_then_context_round_trips(client):
     res = client.post("/insights", json={"insight": "use uv, not pip, in this repo"})
     assert res.status_code == 200
-    assert res.json()["action"] in {"added", "merged", "overwrote"}
+    assert res.json()["action"] in {"added", "merged"}
 
     ctx = client.get("/context", params={"query": "how do I install deps?"}).json()
     assert "uv" in ctx["context"]

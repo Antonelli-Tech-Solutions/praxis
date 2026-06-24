@@ -201,8 +201,7 @@ class PostgresVectorGraph(SearchableGraph):
             self._merge(decision)
             fact_id = decision.update_target_id
         elif decision.action == "overwrite" and decision.update_target_id:
-            self._overwrite(decision)
-            fact_id = decision.update_target_id
+            fact_id = self._overwrite(decision)
         else:
             fact_id = self._add(decision)
         self._persist_contradictions(fact_id, decision)
@@ -746,30 +745,28 @@ class PostgresVectorGraph(SearchableGraph):
             (self.org_id, self.user_id, decision.update_target_id),
         )
 
-    def _overwrite(self, decision: WriteDecision) -> None:
-        # Forced upsert: the new approved truth replaces the nearest conflicting
-        # fact in place (landing at the decision's state), then any other
-        # contradictions are rejected, so no contradictory pair lingers.
-        embedding = _fit(decision.embedding)  # reuse the vector from _recall
-        meta = getattr(decision, "meta", None) or {}
-        self._conn.execute(
-            f"UPDATE {self._facts_table} SET text = %s, embedding = %s, source = %s, state = %s, "
-            "meta = %s, confidence = 1.0, observation_count = observation_count + 1 "
-            "WHERE org_id = %s AND user_id = %s AND id = %s",
-            (
-                decision.text,
-                embedding,
-                getattr(decision, "source", None),
-                decision.state,
-                json.dumps(meta),
-                self.org_id,
-                self.user_id,
-                decision.update_target_id,
-            ),
-        )
-        for sid in decision.supersede_ids:
+    def _overwrite(self, decision: WriteDecision) -> str:
+        """Non-destructive resolution of an approved contradiction (FR-003/FR-005).
+
+        The approved fact is added fresh (a normal ``_add`` at ``decision.state``);
+        every contradicting fact — the nearest (``update_target_id``) and the rest
+        (``supersede_ids``) — is treated uniformly as a loser: set ``rejected`` with
+        its ``text``/``embedding`` left untouched, and linked to the new fact with a
+        ``contradicted_by`` edge. No loser's content is destroyed (SC-001) and, since
+        every loser is rejected, no contradicting pair is left both ``active`` (SC-002).
+        Only the direct losers of *this* write change state — no cascade (FR-009).
+        Returns the new fact's id.
+        """
+        fact_id = self._add(decision)
+        losers = [decision.update_target_id, *decision.supersede_ids]
+        for loser_id in losers:
+            if not loser_id or loser_id == fact_id:
+                continue
             self._conn.execute(
                 f"UPDATE {self._facts_table} SET state = 'rejected' "
                 "WHERE org_id = %s AND user_id = %s AND id = %s",
-                (self.org_id, self.user_id, sid),
+                (self.org_id, self.user_id, loser_id),
             )
+            src, dst = sorted((fact_id, loser_id))
+            self.add_edge(src, dst, "contradicted_by")
+        return fact_id

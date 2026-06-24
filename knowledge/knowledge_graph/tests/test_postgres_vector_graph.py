@@ -80,19 +80,100 @@ def test_near_dup_bumps_observation_count(unique_org):
     assert row[0] == 2
 
 
-def test_contradiction_overwrites_in_place(unique_org):
+def _states_by_text(conn, org, user) -> dict[str, str]:
+    rows = conn.execute(
+        "SELECT text, state FROM facts WHERE org_id = %s AND user_id = %s",
+        (org, user),
+    ).fetchall()
+    return {r[0]: r[1] for r in rows}
+
+
+def _seed_active(conn, org, user, *texts) -> list[str]:
+    """Seed coexisting facts (no overwriter) and return their ids, in order."""
+    from knowledge.knowledge_graph.knowledge_graph_variants.postgres_vector_graph import (
+        PostgresVectorGraph,
+    )
+    from knowledge.knowledge_graph.write_policy.write_step_variants import Deduper, Redactor
+    from knowledge.llm.embedder_variants.fake_embedder import FakeEmbedder
+
+    g = PostgresVectorGraph(
+        conn, org, user, embedder=FakeEmbedder(), recall_floor=-1.0,
+        policy=[Redactor(), Deduper()],  # no overwriter: distinct texts coexist
+    )
+    return [g.write(t, state="active") for t in texts]
+
+
+def test_contradiction_keeps_both_nondestructively(unique_org):
+    """FR-003/SC-001: an approved contradicting add keeps the loser (text intact,
+    state rejected) and links the pair with a ``contradicted_by`` edge — the prior
+    fact is never overwritten in place."""
     conn = db.connect()
     graph, ingestor, reader = _trio(conn, unique_org, "u1")
-    ingestor.ingest("use uv, not pip, in this repo")
-    # A contradicting add (LLM stub says "yes") force-overwrites the prior fact.
-    ingestor.ingest("use pip, not uv, in this repo")
-    assert _count(conn, unique_org, "u1") == 1  # row count stays 1
-    row = conn.execute(
-        "SELECT text, confidence FROM facts WHERE org_id = %s AND user_id = %s",
-        (unique_org, "u1"),
-    ).fetchone()
-    assert row[0] == "use pip, not uv, in this repo"  # newest truth wins
-    assert row[1] == 1.0
+    ingestor.ingest("use uv, not pip, in this repo", state="active")
+    ingestor.ingest("use pip, not uv, in this repo", state="active")
+
+    # Both facts survive — the loser's text is preserved, not overwritten.
+    assert _count(conn, unique_org, "u1") == 2
+    assert _states_by_text(conn, unique_org, "u1") == {
+        "use pip, not uv, in this repo": "active",   # newest approved truth
+        "use uv, not pip, in this repo": "rejected",  # prior, kept intact
+    }
+    # Linked as resolved (contradicted_by), not left pending.
+    assert len(graph.all_edges("contradicted_by")) == 1
+    assert graph.all_edges("contradiction") == []
+
+
+def test_overwrite_rejects_all_conflicts_without_destroying_text(unique_org):
+    """US1 #2: approving over several conflicts rejects+links each loser, none
+    overwritten. Drives _overwrite directly with multiple conflicts."""
+    from knowledge.knowledge_graph.write_policy.write_policy_def import WriteDecision
+    from knowledge.llm.embedder_variants.fake_embedder import FakeEmbedder
+
+    conn = db.connect()
+    graph, _, _ = _trio(conn, unique_org, "u1")
+    a1, a2 = _seed_active(conn, unique_org, "u1", "tabs for indentation", "two spaces for indentation")
+
+    new_text = "four spaces for indentation"
+    decision = WriteDecision(text=new_text, state="active")
+    decision.embedding = FakeEmbedder().embed_one(new_text)
+    decision.update_target_id = a1
+    decision.supersede_ids = [a2]
+    new_id = graph._overwrite(decision)
+
+    states = _states_by_text(conn, unique_org, "u1")
+    assert states["tabs for indentation"] == "rejected"        # text intact
+    assert states["two spaces for indentation"] == "rejected"  # text intact
+    assert states[new_text] == "active"
+    # Both losers linked to the winner; nothing left pending.
+    assert len(graph.all_edges("contradicted_by")) == 2
+    assert graph.all_edges("contradiction") == []
+    assert new_id not in (a1, a2)
+
+
+def test_overwrite_rejects_a_proposed_conflict(unique_org):
+    """US1 #3 / FR-006: a contradicted fact that was only proposed (never live) is
+    moved to rejected and linked, not silently dropped."""
+    from knowledge.knowledge_graph.write_policy.write_policy_def import WriteDecision
+    from knowledge.llm.embedder_variants.fake_embedder import FakeEmbedder
+
+    conn = db.connect()
+    graph, _, _ = _trio(conn, unique_org, "u1")
+    # A staged (proposed) rival, seeded raw so it never went live.
+    conn.execute(
+        "INSERT INTO facts (id, org_id, user_id, text, state) VALUES (%s,%s,%s,%s,'proposed')",
+        ("prop1", unique_org, "u1", "legacy os.path standard"),
+    )
+    new_text = "pathlib is the standard"
+    decision = WriteDecision(text=new_text, state="active")
+    decision.embedding = FakeEmbedder().embed_one(new_text)
+    decision.update_target_id = "prop1"
+    new_id = graph._overwrite(decision)
+
+    states = _states_by_text(conn, unique_org, "u1")
+    assert states["legacy os.path standard"] == "rejected"  # not dropped; text intact
+    assert states[new_text] == "active"
+    assert len(graph.all_edges("contradicted_by")) == 1
+    assert new_id != "prop1"
 
 
 def test_active_facts_is_the_retrieval_graph(unique_org):

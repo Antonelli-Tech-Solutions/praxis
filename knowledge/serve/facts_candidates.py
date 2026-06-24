@@ -232,13 +232,17 @@ class FactsCandidates:
         if kept is None:
             raise KeyError(keep_id)
         loser = self.graph.get_fact(loser_id)
-        # Drop the a<->b contradiction edge; the kept side wins the dispute and
-        # (re)enters the active graph, the loser is rejected.
-        self.graph.remove_edge(keep_id, loser_id, "contradiction")
+        # The kept side wins the dispute and (re)enters the active graph; the loser
+        # is rejected. The pair stays linked: flip the pending contradiction edge to
+        # contradicted_by rather than deleting it, so the resolution is discoverable
+        # and reversible (FR-004) and the loser's text is preserved (SC-001).
         self.graph.set_state(keep_id, "active")
         self._append_audit(kept, "kept_over_contradiction", note=f"superseded {loser_id}")
         if loser is not None:
             self.graph.set_state(loser_id, "rejected")
+            self.graph.flip_edge_kind(
+                keep_id, loser_id, from_kind="contradiction", to_kind="contradicted_by"
+            )
             self._append_audit(
                 loser, "superseded", note=f"lost contradiction to {keep_id}"
             )
@@ -247,7 +251,13 @@ class FactsCandidates:
         return candidate
 
     def resolve_custom(self, pair_id: str, custom_text: str) -> Candidate:
-        """Decay both sides + drop their edge, then create a fresh active fact."""
+        """Reject both sides, then create a fresh active fact that supersedes them.
+
+        The pending a<->b contradiction is resolved by a third (custom) fact: both
+        original sides are rejected (text preserved) and the new winner is linked to
+        each with a ``contradicted_by`` edge — an auditable resolved relationship
+        (FR-004), not a silently dropped link.
+        """
         text = (custom_text or "").strip()
         if not text:
             raise ValueError("custom_text is required")
@@ -256,11 +266,13 @@ class FactsCandidates:
         fact_b = self.graph.get_fact(b)
         if fact_a is None and fact_b is None:
             raise KeyError(pair_id)
+        # The pending pair is superseded by the new fact; drop the pending edge and
+        # reject both sides (their text is left untouched).
         self.graph.remove_edge(a, b, "contradiction")
-        for fid, fact in ((a, fact_a), (b, fact_b)):
+        for loser_id, fact in ((a, fact_a), (b, fact_b)):
             if fact is None:
                 continue
-            self.graph.set_state(fid, "rejected")
+            self.graph.set_state(loser_id, "rejected")
             self._append_audit(fact, "superseded", note="resolved by custom resolution")
         provenance = f"human-gate/custom-resolution:{_now()}"
         meta: dict[str, Any] = {
@@ -272,9 +284,15 @@ class FactsCandidates:
                 )
             ],
         }
-        fid = self.graph.write(text, state="active", source=provenance, meta=meta)
-        if fid is None:
+        new_id = self.graph.write(text, state="active", source=provenance, meta=meta)
+        if new_id is None:
             raise ValueError("failed to create custom resolution candidate")
-        candidate = self.get(fid)
+        # Link the new winner to each rejected loser (resolved relationship, FR-004).
+        for loser_id, fact in ((a, fact_a), (b, fact_b)):
+            if fact is None:
+                continue
+            src, dst = sorted((new_id, loser_id))
+            self.graph.add_edge(src, dst, "contradicted_by")
+        candidate = self.get(new_id)
         assert candidate is not None
         return candidate

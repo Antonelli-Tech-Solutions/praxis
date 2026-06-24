@@ -22,6 +22,11 @@ pytestmark = pytest.mark.skipif(
 USER = "dev-user"
 
 
+def _edge_pairs(facade, kind):
+    """Undirected ``{frozenset(src, dst)}`` set of ``kind`` edges for the graph."""
+    return {frozenset((s, d)) for s, d, _k in facade.graph.all_edges(kind)}
+
+
 @pytest.fixture
 def facade(unique_org):
     """A FactsCandidates bound to a fresh throwaway tenant (no LLM, fake embed)."""
@@ -118,9 +123,14 @@ def test_contradiction_edge_surfaces_pair_and_resolves(facade):
     kept = facade.resolve(pair["id"], a)
     assert kept["id"] == a
     assert kept["state"] == "active"
-    assert facade.get(b)["state"] == "rejected"
-    # The edge is gone, so no pair remains.
+    loser = facade.get(b)
+    assert loser["state"] == "rejected"
+    assert loser["content"] == "Use spaces for indentation."  # text intact (FR-004/SC-001)
+    # Resolved, not deleted: the pending list drops it, but the link survives
+    # flipped to contradicted_by so the resolution stays reversible (FR-004).
     assert facade.contradictions() == []
+    assert _edge_pairs(facade, "contradicted_by") == {frozenset((a, b))}
+    assert _edge_pairs(facade, "contradiction") == set()
 
 
 def test_resolve_custom_rejects_both_and_creates_active(facade):
@@ -135,4 +145,13 @@ def test_resolve_custom_rejects_both_and_creates_active(facade):
     assert new["content"] == "Store timestamps in UTC, render in local time."
     assert facade.get(a)["state"] == "rejected"
     assert facade.get(b)["state"] == "rejected"
+    assert facade.get(a)["content"] == "Store timestamps in UTC."  # text intact
+    assert facade.get(b)["content"] == "Store timestamps in local time."  # text intact
     assert facade.contradictions() == []
+    # Resolved by a third fact: the new fact links to each loser as
+    # contradicted_by (auditable, FR-004); the old pending pair is gone.
+    assert _edge_pairs(facade, "contradicted_by") == {
+        frozenset((new["id"], a)),
+        frozenset((new["id"], b)),
+    }
+    assert _edge_pairs(facade, "contradiction") == set()

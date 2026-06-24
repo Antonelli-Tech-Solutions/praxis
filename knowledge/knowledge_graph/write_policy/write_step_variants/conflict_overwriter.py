@@ -3,9 +3,13 @@
 The approved-insight path (a human confirmed the wording in chat) wants the new
 note to *win*: where :class:`ConflictFlagger` records a ``contradiction:<id>``
 flag for later human resolution, this step turns the same LLM-confirmed
-contradiction into an ``overwrite`` decision — the new text replaces the nearest
-conflicting fact in place, and any other contradictions are marked to decay. So
-no contradictory pair lingers; the newest approved truth is the single survivor.
+contradiction into an ``overwrite`` decision. The store then resolves it
+*non-destructively* (see ``PostgresVectorGraph._overwrite``): the new note is
+added as a fresh ``active`` fact and every conflicting fact is rejected with its
+text preserved and linked back via a ``contradicted_by`` edge. So no contradictory
+pair stays both active, the newest approved truth wins, and no prior wording is
+destroyed. This step only *identifies* the conflicts (``update_target_id`` =
+nearest, ``supersede_ids`` = the rest); it does not mutate facts itself.
 
 Like :class:`ConflictFlagger` it's best-effort: with no LLM, or if detection
 fails, it leaves the decision untouched (a plain ``add``).
@@ -25,7 +29,7 @@ _PROMPT = (
 
 
 class ConflictOverwriter(WriteStep):
-    """On a confirmed contradiction, overwrite the conflicting fact in place."""
+    """On a confirmed contradiction, mark the conflicts for non-destructive resolution."""
 
     consumes_candidates = True
 
@@ -48,7 +52,9 @@ class ConflictOverwriter(WriteStep):
                 conflicts.append(hit.fact.id)
         if not conflicts:
             return
-        # Overwrite the nearest conflict in place; decay the rest.
+        # Mark the conflicts for non-destructive resolution by the store: the
+        # nearest is the primary loser, the rest are superseded. All are rejected
+        # (text preserved) + linked; none is overwritten in place.
         decision.action = "overwrite"
         decision.update_target_id = conflicts[0]
         decision.supersede_ids = conflicts[1:]

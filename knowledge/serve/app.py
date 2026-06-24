@@ -560,9 +560,11 @@ def create_app(conn: Any | None = None) -> FastAPI:
     ) -> dict[str, Any]:
         """Ingest a fully-approved insight into the live ``facts`` store.
 
-        Force-overwrite policy: a contradicting add supersedes the conflicting
-        fact in place. The in-chat confirmation is the human gate, so the insight
-        enters ``active`` at full credibility.
+        Non-destructive resolution: a contradicting add lands as a fresh ``active``
+        fact and each conflicting fact is rejected (its text preserved) and linked
+        back via a ``contradicted_by`` edge, rather than being overwritten in place.
+        The in-chat confirmation is the human gate, so the insight enters ``active``
+        at full credibility.
         """
         insight = (body.get("insight") or "").strip()
         if not insight:
@@ -579,8 +581,12 @@ def create_app(conn: Any | None = None) -> FastAPI:
         after = graph.search(insight, top_k=1, state=None)
         prior = before[0].fact if before else None
         top = after[0].fact if after else None
+        # Non-destructive resolution: an approved contradiction is always a fresh
+        # add (the new fact gets a new id), so a same-id top means a dedup merge
+        # bumped the existing fact; otherwise the insight was added (possibly
+        # rejecting + linking conflicting facts).
         if prior is not None and top is not None and prior.id == top.id:
-            action = "overwrote" if top.text != prior.text else "merged"
+            action = "merged"
         else:
             action = "added"
         return {

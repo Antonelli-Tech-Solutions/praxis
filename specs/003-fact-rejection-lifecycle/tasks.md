@@ -68,16 +68,16 @@ description: "Task list for REJECTED state + retained-contradiction lifecycle"
 
 ### Tests for User Story 1 (write first, must fail)
 
-- [ ] T013 [P] [US1] Rewrite `knowledge/knowledge_graph/write_policy/tests/test_conflict_overwriter.py` to assert the loser's `text` is **unchanged**, its state is `rejected`, and a `contradicted_by` edge exists — replacing the old "text is overwritten" expectation (US1 #1, SC-001).
-- [ ] T014 [P] [US1] Add tests in `knowledge/knowledge_graph/tests/test_postgres_vector_graph.py` for non-destructive resolve over **several** conflicts and over a **proposed** (never-live) conflict: all become `rejected` + linked, none overwritten (US1 #2/#3, FR-006). Assert that only the direct conflicts of the approved fact change state — facts reachable only via a *separate* contradiction are untouched (FR-009, no auto-cascade).
-- [ ] T015 [P] [US1] Add a test in `knowledge/serve/tests/test_facts_candidates.py` that `resolve()` / `resolve_custom()` **flip the edge** (keep the link) rather than delete it, set the loser `rejected`, the winner `active`, and never modify text (FR-004).
+- [X] T013 [P] [US1] Rewrite `knowledge/knowledge_graph/write_policy/tests/test_conflict_overwriter.py` to assert the loser's `text` is **unchanged**, its state is `rejected`, and a `contradicted_by` edge exists — replacing the old "text is overwritten" expectation (US1 #1, SC-001).
+- [X] T014 [P] [US1] Add tests in `knowledge/knowledge_graph/tests/test_postgres_vector_graph.py` for non-destructive resolve over **several** conflicts and over a **proposed** (never-live) conflict: all become `rejected` + linked, none overwritten (US1 #2/#3, FR-006). Assert that only the direct conflicts of the approved fact change state — facts reachable only via a *separate* contradiction are untouched (FR-009, no auto-cascade).
+- [X] T015 [P] [US1] Add a test in `knowledge/serve/tests/test_facts_candidates.py` that `resolve()` / `resolve_custom()` **flip the edge** (keep the link) rather than delete it, set the loser `rejected`, the winner `active`, and never modify text (FR-004).
 
 ### Implementation for User Story 1
 
-- [ ] T016 [US1] Rewrite `PostgresVectorGraph._overwrite` in `knowledge/knowledge_graph/knowledge_graph_variants/postgres_vector_graph.py`: the approved fact is a plain `add` at `state='active'`; **every** conflict (including the former `update_target_id`) is set `state='rejected'` with text/embedding untouched and gets a `contradicted_by` edge (via T012). Enforce the "never both active" invariant atomically (FR-003, FR-005, SC-001/SC-002).
-- [ ] T017 [US1] Update `ConflictOverwriter.apply` in `knowledge/knowledge_graph/write_policy/write_step_variants/conflict_overwriter.py` so all conflicts are treated uniformly as losers (no in-place text overwrite); reconcile `action`/`update_target_id`/`supersede_ids` semantics with T016.
-- [ ] T018 [US1] Change `FactsCandidates.resolve` and `resolve_custom` in `knowledge/serve/facts_candidates.py` to flip the edge kind (call the T012 helper) instead of `remove_edge`; set loser `rejected`, winner `active`; never touch text (FR-004, SC-003).
-- [ ] T019 [US1] Revisit the `/insights` read-back in `add_insight` (`knowledge/serve/app.py`) so the reported `action` stays sensible now that the approved fact is always a fresh `add` (report "added" with rejected-loser info).
+- [X] T016 [US1] Rewrite `PostgresVectorGraph._overwrite` in `knowledge/knowledge_graph/knowledge_graph_variants/postgres_vector_graph.py`: the approved fact is a plain `add` at `state='active'`; **every** conflict (including the former `update_target_id`) is set `state='rejected'` with text/embedding untouched and gets a `contradicted_by` edge (via T012). Enforce the "never both active" invariant atomically (FR-003, FR-005, SC-001/SC-002).
+- [X] T017 [US1] Update `ConflictOverwriter.apply` in `knowledge/knowledge_graph/write_policy/write_step_variants/conflict_overwriter.py` so all conflicts are treated uniformly as losers (no in-place text overwrite); reconcile `action`/`update_target_id`/`supersede_ids` semantics with T016.
+- [X] T018 [US1] Change `FactsCandidates.resolve` and `resolve_custom` in `knowledge/serve/facts_candidates.py` to flip the edge kind (call the T012 helper) instead of `remove_edge`; set loser `rejected`, winner `active`; never touch text (FR-004, SC-003).
+- [X] T019 [US1] Revisit the `/insights` read-back in `add_insight` (`knowledge/serve/app.py`) so the reported `action` stays sensible now that the approved fact is always a fresh `add` (report "added" with rejected-loser info).
 
 **Checkpoint**: US1 is fully testable on the backend — approvals preserve contradicted facts and link them; the MVP increment is shippable (backend).
 
