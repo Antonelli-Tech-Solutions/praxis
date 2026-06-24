@@ -25,6 +25,8 @@ interface SourceFoldInProps {
   onFolded?: () => void;
   /** Route the user to the contradictions view when conflicts are returned. */
   onViewContradictions?: () => void;
+  /** When rendered inside a modal: always-open body, no collapse header. */
+  embedded?: boolean;
 }
 
 /** A pickable snapshot: a member's saved snapshot (own or another's). */
@@ -89,8 +91,10 @@ export function SourceFoldIn({
   auth,
   onFolded,
   onViewContradictions,
+  embedded,
 }: SourceFoldInProps) {
   const [open, setOpen] = useState(false);
+  const isOpen = embedded || open;
   const [options, setOptions] = useState<SnapshotOption[]>([]);
   const [picked, setPicked] = useState<string>("");
   const [facts, setFacts] = useState<SourceFacts | null>(null);
@@ -115,8 +119,8 @@ export function SourceFoldIn({
   }, [apiBaseUrl, auth]);
 
   useEffect(() => {
-    if (open) void refreshSources();
-  }, [open, refreshSources]);
+    if (isOpen) void refreshSources();
+  }, [isOpen, refreshSources]);
 
   async function loadFacts(option: SnapshotOption) {
     setBusy(true);
@@ -198,24 +202,26 @@ export function SourceFoldIn({
   const selectedCount = facts ? selectedFactIds(facts.groups, selected).length : 0;
 
   return (
-    <section className="eval-runner">
-      <header className="eval-runner__head">
-        <button
-          type="button"
-          className="eval-runner__collapse"
-          onClick={() => setOpen((v) => !v)}
-          aria-expanded={open}
-        >
-          {open ? "▾" : "▸"}{" "}
-          <span className="eval-runner__title">Browse snapshots &amp; fold in skills</span>
-        </button>
-        <span className="eval-runner__hint">
-          Pick a teammate&apos;s snapshot, choose folders, and add or replace your own
-          graph with them.
-        </span>
-      </header>
+    <section className={embedded ? "eval-runner eval-runner--embedded" : "eval-runner"}>
+      {!embedded && (
+        <header className="eval-runner__head">
+          <button
+            type="button"
+            className="eval-runner__collapse"
+            onClick={() => setOpen((v) => !v)}
+            aria-expanded={open}
+          >
+            {open ? "▾" : "▸"}{" "}
+            <span className="eval-runner__title">Browse snapshots &amp; fold in skills</span>
+          </button>
+          <span className="eval-runner__hint">
+            Pick a teammate&apos;s snapshot, choose folders, and add or replace your own
+            graph with them.
+          </span>
+        </header>
+      )}
 
-      {open ? (
+      {isOpen ? (
         <>
           <div className="eval-runner__row">
             <label className="eval-runner__field">

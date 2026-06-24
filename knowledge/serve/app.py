@@ -53,7 +53,7 @@ from knowledge.knowledge_graph.write_policy.write_step_variants import (  # noqa
 )
 from knowledge.llm.llm_variants.openrouter_llm import OpenRouterLlm  # noqa: E402
 from knowledge.serve import db, graph_adapter  # noqa: E402
-from knowledge.serve.auth import Principal, current_user  # noqa: E402
+from knowledge.serve.auth import Principal, make_current_user  # noqa: E402
 from knowledge.serve.facts_candidates import (  # noqa: E402
     DeletionError,
     FactsCandidates,
@@ -92,6 +92,9 @@ def create_app(conn: Any | None = None) -> FastAPI:
     """
     conn = conn if conn is not None else db.connect()
     orgs_store = OrgsStore(conn)
+    # Bind the auth dependency to this connection so it can also resolve API keys
+    # (X-Praxis-Key) in addition to the Cognito Bearer JWT / dev seam.
+    current_user = make_current_user(conn)
 
     def candidates_for(org: str, sub: str) -> FactsCandidates:
         """The candidate facade for one requester's tenant graph."""
@@ -124,6 +127,15 @@ def create_app(conn: Any | None = None) -> FastAPI:
     ) -> str:
         """Resolve + authorize the requester's active org (from ``X-Praxis-Org``)."""
         org = x_praxis_org or "default"
+        # API-key principals are scoped to exactly one org: the selected org must
+        # equal the key's org (that match IS the membership for a key).
+        if principal.api_key_org is not None:
+            if org != principal.api_key_org:
+                raise HTTPException(
+                    status_code=403,
+                    detail=f"API key is not scoped to org {org!r}",
+                )
+            return org
         if not orgs_store.is_member(org, principal.sub):
             raise HTTPException(status_code=403, detail=f"not a member of org {org!r}")
         return org
@@ -186,6 +198,68 @@ def create_app(conn: Any | None = None) -> FastAPI:
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc))
         return {"orgId": org_id, "status": "password_changed"}
+
+    # --- API keys (in-page key management, scoped to the active org) -------
+    def _apikey_view(rec: dict[str, Any]) -> dict[str, Any]:
+        """Public read model for one key (camelCase, never the raw key/hash)."""
+        return {
+            "id": rec["id"],
+            "label": rec["label"],
+            "userId": rec["user_id"],
+            "createdAt": rec["created_at"],
+            "lastUsedAt": rec["last_used_at"],
+            "revoked": rec["revoked"],
+        }
+
+    @app.post("/apikeys")
+    def create_apikey(
+        body: dict[str, Any] = Body(default={}),
+        principal: Principal = Depends(current_user),
+        org: str = Depends(active_org),
+    ) -> dict[str, Any]:
+        """Mint a key for the active org, scoped to the caller's user id.
+
+        The raw ``pxk_`` key is returned exactly once here and never persisted in
+        clear; only its hash lives in the DB.
+        """
+        from knowledge.serve import apikeys
+
+        label = body.get("label")
+        label = str(label) if label is not None else None
+        key_id, raw_key = apikeys.mint_key(conn, org, user_id=principal.sub, label=label)
+        # Read back the freshly-minted row to source the canonical createdAt.
+        rows = [k for k in apikeys.list_keys(conn, org) if k["id"] == key_id]
+        created_at = rows[0]["created_at"] if rows else None
+        return {
+            "id": key_id,
+            "key": raw_key,
+            "label": label,
+            "createdAt": created_at,
+        }
+
+    @app.get("/apikeys")
+    def list_apikeys(
+        principal: Principal = Depends(current_user),
+        org: str = Depends(active_org),
+    ) -> list[dict[str, Any]]:
+        """List the active org's keys (camelCase, never the raw key or hash)."""
+        from knowledge.serve import apikeys
+
+        return [_apikey_view(k) for k in apikeys.list_keys(conn, org)]
+
+    @app.post("/apikeys/{key_id}/revoke")
+    def revoke_apikey(
+        key_id: str,
+        principal: Principal = Depends(current_user),
+        org: str = Depends(active_org),
+    ) -> dict[str, Any]:
+        """Revoke a key, but only if it belongs to the active org (else 404)."""
+        from knowledge.serve import apikeys
+
+        if not any(k["id"] == key_id for k in apikeys.list_keys(conn, org)):
+            raise HTTPException(status_code=404, detail=f"unknown key {key_id}")
+        apikeys.revoke_key(conn, key_id)
+        return {"id": key_id, "revoked": True}
 
     # --- candidates (projection of the facts spine) ------------------------
     @app.get("/candidates")
@@ -817,6 +891,53 @@ def create_app(conn: Any | None = None) -> FastAPI:
             "id": top.id if top is not None else None,
         }
 
+    @app.post("/ingest")
+    def ingest_documents(
+        body: dict[str, Any] = Body(default={}),
+        principal: Principal = Depends(current_user),
+        org: str = Depends(active_org),
+    ) -> dict[str, Any]:
+        """Batch-ingest raw documents through the tenant's distillation pipeline.
+
+        Body: ``{"documents": [{"text": str, "source": str|null}],
+        "state": "active"|"proposed"}`` (state defaults to "active"). Each
+        document is run through the same ingestor that distills raw text into
+        facts (``build_trio`` over the tenant's live graph), at the given state —
+        this is the pipeline path, NOT the no-pipeline ``/candidates`` insert.
+
+        Returns ``{"results": [{"id": str|null, "action": str}], "count": int}``;
+        one result per input document. ``id`` is the top matching fact after that
+        document's distillation (best-effort), ``action`` is ``"ingested"``.
+        """
+        documents = body.get("documents")
+        if not isinstance(documents, list) or not documents:
+            raise HTTPException(status_code=400, detail="documents must be a non-empty list")
+        state = str(body.get("state") or "active").strip().lower()
+        if state not in ("active", "proposed"):
+            raise HTTPException(status_code=400, detail="state must be 'active' or 'proposed'")
+
+        graph = PostgresVectorGraph(
+            conn,
+            org,
+            principal.sub,
+            policy=[Redactor(), Deduper(), ConflictOverwriter(llm=OpenRouterLlm())],
+        )
+        _, ingestor, _ = build_trio(graph=graph, llm=None)
+        results: list[dict[str, Any]] = []
+        for doc in documents:
+            if not isinstance(doc, dict):
+                raise HTTPException(status_code=400, detail="each document must be an object")
+            text = (doc.get("text") or "").strip()
+            if not text:
+                raise HTTPException(status_code=400, detail="each document needs non-empty text")
+            ingestor.ingest(text, state=state)
+            # Best-effort provenance back to the caller: the top fact the just-
+            # ingested text now matches (ids are per-fact, a doc distills to many).
+            hits = graph.search(text, top_k=1, state=None)
+            top_id = hits[0].fact.id if hits else None
+            results.append({"id": top_id, "action": "ingested"})
+        return {"results": results, "count": len(results)}
+
     @app.get("/context")
     def get_context(
         query: str = "",
@@ -831,7 +952,15 @@ def create_app(conn: Any | None = None) -> FastAPI:
         return {
             "context": reader.read(query),
             "hits": [
-                {"id": h.fact.id, "text": h.fact.text, "score": h.score} for h in hits
+                {
+                    "id": h.fact.id,
+                    "text": h.fact.text,
+                    "score": h.score,
+                    "source": getattr(h.fact, "source", None),
+                    "scope": getattr(h.fact, "scope", None),
+                    "category": getattr(h.fact, "category", None),
+                }
+                for h in hits
             ],
         }
 

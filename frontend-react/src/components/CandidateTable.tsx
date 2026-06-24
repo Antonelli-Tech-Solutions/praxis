@@ -74,7 +74,7 @@ export function CandidateTable({
         message={
           <>
             No candidates match the current filter. Try clearing search or choosing{" "}
-            <strong>All</strong> states.
+            <strong>all</strong> states.
           </>
         }
       />
