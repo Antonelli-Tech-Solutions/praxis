@@ -794,17 +794,16 @@ export interface OrgSource {
   snapshots: string[];
 }
 
-/** A single fact within a source, grouped by skill. */
+/** A single fact within a snapshot, grouped into a folder by scope. */
 export interface SourceFact {
   id: string;
   text: string;
   scope: string;
   clusterLabel: string;
-  source: string;
   state: string;
 }
 
-/** A skill group of facts within a source. */
+/** A folder of facts within a snapshot (grouped by scope). */
 export interface SourceFactGroup {
   key: string;
   label: string;
@@ -813,9 +812,11 @@ export interface SourceFactGroup {
 
 export interface SourceFacts {
   userId: string;
-  source: string;
+  snapshot: string;
   groups: SourceFactGroup[];
 }
+
+export type FoldInMode = "add" | "replace";
 
 export interface FoldInConflict {
   newId: string;
@@ -826,6 +827,7 @@ export interface FoldInResult {
   folded: number;
   deduped: number;
   conflicts: FoldInConflict[];
+  mode: FoldInMode;
 }
 
 function normalizeOrgSource(payload: unknown): OrgSource {
@@ -857,7 +859,6 @@ function normalizeSourceFact(payload: unknown): SourceFact {
       typeof row.clusterLabel === "string"
         ? row.clusterLabel
         : String(row.cluster_label ?? ""),
-    source: typeof row.source === "string" ? row.source : "",
     state: typeof row.state === "string" ? row.state : "",
   };
 }
@@ -881,7 +882,7 @@ function normalizeSourceFacts(payload: unknown): SourceFacts {
     : [];
   return {
     userId: typeof row.userId === "string" ? row.userId : String(row.user_id ?? ""),
-    source: typeof row.source === "string" ? row.source : "",
+    snapshot: typeof row.snapshot === "string" ? row.snapshot : String(row.snapshot ?? ""),
     groups,
   };
 }
@@ -902,6 +903,7 @@ function normalizeFoldInResult(payload: unknown): FoldInResult {
     folded: Number(row.folded ?? 0),
     deduped: Number(row.deduped ?? 0),
     conflicts,
+    mode: row.mode === "replace" ? "replace" : "add",
   };
 }
 
@@ -916,32 +918,34 @@ export async function listOrgSources(
 }
 
 /**
- * `GET /org/sources/{userId}/facts?source=live|snapshot:<name>` — fetch a
- * source's facts grouped by skill.
+ * `GET /org/sources/{userId}/snapshots/{name}/facts` — fetch a snapshot's
+ * facts grouped into folders (by scope).
  */
-export async function getSourceFacts(
+export async function getSnapshotFacts(
   apiBaseUrl: string,
   userId: string,
-  source: string,
+  snapshotName: string,
   auth?: string | ApiDataProviderAuth,
 ): Promise<SourceFacts> {
-  const path = `/org/sources/${encodeURIComponent(userId)}/facts?source=${encodeURIComponent(source)}`;
+  const path = `/org/sources/${encodeURIComponent(userId)}/snapshots/${encodeURIComponent(snapshotName)}/facts`;
   return normalizeSourceFacts(await snapshotRequest(apiBaseUrl, "GET", path, auth));
 }
 
-/** `POST /fold-in` — fold the chosen facts of a source into the caller's graph. */
+/** `POST /fold-in` — fold the chosen snapshot facts into the caller's graph. */
 export async function foldIn(
   apiBaseUrl: string,
   sourceUser: string,
-  source: string,
+  snapshotName: string,
   factIds: string[],
+  mode: FoldInMode,
   auth?: string | ApiDataProviderAuth,
 ): Promise<FoldInResult> {
   return normalizeFoldInResult(
     await snapshotRequest(apiBaseUrl, "POST", "/fold-in", auth, {
       sourceUser,
-      source,
+      snapshot: snapshotName,
       factIds,
+      mode,
     }),
   );
 }

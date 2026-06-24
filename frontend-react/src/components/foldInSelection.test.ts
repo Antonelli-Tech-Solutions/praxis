@@ -9,7 +9,7 @@ import {
 } from "./foldInSelection";
 
 function fact(id: string) {
-  return { id, text: id, scope: "global", clusterLabel: "", source: "", state: "active" };
+  return { id, text: id, scope: "global", clusterLabel: "", state: "active" };
 }
 
 const GROUPS: SourceFactGroup[] = [
@@ -72,5 +72,15 @@ describe("selectedFactIds", () => {
   it("returns selected ids in stable group order", () => {
     const selected = new Set(["c", "a"]);
     expect(selectedFactIds(GROUPS, selected)).toEqual(["a", "c"]);
+  });
+
+  it("folder-select then per-node-deselect yields the remaining ids", () => {
+    // Select the whole "Testing" folder (a, b)...
+    let selected = toggleGroup(GROUPS[0], new Set());
+    expect(selectedFactIds(GROUPS, selected)).toEqual(["a", "b"]);
+    // ...then override by deselecting one node (b).
+    selected = toggleFact("b", selected);
+    expect(selectedFactIds(GROUPS, selected)).toEqual(["a"]);
+    expect(groupCheckState(GROUPS[0], selected)).toBe("indeterminate");
   });
 });
