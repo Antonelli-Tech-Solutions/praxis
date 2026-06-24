@@ -157,7 +157,7 @@ description: "Task list for REJECTED state + retained-contradiction lifecycle"
 - [X] T040 [P] Run the frontend gates green: `cd frontend-react && npm test && npm run lint && npm run build`.
 - [X] T041 [P] Verify SC-006: grep `frontend-react/src` and `knowledge` for `decayed` and confirm only intentional historical references remain (no user-facing labels/filters/state values).
 - [X] T042 Confirm the contract↔fixtures↔clients sync (Principle III): `contracts/candidate-lifecycle-api.md` matches the Python routes and the React client for the renamed state value and the `status` / `hasOtherContradictions` fields.
-- [ ] T043 Run the [quickstart.md](quickstart.md) manual walk-through of User Story 1–3 acceptance scenarios against Postgres.
+- [X] T043 Run the [quickstart.md](quickstart.md) manual walk-through of User Story 1–3 acceptance scenarios against Postgres.
 
 ---
 

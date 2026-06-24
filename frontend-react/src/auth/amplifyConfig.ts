@@ -16,6 +16,20 @@ export function isAmplifyConfigured(): boolean {
   return Boolean(envUserPoolId() && envClientId());
 }
 
+/**
+ * Local-dev opt-in to skip the Cognito Authenticator. Honored ONLY when no
+ * Cognito user pool is configured AND VITE_PRAXIS_AUTH_DISABLED is explicitly "1"
+ * — so it can never silently open a deployed build (production sets the
+ * VITE_COGNITO_* vars, making isAmplifyConfigured() true). Pair it with a backend
+ * started with PRAXIS_AUTH_DISABLED=1.
+ */
+export function isLocalAuthBypassEnabled(): boolean {
+  return (
+    !isAmplifyConfigured() &&
+    import.meta.env.VITE_PRAXIS_AUTH_DISABLED?.trim() === "1"
+  );
+}
+
 let configured = false;
 
 /**
