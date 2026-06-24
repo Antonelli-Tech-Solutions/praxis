@@ -27,21 +27,25 @@ from knowledge.llm.parent_llm import Llm
 from knowledge.llm.verdict_cassette import VerdictCassette
 
 _PROMPT = (
-    "Decompose the NOTE into atomic factual claims as (subject, attribute, value).\n"
-    "- subject: the canonical entity the claim is INHERENTLY about. An invention's "
-    "year belongs to the invention (subject='voltaic pile', attribute='invention "
-    "year'), NOT to the inventor. Use a STABLE canonical name; for a piece's own "
-    "stylistic/production constants use subjects like 'video:audio', 'video:visual', "
-    "'video:editing', 'video:structure'.\n"
-    "- attribute: the specific property (e.g. 'invention year', 'background color').\n"
-    "- value: the asserted value, normalized (years as the bare number).\n"
-    "- functional: true if the attribute can have only ONE correct value for that "
-    "subject (a birth year, an event's year, a nationality) -> a different value is a "
-    "contradiction. false if it is naturally MULTI-valued (a person's discoveries, "
-    "roles held over time, a list of metals) -> different values coexist.\n"
-    "\n"
-    "Emit only claims actually asserted; keep attributes specific so unrelated facts "
-    "don't collide. Return an empty claims list if the note makes no checkable claim.\n"
+    "Decompose the NOTE into atomic factual claims as (subject, attribute, value, "
+    "functional). Extract ONLY what THIS note asserts; do not reuse any wording from "
+    "examples elsewhere in this prompt.\n"
+    "- subject: the canonical thing the claim is about. Attach a property to the thing "
+    "it inherently describes, not to the actor (an invention's year -> the invention). "
+    "For a rule of the form 'use X for Y' / 'Y must be X', the subject is Y (the thing "
+    "governed) and the value is X. Config, infrastructure, and policy facts count too "
+    "(a storage timezone, a rate limit, an indentation style, a required tool). Use a "
+    "stable canonical name, and the SAME name for a subset as for the whole (a rule "
+    "about one table's timestamps still uses subject 'timestamps').\n"
+    "- attribute: the specific property in question (e.g. 'invention year', "
+    "'indentation style', 'storage timezone').\n"
+    "- value: the asserted value, normalized (years and numbers as bare numbers).\n"
+    "- functional: true if the attribute is single-valued for that subject (a year, a "
+    "timezone, an indentation style) so a DIFFERENT value would be a contradiction; "
+    "false if it is naturally multi-valued (a person's discoveries, list members) so "
+    "values coexist.\n"
+    "Emit only claims the NOTE actually makes; keep attributes specific so unrelated "
+    "facts don't collide. Return an empty list if the note makes no checkable claim.\n"
     "NOTE: {note}"
 )
 
@@ -59,6 +63,9 @@ _STANCE_PROMPT = (
     "Examples (note -> axis, pole):\n"
     "  'squeeze every cycle even if the code gets gnarly' -> axis:performance-vs-readability, performance\n"
     "  'keep it easy for a newcomer to follow even if slower' -> axis:performance-vs-readability, readability\n"
+    "  'keep it readable even if it leaves speed on the table' -> axis:performance-vs-readability, readability\n"
+    "  (note: 'speed' here is runtime performance, NOT the testing-rigor-vs-speed axis, "
+    "which is only about skipping/keeping TESTS)\n"
     "  'instrument everything, you can't have too much insight' -> axis:logging-verbose-vs-minimal, verbose\n"
     "  'emit as little chatter as possible' -> axis:logging-verbose-vs-minimal, minimal\n"
     "  'write a guide explaining each module' -> axis:documentation-explicit-vs-self-documenting, explicit\n"
@@ -69,6 +76,8 @@ _STANCE_PROMPT = (
     "  'spell each path out inline, copy-paste beats machinery' -> axis:abstraction-vs-directness, directness\n"
     "  'test thoroughly before shipping' -> axis:testing-rigor-vs-speed, testing-rigor\n"
     "  'ship fast, skip the exhaustive tests' -> axis:testing-rigor-vs-speed, speed\n"
+    "  'always indent with tabs, spaces forbidden' -> axis:indentation-tabs-vs-spaces, tabs\n"
+    "  'always indent with spaces, tabs forbidden' -> axis:indentation-tabs-vs-spaces, spaces\n"
     "  'keep every knob in one central place' -> axis:config-centralized-vs-colocated, centralized\n"
     "  'put each setting beside the code that reads it' -> axis:config-centralized-vs-colocated, colocated\n"
     "  'reach for a battle-tested library' -> axis:dependency-library-vs-diy, library\n"
@@ -89,6 +98,7 @@ AXIS_VOCAB: list[tuple[str, str, str]] = [
     ("axis:error-fail-fast-vs-fail-safe", "fail-fast", "fail-safe"),
     ("axis:documentation-explicit-vs-self-documenting", "explicit", "self-documenting"),
     ("axis:logging-verbose-vs-minimal", "verbose", "minimal"),
+    ("axis:indentation-tabs-vs-spaces", "tabs", "spaces"),
 ]
 _AXES_BLOCK = "".join(
     f"      {subj}  (poles: {a} | {b})\n" for subj, a, b in AXIS_VOCAB

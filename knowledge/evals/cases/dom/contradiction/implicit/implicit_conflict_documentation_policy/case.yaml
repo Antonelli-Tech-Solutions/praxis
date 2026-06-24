@@ -1,19 +1,13 @@
-# Implicit cross-vocabulary contradiction — the HONEST RESIDUAL of the stance path.
-# The stance classifier maps a note onto a controlled tradeoff axis (subject=
-# 'axis:<a>-vs-<b>', attribute='stance', value=<pole>); two opposing poles on the
-# same axis then collide on one slot and the detector flags them deterministically.
-# This catches 7/8 implicit pairs — but this pair's first note ("capture the
-# reasoning in a written guide") does not reliably classify onto the documentation
-# axis (the model reads it as a process/quality statement, not a docs-vs-self-
-# documenting stance), so only one side gets a stance and the pair never collides.
-# XFAIL = documented recall limitation of cheap-model stance classification, not a
-# tuned pass. Flips to a real pass the day stance recall covers this phrasing.
+# Implicit cross-vocabulary contradiction: two contradictory documentation
+# preferences phrased with DISJOINT vocabulary. The stance classifier maps both onto
+# axis:documentation-explicit-vs-self-documenting (poles explicit | self-documenting);
+# the opposing poles collide on one slot and the detector flags them deterministically.
+# Replays offline from the committed claim_extract cassette.
 id: implicit_conflict_documentation_policy
 component: knowledge_graph
 substrate: vector
 embedder: cached  # real vectors; the pair sits below the cosine floor by design
 conflict_model: openai/gpt-4o-mini  # stance classifier; replayed from the committed claim cassette
-xfail: "honest residual: the first note does not reliably classify onto the documentation axis, so only one stance is emitted and the pair never collides — a cheap-model stance-recall limitation, not a tuned pass"
 
 seeded_insight:
   via_ingestor: []
