@@ -68,17 +68,43 @@ correct, and its cost regression here is informative, not a defect.
    pass the gate would be measurement-gaming, not a finding.
 3. **n = 3.** The flip is clean (3/3 vs 3/3) but the sample is small.
 
+## Follow-up analysis — the umap cost IS a ranking gap (corrects the read above)
+
+An offline rank probe over the seeded graph shows the umap regression is **not** over-injection —
+it is a **ranking** failure that semantic-only retrieval can't fix:
+
+| Task | neutralizing fact rank (semantic-only) | what out-ranks it |
+|------|----------------------------------------|-------------------|
+| `yoyo` | **#2** of 8 injected | one `repo`-scoped distractor ("single source of truth") |
+| `umap` | **#6** of 8 injected | **5 `repo`-scoped clustering distractors** (cluster-id stability, super-nodes, dashboard restructure) score 0.47–0.50 vs the n_neighbors fact at 0.42 |
+
+So the agent must inject the 5 higher-scoring distractors to reach the rank-6 fact — *that* is the
+over-injection cost, and **tightening `top_k` would make it worse** (top_k<6 drops the umap fact
+entirely). The relevant fact is simply out-ranked.
+
+**The facts already carry the scope to fix it.** The umap fix is
+`scope=file:knowledge/knowledge_graph/clustering.py` and the task edits `clustering.py`; the yoyo
+fix is `scope=file:migrations/...` and the task writes a migration — while every distractor is
+`scope=repo`. An offline scope-match boost (+0.15 for a file-scoped fact whose path matches the
+task target) re-ranks the neutralizing fact **#6 → #2 (umap)** and **#2 → #1 (yoyo)**, surrounding
+it with other clustering-/migration-scoped facts instead of repo chatter. With scope-aware ranking
++ a tight `top_k`, the auto arm would inject ~2 relevant facts instead of 8 — the lever that
+addresses the cost without dropping the fact.
+
+**This is the retrieval-attributed evidence the parent proposal was waiting for.** Earlier this
+doc said retrieval "did not bite" and the cost argued against richer ranking — both wrong: umap
+*is* a ranking shortfall, and scope-aware retrieval (the parent's deferred two-lane work) is now
+**evidence-motivated**, not speculative.
+
 ## Next increment
 
-- **The retrieval gap the parent proposal predicted did NOT bite** — semantic retrieval surfaced
-  the right fact 3/3 for both tasks. Defer two-lane scope-aware retrieval until a task produces a
-  *retrieval-attributed* shortfall; this run gives no such evidence.
-- **The cost result motivates scope-/relevance-gated injection, not richer retrieval ranking.** The
-  umap regression is an *over-injection* cost (paying to retrieve a fact the agent didn't need),
-  which argues for injecting less when the task isn't footgun-prone — a different lever than the
-  parent's file/module routing.
-- **Add a second validated footgun** (the standing recommendation) so the knowledge-value signal
-  doesn't rest on one construct.
+- **Scope-aware retrieval is now justified by data** (the rank probe above). It is the parent
+  proposal's next slice and needs real work — write-path provenance threading so the store carries
+  `scope` (this slice seeds text-only), plus a scope-aware reader/boost. Warrants its own plan; an
+  eval-side scope reader could confirm the offline demo on real agent runs first.
+- **Add a second validated footgun** so the knowledge-value signal doesn't rest on one construct —
+  empirical and metered (validate a candidate's blind control ≥2/3 before trusting it; do not
+  invent one blind).
 - **Establish the dogfood premise** (≥2 reliably-blind-tempting footguns) before any GO here is
   trustworthy.
 
