@@ -1,0 +1,56 @@
+{
+"25ad2781f2522332c30353c6e2f80e0d0bd23f85ac99e16b621d794d1e1363a6": {
+"response": "{\"same\":[0,1,2,3,4,5]}"
+},
+"2e8614e1331c97ce6491f66582ef5698c64bccf9c209027474d4215c64f686a6": {
+"response": "{\"same\":[]}"
+},
+"34b3a0fcd69f2e51554ee427c444be549bf6bce55a1830a2773e5a61aa36cc4e": {
+"response": "{\"facts\":[{\"text\":\"The standard deduction for Head of household in tax year 2025 is $23,625.\",\"subject\":\"TY2025 standard deduction for Head of household\",\"attribute\":\"amount\",\"value\":\"$23,625\"}]}"
+},
+"3ee0814b46b154a0612156b2f167dfdee21cd8d0b08421fd2e0202109c3d3992": {
+"response": "{\"same\":[]}"
+},
+"4dbe282cce7e240a7f7c819ab9353761ea4e41be824b45de7f0f420ad90abc04": {
+"response": "{\"same\":[0,1,2,3,4,5]}"
+},
+"6a11616d9112e525daa15b8e079db241cdf1d0d02c7c85a0c3ff706171a620c0": {
+"response": "{\"same_slot\":[0]}"
+},
+"773f00a29856454166a2394beee0916b9687399f1a6ad38265bba2a9741877fb": {
+"response": "{\"facts\":[{\"text\":\"The standard deduction for Married filing jointly in tax year 2025 is $31,500.\",\"subject\":\"TY2025 standard deduction for Married filing jointly\",\"attribute\":\"amount\",\"value\":\"$31,500\"}]}"
+},
+"80ae5eb4bd52f2d7b2f85a0cf39f0c27c620ca3a85eb75df5ac52b97ac5fc22a": {
+"response": "{\"facts\":[{\"text\":\"Federal income tax brackets are marginal, meaning each rate applies only to the portion of taxable income that falls within that bracket's range.\",\"subject\":\"Federal income tax brackets\",\"attribute\":\"nature\",\"value\":\"marginal\"},{\"text\":\"To calculate total tax, sum the tax from each bracket.\",\"subject\":\"Total tax calculation\",\"attribute\":\"method\",\"value\":\"sum the tax from each bracket.\"}]}"
+},
+"8701c5253213fbcbf8efc996aaaf037024bea113f8d0792e555a7bd1079a037e": {
+"response": "{\"facts\":[{\"text\":\"The TY2025 standard deduction for Married filing jointly is $32,200.\",\"subject\":\"TY2025 standard deduction for Married filing jointly\",\"attribute\":\"amount\",\"value\":\"$32,200\"}]}"
+},
+"ad9154b49b5f6ac46084c492f397de59a4990d15bc193a12ee90378112974194": {
+"response": "{\"facts\":[{\"text\":\"The TY2025 ordinary income tax bracket for Married filing jointly is 10% for income up to $23,850.\",\"subject\":\"TY2025 ordinary income tax bracket for Married filing jointly up to $23,850\",\"attribute\":\"rate\",\"value\":\"10%\"},{\"text\":\"The TY2025 ordinary income tax bracket for Married filing jointly is 12% for income between $23,850 and $96,950.\",\"subject\":\"TY2025 ordinary income tax bracket for Married filing jointly $23,850-$96,950\",\"attribute\":\"rate\",\"value\":\"12%\"},{\"text\":\"The TY2025 ordinary income tax bracket for Married filing jointly is 22% for income between $96,950 and $206,700.\",\"subject\":\"TY2025 ordinary income tax bracket for Married filing jointly $96,950-$206,700\",\"attribute\":\"rate\",\"value\":\"22%\"},{\"text\":\"The TY2025 ordinary income tax bracket for Married filing jointly is 24% for income between $206,700 and $394,600.\",\"subject\":\"TY2025 ordinary income tax bracket for Married filing jointly $206,700-$394,600\",\"attribute\":\"rate\",\"value\":\"24%\"},{\"text\":\"The TY2025 ordinary income tax bracket for Married filing jointly is 32% for income between $394,600 and $501,050.\",\"subject\":\"TY2025 ordinary income tax bracket for Married filing jointly $394,600-$501,050\",\"attribute\":\"rate\",\"value\":\"32%\"},{\"text\":\"The TY2025 ordinary income tax bracket for Married filing jointly is 35% for income between $501,050 and $751,600.\",\"subject\":\"TY2025 ordinary income tax bracket for Married filing jointly $501,050-$751,600\",\"attribute\":\"rate\",\"value\":\"35%\"},{\"text\":\"The TY2025 ordinary income tax bracket for Married filing jointly is 37% for income above $751,600.\",\"subject\":\"TY2025 ordinary income tax bracket for Married filing jointly above $751,600\",\"attribute\":\"rate\",\"value\":\"37%\"}]}"
+},
+"bcd53e4946be5a74c5725e2eaef55b093537f1e4024a198f400434079e4c6f88": {
+"response": "{\"same\":[0]}"
+},
+"c759d1e66d72adaabe2894055a5b8671a8781c5e58694651ebf24a845e63c95e": {
+"response": "{\"facts\":[{\"text\":\"W-2 box 2 reports federal income tax already withheld from the employee's pay.\",\"subject\":\"W-2 box 2\",\"attribute\":\"contents\",\"value\":\"federal income tax already withheld from the employee's pay.\"},{\"text\":\"W-2 box 2 is entered on Form 1040 line 25a.\",\"subject\":\"W-2 box 2\",\"attribute\":\"line number\",\"value\":\"Form 1040 line 25a\"},{\"text\":\"W-2 box 2 counts as a payment toward the year's tax.\",\"subject\":\"W-2 box 2\",\"attribute\":\"payment status\",\"value\":\"counts as a payment toward the year's tax.\"}]}"
+},
+"da6902d1ad7aeca01e5abdb6ab5cf9c9c79c97078f1600d456f937bf38e613e4": {
+"response": "{\"facts\":[{\"text\":\"The TY2025 ordinary income tax bracket for Single filers is 10% for income up to $11,925.\",\"subject\":\"TY2025 ordinary income tax bracket for Single filers up to $11,925\",\"attribute\":\"rate\",\"value\":\"10%\"},{\"text\":\"The TY2025 ordinary income tax bracket for Single filers is 12% for income between $11,925 and $48,475.\",\"subject\":\"TY2025 ordinary income tax bracket for Single filers $11,925-$48,475\",\"attribute\":\"rate\",\"value\":\"12%\"},{\"text\":\"The TY2025 ordinary income tax bracket for Single filers is 22% for income between $48,475 and $103,350.\",\"subject\":\"TY2025 ordinary income tax bracket for Single filers $48,475-$103,350\",\"attribute\":\"rate\",\"value\":\"22%\"},{\"text\":\"The TY2025 ordinary income tax bracket for Single filers is 24% for income between $103,350 and $197,300.\",\"subject\":\"TY2025 ordinary income tax bracket for Single filers $103,350-$197,300\",\"attribute\":\"rate\",\"value\":\"24%\"},{\"text\":\"The TY2025 ordinary income tax bracket for Single filers is 32% for income between $197,300 and $250,525.\",\"subject\":\"TY2025 ordinary income tax bracket for Single filers $197,300-$250,525\",\"attribute\":\"rate\",\"value\":\"32%\"},{\"text\":\"The TY2025 ordinary income tax bracket for Single filers is 35% for income between $250,525 and $626,350.\",\"subject\":\"TY2025 ordinary income tax bracket for Single filers $250,525-$626,350\",\"attribute\":\"rate\",\"value\":\"35%\"},{\"text\":\"The TY2025 ordinary income tax bracket for Single filers is 37% for income above $626,350.\",\"subject\":\"TY2025 ordinary income tax bracket for Single filers above $626,350\",\"attribute\":\"rate\",\"value\":\"37%\"}]}"
+},
+"eee4760489436d49e60b1964e9c2ae6bf58c3c5788a19d85f6bb0a7f030e8430": {
+"response": "{\"facts\":[{\"text\":\"The standard deduction for Single filers in TY2025 is $15,750.\",\"subject\":\"TY2025 Form 1040 standard deduction for Single filers\",\"attribute\":\"amount\",\"value\":\"$15,750\"},{\"text\":\"The standard deduction for Married filing jointly in TY2025 is $31,500.\",\"subject\":\"TY2025 Form 1040 standard deduction for Married filing jointly\",\"attribute\":\"amount\",\"value\":\"$31,500\"},{\"text\":\"The standard deduction for Married filing separately in TY2025 is $15,750.\",\"subject\":\"TY2025 Form 1040 standard deduction for Married filing separately\",\"attribute\":\"amount\",\"value\":\"$15,750\"},{\"text\":\"The standard deduction for Head of household in TY2025 is $23,625.\",\"subject\":\"TY2025 Form 1040 standard deduction for Head of household\",\"attribute\":\"amount\",\"value\":\"$23,625\"},{\"text\":\"The standard deduction amounts are entered on Form 1040 line 12.\",\"subject\":\"Form 1040 line 12\",\"attribute\":\"contents\",\"value\":\"standard deduction amounts\"}]}"
+},
+"f0c5bcf0fe29e70bfc17275a2bfaa9115ab641820838b6666774f116702ca337": {
+"response": "{\"same\":[2,3]}"
+},
+"f5faaaef16b3415cb4e004ee2ac74f83a0ea5b52e1933b4b4cdfb61a72827ba4": {
+"response": "{\"facts\":[{\"text\":\"Form 1040 line 24 represents the total tax.\",\"subject\":\"Form 1040 line 24\",\"attribute\":\"contents\",\"value\":\"total tax.\"},{\"text\":\"Form 1040 line 25a represents the federal income tax withheld from W-2 box 2.\",\"subject\":\"Form 1040 line 25a\",\"attribute\":\"contents\",\"value\":\"federal income tax withheld from W-2 box 2.\"},{\"text\":\"Form 1040 line 33 represents the total payments, which include withholding plus any credits and estimated payments.\",\"subject\":\"Form 1040 line 33\",\"attribute\":\"contents\",\"value\":\"total payments (withholding plus any credits and estimated payments).\"}]}"
+},
+"f6be45d480ec1dd55d780e8adf9d1a032690e0bf9575c91eadfe69522911f4d4": {
+"response": "{\"same\":[0]}"
+},
+"fdec6b3159c901c24fd032015bb335924089137fdfc15cb2624bee1a5ce9e153": {
+"response": "{\"facts\":[{\"text\":\"The TY2025 ordinary income tax bracket for Head of household is 10% for income up to $17,000.\",\"subject\":\"TY2025 ordinary income tax bracket for Head of household up to $17,000\",\"attribute\":\"rate\",\"value\":\"10%\"},{\"text\":\"The TY2025 ordinary income tax bracket for Head of household is 12% for income between $17,000 and $64,850.\",\"subject\":\"TY2025 ordinary income tax bracket for Head of household $17,000-$64,850\",\"attribute\":\"rate\",\"value\":\"12%\"},{\"text\":\"The TY2025 ordinary income tax bracket for Head of household is 22% for income between $64,850 and $103,350.\",\"subject\":\"TY2025 ordinary income tax bracket for Head of household $64,850-$103,350\",\"attribute\":\"rate\",\"value\":\"22%\"},{\"text\":\"The TY2025 ordinary income tax bracket for Head of household is 24% for income between $103,350 and $197,300.\",\"subject\":\"TY2025 ordinary income tax bracket for Head of household $103,350-$197,300\",\"attribute\":\"rate\",\"value\":\"24%\"},{\"text\":\"The TY2025 ordinary income tax bracket for Head of household is 32% for income between $197,300 and $250,500.\",\"subject\":\"TY2025 ordinary income tax bracket for Head of household $197,300-$250,500\",\"attribute\":\"rate\",\"value\":\"32%\"},{\"text\":\"The TY2025 ordinary income tax bracket for Head of household is 35% for income between $250,500 and $626,350.\",\"subject\":\"TY2025 ordinary income tax bracket for Head of household $250,500-$626,350\",\"attribute\":\"rate\",\"value\":\"35%\"},{\"text\":\"The TY2025 ordinary income tax bracket for Head of household is 37% for income above $626,350.\",\"subject\":\"TY2025 ordinary income tax bracket for Head of household above $626,350\",\"attribute\":\"rate\",\"value\":\"37%\"}]}"
+}
+}

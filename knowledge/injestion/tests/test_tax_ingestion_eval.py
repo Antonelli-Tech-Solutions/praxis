@@ -35,11 +35,15 @@ So behaviors 2 and 4 are tested against the WRITE POLICY:
 
 Determinism / safety design
 ----------------------------
-Ingestion calls a real LLM + embedder, so phrasing varies run-to-run. Rather
-than pin exact strings we assert STRUCTURAL properties (no fact retired, dedup
-probe has one active match, call-count <= 2 per doc) that tolerate phrasing
-variance but still catch a regression to false-positive rejection or call
-explosion.
+Ingestion calls a real LLM + embedder, so phrasing varies run-to-run. To make
+the eval DETERMINISTIC and runnable offline we cassette-back both seams (exactly
+like the component eval ``multiway_two_slots``): every ``ingest_dump`` call runs
+through a :class:`CassetteLlm` over committed responses, and every graph embeds
+through a :class:`CachedEmbedder` over committed vectors. With
+``OPENROUTER_API_KEY`` set we RECORD misses to those fixtures; without a key we
+REPLAY them — so the eval produces the same result every run and needs no key in
+CI. We still assert STRUCTURAL properties (no fact retired, dedup probe has one
+active match, call-count <= 2 per doc) rather than exact phrasing.
 
 DB SAFETY: we load the repo-root ``.env`` by the ``knowledge`` package location
 (NOT a bare ``load_dotenv()`` which would search from this file's dir and could
@@ -47,8 +51,9 @@ silently fall back to PROD RDS), then HARD-ASSERT the DSN host is localhost
 before any write. Every run uses a unique throwaway ``(org_id, user_id)`` and
 tears it down in a ``finally``.
 
-Requires a local Postgres (``PRAXIS_DB_URL`` -> localhost) and
-``OPENROUTER_API_KEY``; skips cleanly otherwise.
+Requires a local Postgres (``PRAXIS_DB_URL`` -> localhost); skips cleanly without
+one. The LLM + embeddings are cassette-backed, so it RUNS and PASSES on replay
+WITHOUT ``OPENROUTER_API_KEY`` (a key is only needed to record fixtures).
 """
 
 from __future__ import annotations
@@ -86,9 +91,49 @@ def _require_local_or_skip() -> str:
     host = re.sub(r"^.*@", "", url).split("/")[0].split(":")[0]
     if host not in ("localhost", "127.0.0.1"):
         pytest.skip(f"PRAXIS_DB_URL host is {host!r}, not local — refusing to run against remote")
-    if not os.getenv("OPENROUTER_API_KEY"):
-        pytest.skip("OPENROUTER_API_KEY unset (ingest_dump needs a real distiller + embedder)")
+    # NOTE: no OPENROUTER_API_KEY requirement — the LLM + embeddings are
+    # cassette-backed (see _cassette_llm / _cached_embedder), so the eval RUNS and
+    # PASSES on replay without a key. A key is only needed to RECORD the fixtures.
     return url
+
+
+# --------------------------------------------------------------------------- #
+# Cassette wiring: replay the LLM + embeddings from committed fixtures so the eval
+# is deterministic and offline. With a key we record misses; without, we replay.
+# --------------------------------------------------------------------------- #
+_ALLOW_COMPUTE = bool(os.getenv("OPENROUTER_API_KEY"))
+_FIXTURES = Path(__file__).resolve().parent / "fixtures"
+_LLM_CASSETTE = _FIXTURES / "tax_ingestion_llm.json"
+
+
+def _embed_model() -> str:
+    from knowledge.llm import openrouter_http
+
+    return os.getenv("OPENROUTER_EMBED_MODEL", openrouter_http.DEFAULT_EMBED_MODEL)
+
+
+def _embed_cache_path(model: str) -> Path:
+    slug = model.replace("/", "_").replace(":", "_")
+    return _FIXTURES / f"embeddings_{slug}.json"
+
+
+def _cassette_llm():
+    """A CassetteLlm over the real OpenRouter model: replay committed responses,
+    record misses only when a key is present."""
+    from knowledge.llm.llm_cassette import CassetteLlm
+    from knowledge.llm.llm_variants.openrouter_llm import OpenRouterLlm
+
+    return CassetteLlm(OpenRouterLlm(), _LLM_CASSETTE, allow_compute=_ALLOW_COMPUTE)
+
+
+def _cached_embedder():
+    """A CachedEmbedder over committed real vectors (records misses only with a key)."""
+    from knowledge.llm.embedder_variants.cached_embedder import CachedEmbedder
+    from knowledge.llm.embedder_variants.openrouter_embedder import OpenRouterEmbedder
+
+    model = _embed_model()
+    inner = OpenRouterEmbedder(model=model) if _ALLOW_COMPUTE else None
+    return CachedEmbedder(inner, _embed_cache_path(model), model_id=model, allow_compute=_ALLOW_COMPUTE)
 
 
 # --------------------------------------------------------------------------- #
@@ -231,7 +276,9 @@ def _dedup_only_graph(conn, org, user):
     )
     from knowledge.knowledge_graph.write_policy.write_step_variants import Deduper, Redactor
 
-    return PostgresVectorGraph(conn, org, user, policy=[Redactor(), Deduper()])
+    return PostgresVectorGraph(
+        conn, org, user, embedder=_cached_embedder(), policy=[Redactor(), Deduper()]
+    )
 
 
 def _claim_policy_graph(conn, org, user, llm):
@@ -269,11 +316,10 @@ class _Seeded:
 def seeded():
     _require_local_or_skip()
     from knowledge.injestion.dump_ingest import ingest_dump
-    from knowledge.llm.llm_variants.openrouter_llm import OpenRouterLlm
 
     conn, org, user = _new_tenant()
     graph = _dedup_only_graph(conn, org, user)
-    llm = CountingLlm(OpenRouterLlm())
+    llm = CountingLlm(_cassette_llm())
 
     summaries = []
     try:
@@ -345,7 +391,6 @@ def test_b2_no_false_positives_adversarial_brackets():
     not re-litigated here.)"""
     _require_local_or_skip()
     from knowledge.injestion.dump_ingest import ingest_dump
-    from knowledge.llm.llm_variants.openrouter_llm import OpenRouterLlm
 
     subset_sources = {
         "form_1040_ty2025:brackets_single",
@@ -358,8 +403,9 @@ def test_b2_no_false_positives_adversarial_brackets():
     graph = _dedup_only_graph(conn, org, user)  # the EXACT policy POST /ingest uses
     try:
         _purge(conn, org, user)
+        llm = _cassette_llm()
         for doc in docs:
-            ingest_dump(graph, OpenRouterLlm(), doc["text"], state="active", source=doc["source"])
+            ingest_dump(graph, llm, doc["text"], state="active", source=doc["source"])
         assert not graph.all_facts(state="rejected"), (
             f"a bracket row was wrongly retired: {[f.text for f in graph.all_facts(state='rejected')]!r}"
         )
@@ -412,16 +458,16 @@ def test_b4_real_conflict_is_detected_and_resolved():
     longer depends on the coarse write-policy claim path."""
     _require_local_or_skip()
     from knowledge.injestion.dump_ingest import ingest_dump
-    from knowledge.llm.llm_variants.openrouter_llm import OpenRouterLlm
 
     conn, org, user = _new_tenant()
     graph = _dedup_only_graph(conn, org, user)
+    llm = _cassette_llm()
     try:
         _purge(conn, org, user)
         # Establish the original MFJ deduction.
         ingest_dump(
             graph,
-            OpenRouterLlm(),
+            llm,
             "TY2025 standard deduction for Married filing jointly is $31,500 (Form 1040 line 12).",
             state="active",
             source="form_1040_ty2025:std_deduction_mfj",
@@ -433,7 +479,7 @@ def test_b4_real_conflict_is_detected_and_resolved():
         # Ingest the corrected amount.
         ingest_dump(
             graph,
-            OpenRouterLlm(),
+            llm,
             CONFLICTING_CORRECTION["text"],
             state="active",
             source=CONFLICTING_CORRECTION["source"],
