@@ -774,7 +774,11 @@ def _produce_graph_reader(case: EvalCase, runner: Runner, llm=None) -> EvalConte
     """
     graph, ingestor, reader = _build_trio_for(case, llm=llm)
     for text in case.seeded_insight.via_ingestor:
-        ingestor.ingest(text)  # staged (proposed) -> gated out of retrieval by design
+        # Honor the case's ingest_state (mirrors the full-pipeline _seed_graph). The
+        # default is "proposed" -> gated out of retrieval (the write-intent ->
+        # gated-read path most reader cases test); a case that needs the distilled
+        # facts to be retrievable sets ingest_state: active (e.g. the tax recall case).
+        ingestor.ingest(text, state=case.ingest_state)
     for text in case.seeded_insight.direct_to_graph:
         graph.write(text, state="active")  # pre-curated: retrievable, so the cutoff (not gating) filters
     return EvalContext(case_id=case.id, output=reader.read(case.seed_prompt))

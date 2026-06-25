@@ -116,6 +116,26 @@
 "pole": ""
 }
 },
+"3b94581ffbfdb4eba285173b49f592f0ec5d517a2b2654d8f82997cd5a5363ae": {
+"claims": [
+{
+"attribute": "storage type",
+"functional": true,
+"subject": "Praxis knowledge graph",
+"value": "durable knowledge"
+},
+{
+"attribute": "stores",
+"functional": true,
+"subject": "agent factory",
+"value": "Praxis knowledge graph"
+}
+],
+"stance": {
+"axis": "none",
+"pole": ""
+}
+},
 "42bb2ae2ff99f7d6fdf7664da213518e0ab0ef3b96658591d768ac1af8807b7b": {
 "claims": [
 {
@@ -197,6 +217,26 @@
 "stance": {
 "axis": "axis:performance-vs-readability",
 "pole": "performance"
+}
+},
+"5fadc2a9e0c092b2095d3b4ea5386174997268341c7b0d4efe6cfd1c9ace23ae": {
+"claims": [
+{
+"attribute": "storage method",
+"functional": true,
+"subject": "source code",
+"value": "git"
+},
+{
+"attribute": "storage method",
+"functional": true,
+"subject": "knowledge graph",
+"value": "none"
+}
+],
+"stance": {
+"axis": "none",
+"pole": ""
 }
 },
 "6960a93b168c051a2b5f82ba35389d8fe010b1369ae0f6a1d30a8abb8b175954": {
