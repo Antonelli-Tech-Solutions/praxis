@@ -21,7 +21,10 @@ from knowledge.knowledge_graph.write_policy.write_step_variants.claim_conflict_d
 from knowledge.knowledge_graph.write_policy.write_step_variants.conflict_overwriter import (
     ConflictOverwriter,
 )
-from knowledge.knowledge_graph.write_policy.write_step_variants.deduper import Deduper
+from knowledge.knowledge_graph.write_policy.write_step_variants.deduper import (
+    TABULAR_FLAG,
+    Deduper,
+)
 from knowledge.knowledge_graph.write_policy.write_step_variants.merge_judge import MergeJudge
 from knowledge.knowledge_graph.write_policy.write_step_variants.redactor import Redactor
 from knowledge.knowledge_graph.write_policy.write_step_variants.semantic_conflict_detector import (
@@ -32,6 +35,7 @@ from knowledge.knowledge_graph.write_policy.write_step_variants.semantic_conflic
 __all__ = [
     "Redactor",
     "Deduper",
+    "TABULAR_FLAG",
     "MergeJudge",
     "Augmenter",
     "AugmentJudge",

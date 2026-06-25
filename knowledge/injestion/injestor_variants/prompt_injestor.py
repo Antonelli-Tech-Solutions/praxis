@@ -148,18 +148,21 @@ class PromptIngestor(Ingestor):
     def synthesis(self, raw_input: str, *, source: str | None = None) -> list[Insight]:
         # Split raw input into discrete ideas only — no graph read. Reconciling
         # with existing knowledge happens later in ``graph.write``.
+        #
+        # Table branch (path-independent, checked first): detected tabular/templated
+        # input is linearized deterministically rather than handed to the prose
+        # SPLIT_PROMPT / sentence splitter, which collapse or mangle rows sharing a
+        # sentence shape (loss point A). This is the primary fix, not a prompt tweak —
+        # the reference research is blunt that prompt interventions don't fix
+        # structural extraction. Each row is flagged ``tabular`` so the deduper's
+        # slot-guard engages downstream (loss point B).
+        table_facts = linearize_table(raw_input)
+        if table_facts:
+            return [Insight(raw_text=fact, tabular=True) for fact in table_facts]
         if self.llm is None:
             # No model to distill with: clean obvious document noise and segment
             # into atomic sentences so we don't dump raw chunks into the graph.
             return [Insight(raw_text=fact) for fact in segment_passthrough(raw_input)]
-        # Table branch: detected tabular/templated input is linearized
-        # deterministically rather than handed to the prose SPLIT_PROMPT, which
-        # collapses rows sharing a sentence shape (loss point A). This is the
-        # primary fix, not a prompt tweak — the reference research is blunt that
-        # prompt interventions don't fix structural extraction.
-        table_facts = linearize_table(raw_input)
-        if table_facts:
-            return [Insight(raw_text=fact) for fact in table_facts]
         # The SOURCE line gives the model document context so it can resolve
         # in-document references (e.g. a bare "line 12") into self-contained facts.
         context = f"SOURCE: {source}\n\n" if source else ""

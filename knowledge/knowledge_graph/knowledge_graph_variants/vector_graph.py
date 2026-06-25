@@ -26,6 +26,7 @@ from knowledge.knowledge_graph.write_policy.write_policy_def import (
     demote_active_contradiction,
 )
 from knowledge.knowledge_graph.write_policy.write_step_variants import (
+    TABULAR_FLAG,
     ClaimConflictDetector,
     ClaimExtractionJudge,
     ClaimExtractor,
@@ -111,11 +112,17 @@ class VectorGraph(SearchableGraph):
         """
         return "\n\n".join(f.text for f in self._facts if f.state == "active")
 
-    def write(self, content: str, *, state: str = "proposed") -> WriteDecision | None:
+    def write(
+        self, content: str, *, state: str = "proposed", tabular: bool = False
+    ) -> WriteDecision | None:
         """Run the write-policy pipeline over ``content``, then persist.
 
         ``state`` ("active" for a direct user approval, "proposed" for a passive
         system add) is the lifecycle state a freshly-added fact lands in.
+
+        ``tabular`` marks a write distilled from detected tabular input: it stamps
+        ``TABULAR_FLAG`` on the decision so the Deduper's slot-guard engages (sibling
+        rows must not be silently merged — loss point B).
 
         Returns the enacted ``WriteDecision`` so callers can observe the per-write
         outcome (``action`` add/update/overwrite, ``dropped``, ``update_target_id``)
@@ -128,6 +135,8 @@ class VectorGraph(SearchableGraph):
         if not content:
             return None
         decision = WriteDecision(text=content, state="active" if state == "active" else "proposed")
+        if tabular:
+            decision.flags.append(TABULAR_FLAG)
         claim_recalled = False
         semantic_recalled = False
         for step in self.policy:

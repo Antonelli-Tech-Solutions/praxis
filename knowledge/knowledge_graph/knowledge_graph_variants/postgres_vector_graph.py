@@ -31,6 +31,7 @@ from knowledge.knowledge_graph.write_policy.write_policy_def import (
     demote_active_contradiction,
 )
 from knowledge.knowledge_graph.write_policy.write_step_variants import (
+    TABULAR_FLAG,
     AugmentJudge,
     Augmenter,
     ClaimConflictDetector,
@@ -281,6 +282,7 @@ class PostgresVectorGraph(SearchableGraph):
         scope: str | None = None,
         category: str | None = None,
         meta: dict | None = None,
+        tabular: bool = False,
     ) -> str | None:
         """Run the write-policy pipeline over ``content``, then persist.
 
@@ -304,6 +306,8 @@ class PostgresVectorGraph(SearchableGraph):
         if not content:
             return None
         decision = WriteDecision(text=content, state="active" if state == "active" else "proposed")
+        if tabular:
+            decision.flags.append(TABULAR_FLAG)
         # Stash the persistence attributes on the decision so _add/_overwrite
         # (which read them off the decision via getattr) write them through.
         decision.source = source
