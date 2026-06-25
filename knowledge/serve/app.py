@@ -97,12 +97,8 @@ def create_app(conn: Any | None = None) -> FastAPI:
     The connection is opened once per process (autocommit) and shared by the
     orgs store and every per-request tenant graph. A resolvable DSN is required.
     """
-    # Enable OpenTelemetry → Phoenix tracing when PHOENIX_COLLECTOR_ENDPOINT is
-    # set (env-gated; a no-op otherwise). Each deployment exports to its own
-    # endpoint: local dev → local Phoenix, the deployed API → live Phoenix.
-    from knowledge.observability.tracing import setup_tracing
-
-    setup_tracing()
+    # Tracing is set up once at module import (see top of file); setup_tracing is
+    # idempotent, so no need to call it again here.
     conn = conn if conn is not None else db.connect()
     orgs_store = OrgsStore(conn)
     # Bind the auth dependency to this connection so it can also resolve API keys
