@@ -21,6 +21,9 @@ from fastapi.testclient import TestClient
 # import time (the module-level skipif below reads them).
 load_dotenv()
 
+from knowledge.knowledge_graph.knowledge_graph_variants.postgres_vector_graph import (  # noqa: E402
+    PostgresVectorGraph,
+)
 from knowledge.serve import db  # noqa: E402
 from knowledge.serve.app import create_app  # noqa: E402
 from knowledge.serve.orgs_store import OrgsStore  # noqa: E402
@@ -268,6 +271,65 @@ def test_load_unknown_snapshot_is_404(client):
     assert client.post("/snapshots/nope/load").status_code == 404
 
 
+def _graph_for(client):
+    """A read-side graph over the same tenant the client writes to (H5/H1 edges)."""
+    org = client.headers["X-Praxis-Org"]
+    return PostgresVectorGraph(db.connect(), org, USER)
+
+
+def test_insight_derived_from_creates_edge(client):
+    """H5: POST /insights with derivedFrom=[F] links a derived_from edge to F."""
+    source_id = _create(client, content="Postgres is the system of record.")["id"]
+    r = client.post(
+        "/insights",
+        json={
+            "insight": "Read replicas serve analytics queries off the primary.",
+            "derivedFrom": [source_id],
+        },
+    )
+    assert r.status_code == 200, r.text
+    new_id = r.json()["id"]
+    edges = _graph_for(client).all_edges("derived_from")
+    assert (new_id, source_id, "derived_from") in edges
+
+
+def test_ingest_derived_from_creates_edge(client):
+    """H5: POST /ingest with derivedFrom links each distilled fact back to the sources."""
+    source_id = _create(client, content="The billing service owns invoice state.")["id"]
+    r = client.post(
+        "/ingest",
+        json={
+            "documents": [{"text": "Refunds are issued by the billing service within 24h."}],
+            "derivedFrom": [source_id],
+        },
+    )
+    assert r.status_code == 200, r.text
+    edges = _graph_for(client).all_edges("derived_from")
+    assert any(dst == source_id for (_src, dst, _k) in edges)
+
+
+def _score_for(graph, query, fact_id):
+    return next(h.score for h in graph.search(query, top_k=5) if h.fact.id == fact_id)
+
+
+def test_record_failure_demotes_fact_utility(client):
+    """H1: recording failures lowers a fact's utility, sinking its search score.
+
+    Measured on the *same* fact + query before vs after the failures, so only the
+    utility multiplier changes — a deterministic check that failed knowledge fades.
+    """
+    fid = client.post(
+        "/insights", json={"insight": "Restart the queue worker to clear stuck jobs."}
+    ).json()["id"]
+    graph = _graph_for(client)
+    query = "how to clear stuck jobs in the queue worker"
+    before = _score_for(graph, query, fid)
+    for _ in range(5):
+        assert client.post(f"/facts/{fid}/outcome", json={"success": False}).status_code == 200
+    after = _score_for(_graph_for(client), query, fid)
+    assert after < before  # the repeatedly-failed fact ranks lower than before
+
+
 def test_evals_cached_shape(client):
     body = client.get("/evals/cached").json()
     assert "cached" in body
@@ -493,4 +555,39 @@ def test_batch_ingest_rejects_empty_documents(client):
     assert (
         client.post("/ingest", json={"documents": [{"text": "  "}]}).status_code == 400
     )
+
+
+def test_batch_ingest_persists_writer_metadata(client):
+    """H12: /ingest honors per-document source/scope/category/meta and rounds them
+    back — source/scope/category on /context hits, meta on /candidates — matching
+    the /insights behavior (see test_insight_persists_writer_metadata)."""
+    body = {
+        "documents": [
+            {
+                "text": "Production database backups run nightly at 02:30 UTC.",
+                "source": "ops-runbook",
+                "scope": "ops",
+                "category": "requirement",
+                "meta": {"requirement_id": "OPS-7"},
+            }
+        ],
+        "state": "active",
+    }
+    res = client.post("/ingest", json=body)
+    assert res.status_code == 200, res.text
+
+    hit = next(
+        h
+        for h in client.get("/context", params={"query": "database backup schedule"})
+        .json()["hits"]
+        if "backup" in h["text"].lower()
+    )
+    assert hit["source"] == "ops-runbook"
+    assert hit["scope"] == "ops"
+    assert hit["category"] == "requirement"
+
+    cand = next(
+        c for c in client.get("/candidates").json() if "backup" in c["content"].lower()
+    )
+    assert cand.get("meta", {}).get("requirement_id") == "OPS-7"
 

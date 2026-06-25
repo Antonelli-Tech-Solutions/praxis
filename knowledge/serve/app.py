@@ -151,6 +151,7 @@ def _write_insight(
     category: str | None,
     meta: dict | None,
     on_conflict: str,
+    derived_from: list | None = None,
 ) -> dict[str, Any]:
     """Ingest one confirmed insight into ``graph`` and report what happened.
 
@@ -172,6 +173,11 @@ def _write_insight(
     new_contradictions = set(graph.all_edges("contradiction")) - before_contradictions
     prior = before[0].fact if before else None
     top = after[0].fact if after else None
+    # H5: link derivation provenance from the resulting fact to its sources, so an
+    # invalidated source can later surface this fact as suspect. (The episode branch
+    # records derivedFrom via record_episode instead.)
+    if derived_from and top is not None:
+        graph.record_derivation(top.id, [str(s) for s in derived_from])
     # surface mode that flagged a clash: report it as a pending contradiction so
     # the caller knows to go adjudicate it (the fact still landed, possibly
     # demoted to proposed by FR-005).
@@ -1173,6 +1179,7 @@ def create_app(conn: Any | None = None) -> FastAPI:
             category=body.get("category"),
             meta=meta,
             on_conflict=on_conflict,
+            derived_from=body.get("derivedFrom"),
         )
 
     @app.post("/insights/batch")
@@ -1244,6 +1251,7 @@ def create_app(conn: Any | None = None) -> FastAPI:
                         category=item.get("category"),
                         meta=item_meta,
                         on_conflict=on_conflict,
+                        derived_from=item.get("derivedFrom"),
                     )
                 res["ok"] = True
             except Exception as exc:  # noqa: BLE001 - report, don't abort the batch
@@ -1302,6 +1310,9 @@ def create_app(conn: Any | None = None) -> FastAPI:
             principal.sub,
             policy=[Redactor(), Deduper()],
         )
+        # H5: body-level derivation provenance — each distilled fact links back to
+        # these source ids via a ``derived_from`` edge.
+        derived_from = body.get("derivedFrom")
         results: list[dict[str, Any]] = []
         for doc in documents:
             if not isinstance(doc, dict):
@@ -1332,6 +1343,8 @@ def create_app(conn: Any | None = None) -> FastAPI:
             # ingested text now matches (ids are per-fact, a doc distills to many).
             hits = graph.search(text, top_k=1, state=None)
             top_id = hits[0].fact.id if hits else None
+            if derived_from and top_id is not None:
+                graph.record_derivation(top_id, [str(s) for s in derived_from])
             results.append({
                 "id": top_id,
                 "action": "ingested",
@@ -1342,11 +1355,54 @@ def create_app(conn: Any | None = None) -> FastAPI:
             })
         return {"results": results, "count": len(results)}
 
+    # --- derivation / staleness traversal (H5) -----------------------------
+    def _derivation_view(fact: Any) -> dict[str, Any]:
+        """Compact read model for a derivation/staleness hit (incl. ``meta``)."""
+        return {
+            "id": fact.id,
+            "text": fact.text,
+            "state": fact.state,
+            "source": getattr(fact, "source", None),
+            "scope": getattr(fact, "scope", None),
+            "category": getattr(fact, "category", None),
+            "meta": dict(fact.meta or {}),
+        }
+
+    @app.get("/derivations/stale")
+    def stale_derivations(
+        principal: Principal = Depends(current_user),
+        org: str = Depends(active_org),
+    ) -> dict[str, Any]:
+        """Active learnings flagged stale because a fact they derive from was invalidated (H5).
+
+        When a source fact is invalidated (e.g. rejected), the H5 hook stamps a
+        review edge on every transitive ``derived_from`` dependent. This surfaces
+        those suspect learnings for human/agent review (precision-first: flagged,
+        never auto-rejected).
+        """
+        stale = live_graph(org, principal.sub).stale_derived()
+        return {"stale": [_derivation_view(f) for f in stale]}
+
+    @app.get("/facts/{fact_id}/dependents")
+    def fact_dependents(
+        fact_id: str,
+        principal: Principal = Depends(current_user),
+        org: str = Depends(active_org),
+    ) -> dict[str, Any]:
+        """Transitive derivation dependents of ``fact_id`` (the learnings derived from it).
+
+        Walks ``derived_from`` edges (src=dependent -> dst=basis) up the chain,
+        cycle-guarded and depth-bounded, newest first.
+        """
+        deps = live_graph(org, principal.sub).dependents(fact_id)
+        return {"factId": fact_id, "dependents": [_derivation_view(f) for f in deps]}
+
     @app.get("/context")
     def get_context(
         query: str = "",
         top_k: int = 8,
         include_episodic: bool = False,
+        as_of: str | None = None,
         hybrid: bool = False,
         keyword_weight: float | None = None,
         char_budget: int | None = None,
@@ -1363,12 +1419,25 @@ def create_app(conn: Any | None = None) -> FastAPI:
         so "why we decided" notes never pollute semantic recall; pass
         ``include_episodic=true`` to include them.
 
+        ``as_of`` (ISO-8601, e.g. ``2024-01-01T00:00:00Z``) rewinds retrieval to a
+        point in time: only facts whose validity window covers that instant are
+        returned, so a later-written fact is excluded. Applies to the live-graph
+        ``hits``; the mounted-snapshot union is not point-in-time aware.
+
         Retrieval-tuning knobs (gap H7), all optional, defaulting to the calibrated
         behavior: ``hybrid`` fuses a BM25 keyword branch into the cosine ranking;
         ``keyword_weight`` biases that fusion toward exact/symbol matches (only with
         ``hybrid=true``); ``char_budget`` caps the returned ``context`` size. Fusion
         knobs apply to the live graph; the mounted-snapshot union is cosine-only.
         """
+        as_of_dt: datetime | None = None
+        if as_of is not None and as_of.strip():
+            try:
+                as_of_dt = datetime.fromisoformat(as_of.strip().replace("Z", "+00:00"))
+            except ValueError:
+                raise HTTPException(
+                    status_code=400, detail="as_of must be an ISO-8601 timestamp"
+                )
         live = live_graph(org, principal.sub)
         mounts = mounted_store.list(org, principal.sub)
         graph = OverlayGraph(live, mounts) if mounts else live
@@ -1380,6 +1449,7 @@ def create_app(conn: Any | None = None) -> FastAPI:
                 hybrid=hybrid,
                 keyword_weight=keyword_weight,
                 exclude_categories=exclude,
+                as_of=as_of_dt,
             )
             if query.strip() else []
         )
