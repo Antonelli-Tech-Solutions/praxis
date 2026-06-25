@@ -18,6 +18,7 @@
 
 stages:
   - lint
+  - test
   - backend
   - frontend
 
@@ -93,6 +94,38 @@ go-lint:
     - cd session-capture/wrapper
     - test -z "$(gofmt -l .)" || { echo 'gofmt: the following files need formatting:'; gofmt -l .; exit 1; }
     - go vet ./...
+
+# ---- Tests -------------------------------------------------------------------
+# Python suite against an ephemeral pgvector service (the yoyo migrations are the
+# schema source of truth, applied via `knowledge.serve.db`). Runs keyless: the
+# embedder-dependent integration tests (e.g. test_server, the /ingest/session
+# happy-path) skip cleanly without OPENROUTER_API_KEY. To include them, add
+# OPENROUTER_API_KEY as a masked CI/CD variable — the cassette-backed tests replay
+# offline either way. This catches regressions lint can't (e.g. a test double drifting
+# out of sync with a production signature).
+python-test:
+  stage: test
+  image: ghcr.io/astral-sh/uv:python3.12-bookworm-slim
+  services:
+    - name: pgvector/pgvector:pg16
+      alias: postgres
+  variables:
+    POSTGRES_USER: praxis
+    POSTGRES_PASSWORD: praxis
+    POSTGRES_DB: praxis_kg
+    PRAXIS_DB_URL: "postgresql://praxis:praxis@postgres:5432/praxis_kg"
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes: ["**/*.py", pyproject.toml, uv.lock, .gitlab-ci.yml]
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      changes: ["**/*.py", pyproject.toml, uv.lock, .gitlab-ci.yml]
+  before_script:
+    - uv sync --frozen
+    # Wait for the pgvector service to accept connections, then apply migrations.
+    - until uv run --no-sync python -c "import os, psycopg; psycopg.connect(os.environ['PRAXIS_DB_URL']).close()" 2>/dev/null; do echo "waiting for postgres..."; sleep 1; done
+    - uv run --no-sync python -m knowledge.serve.db
+  script:
+    - uv run --no-sync pytest -q
 
 deploy-backend:
   stage: backend
