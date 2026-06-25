@@ -17,6 +17,7 @@ Then, in a session, ask Claude to log you in (it calls ``praxis_login``).
 from __future__ import annotations
 
 import json
+import re
 
 import httpx
 from dotenv import load_dotenv
@@ -307,24 +308,41 @@ def praxis_get_contradictions() -> str:
 @mcp.tool()
 def praxis_resolve_contradiction(
     pair_id: str,
-    keep_id: str | None = None,
+    keep: str | None = None,
     custom_text: str | None = None,
 ) -> str:
-    """Resolve a flagged contradiction pair (from ``praxis_get_contradictions``).
+    """Resolve a flagged contradiction cluster (from ``praxis_get_contradictions``).
 
-    Pass either ``keep_id`` — the id of the side to keep (the other is superseded)
-    — or ``custom_text`` to replace both sides with a single reconciled fact.
-    Confirm the choice with the user before calling; resolution mutates the graph.
+    A cluster is settled by saying which members to ``keep``:
+    - ``"all"`` — every member genuinely holds (a *false positive*, e.g. the facts
+      describe different actors/scopes). Keep them all active; nothing is lost.
+    - ``"none"`` — reject every member.
+    - one or more fact ids (space- or comma-separated, e.g. ``"f12 f34"``) — keep
+      those active and reject the rest. A single id keeps one side (the classic
+      pick-a-winner).
+
+    Or pass ``custom_text`` instead to replace the whole cluster with one reconciled
+    fact. Confirm the choice with the user before calling; resolution mutates the
+    graph.
     """
     if (hint := _not_ready()) is not None:
         return hint
-    if not keep_id and not (custom_text and custom_text.strip()):
-        return "Pass keep_id (the side to keep) or custom_text (a reconciled fact)."
+    has_custom = bool(custom_text and custom_text.strip())
+    has_keep = bool(keep and keep.strip())
+    if not has_custom and not has_keep:
+        return (
+            "Pass keep ('all', 'none', or fact ids to keep) or custom_text "
+            "(a reconciled fact)."
+        )
     body: dict[str, object] = {}
-    if custom_text and custom_text.strip():
+    if has_custom:
         body["customText"] = custom_text
     else:
-        body["keepId"] = keep_id
+        normalized = keep.strip().lower()
+        if normalized in ("all", "none"):
+            body["keep"] = normalized
+        else:
+            body["keep"] = [tok for tok in re.split(r"[,\s]+", keep.strip()) if tok]
     try:
         resp = httpx.post(
             f"{identity.api_base()}/contradictions/{pair_id}/resolve",
