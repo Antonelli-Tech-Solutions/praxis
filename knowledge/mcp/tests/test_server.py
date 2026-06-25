@@ -291,6 +291,257 @@ def test_edit_fact_requires_a_field(monkeypatch):
     assert "Nothing to edit" in out
 
 
+def test_promote_fact_posts_target_state(monkeypatch):
+    _patch_identity(monkeypatch)
+    captured = {}
+
+    def fake_post(url, json, headers):
+        captured["url"] = url
+        captured["json"] = json
+        return _Resp({"id": "f1", "state": "active"})
+
+    monkeypatch.setattr(server.httpx, "post", fake_post)
+
+    out = server.praxis_promote_fact("f1", target_state="active")
+    assert captured["url"] == "http://api.test/candidates/f1/promote"
+    assert captured["json"] == {"targetState": "active"}
+    assert "f1" in out and "active" in out
+
+
+def test_promote_fact_without_target_sends_empty_body(monkeypatch):
+    _patch_identity(monkeypatch)
+    captured = {}
+    monkeypatch.setattr(
+        server.httpx,
+        "post",
+        lambda url, json, headers: captured.update(json=json) or _Resp({"id": "f1", "state": "active"}),
+    )
+    server.praxis_promote_fact("f1")
+    assert captured["json"] == {}
+
+
+def test_reject_fact_posts_reason(monkeypatch):
+    _patch_identity(monkeypatch)
+    captured = {}
+    monkeypatch.setattr(
+        server.httpx,
+        "post",
+        lambda url, json, headers: captured.update(url=url, json=json)
+        or _Resp({"id": "f1", "state": "rejected"}),
+    )
+    out = server.praxis_reject_fact("f1", reason="stale")
+    assert captured["url"] == "http://api.test/candidates/f1/reject"
+    assert captured["json"] == {"reason": "stale"}
+    assert "rejected" in out
+
+
+def test_delete_fact_issues_delete(monkeypatch):
+    _patch_identity(monkeypatch)
+    captured = {}
+    monkeypatch.setattr(
+        server.httpx,
+        "delete",
+        lambda url, headers: captured.update(url=url, headers=headers) or _Resp({"deleted": "f1"}),
+    )
+    out = server.praxis_delete_fact("f1")
+    assert captured["url"] == "http://api.test/candidates/f1"
+    assert captured["headers"]["Authorization"] == "Bearer id-tok"
+    assert "f1" in out
+
+
+def test_delete_fact_conflict_reports_reason(monkeypatch):
+    _patch_identity(monkeypatch)
+
+    class _RespText(_Resp):
+        text = "fact is referenced"
+
+    monkeypatch.setattr(
+        server.httpx, "delete", lambda url, headers: _RespText({}, status_code=409)
+    )
+    out = server.praxis_delete_fact("f1")
+    assert "Cannot delete" in out and "referenced" in out
+
+
+def test_clear_graph_posts_and_reports_count(monkeypatch):
+    _patch_identity(monkeypatch)
+    captured = {}
+    monkeypatch.setattr(
+        server.httpx,
+        "post",
+        lambda url, headers: captured.update(url=url) or _Resp({"cleared": 7}),
+    )
+    out = server.praxis_clear_graph()
+    assert captured["url"] == "http://api.test/graph/clear"
+    assert "7" in out
+
+
+def test_list_snapshots_formats_entries(monkeypatch):
+    _patch_identity(monkeypatch)
+    captured = {}
+    monkeypatch.setattr(
+        server.httpx,
+        "get",
+        lambda url, headers: captured.update(url=url)
+        or _Resp({"snapshots": [{"name": "wip", "count": 5, "createdAt": "2026-06-24"}]}),
+    )
+    out = server.praxis_list_snapshots()
+    assert captured["url"] == "http://api.test/snapshots"
+    assert "wip" in out and "5 node" in out
+
+
+def test_list_snapshots_empty(monkeypatch):
+    _patch_identity(monkeypatch)
+    monkeypatch.setattr(server.httpx, "get", lambda url, headers: _Resp({"snapshots": []}))
+    assert "No snapshots" in server.praxis_list_snapshots()
+
+
+def test_save_snapshot_posts_name(monkeypatch):
+    _patch_identity(monkeypatch)
+    captured = {}
+    monkeypatch.setattr(
+        server.httpx,
+        "post",
+        lambda url, json, headers: captured.update(url=url, json=json)
+        or _Resp({"name": "wip", "count": 5}),
+    )
+    out = server.praxis_save_snapshot("  wip  ")
+    assert captured["url"] == "http://api.test/snapshots"
+    assert captured["json"] == {"name": "wip"}  # trimmed
+    assert "wip" in out and "5 node" in out
+
+
+def test_save_snapshot_rejects_blank_name(monkeypatch):
+    _patch_identity(monkeypatch)
+    out = server.praxis_save_snapshot("   ")
+    assert "non-empty" in out
+
+
+def test_load_snapshot_posts_mode(monkeypatch):
+    _patch_identity(monkeypatch)
+    captured = {}
+    monkeypatch.setattr(
+        server.httpx,
+        "post",
+        lambda url, json, headers: captured.update(url=url, json=json)
+        or _Resp({"loaded": 5, "mode": "add"}),
+    )
+    out = server.praxis_load_snapshot("wip", mode="add")
+    assert captured["url"] == "http://api.test/snapshots/wip/load"
+    assert captured["json"] == {"mode": "add"}
+    assert "5 node" in out and "add" in out
+
+
+def test_load_snapshot_defaults_to_replace(monkeypatch):
+    _patch_identity(monkeypatch)
+    captured = {}
+    monkeypatch.setattr(
+        server.httpx,
+        "post",
+        lambda url, json, headers: captured.update(json=json) or _Resp({"loaded": 1, "mode": "replace"}),
+    )
+    server.praxis_load_snapshot("wip")
+    assert captured["json"] == {"mode": "replace"}
+
+
+def test_load_snapshot_rejects_bad_mode(monkeypatch):
+    _patch_identity(monkeypatch)
+    out = server.praxis_load_snapshot("wip", mode="merge")
+    assert "add" in out and "replace" in out
+
+
+def test_load_snapshot_unknown_is_friendly(monkeypatch):
+    _patch_identity(monkeypatch)
+    monkeypatch.setattr(
+        server.httpx, "post", lambda url, json, headers: _Resp({}, status_code=404)
+    )
+    out = server.praxis_load_snapshot("nope")
+    assert "Unknown snapshot" in out
+
+
+def test_delete_snapshot_issues_delete(monkeypatch):
+    _patch_identity(monkeypatch)
+    captured = {}
+    monkeypatch.setattr(
+        server.httpx,
+        "delete",
+        lambda url, headers: captured.update(url=url) or _Resp({"deleted": "wip"}),
+    )
+    out = server.praxis_delete_snapshot("wip")
+    assert captured["url"] == "http://api.test/snapshots/wip"
+    assert "wip" in out
+
+
+def test_list_org_sources_formats(monkeypatch):
+    _patch_identity(monkeypatch)
+    monkeypatch.setattr(
+        server.httpx,
+        "get",
+        lambda url, headers: _Resp(
+            {
+                "sources": [
+                    {
+                        "userId": "u1",
+                        "username": "me@x.com",
+                        "role": "owner",
+                        "isSelf": True,
+                        "snapshots": [{"name": "wip", "count": 3}],
+                    }
+                ]
+            }
+        ),
+    )
+    out = server.praxis_list_org_sources()
+    assert "u1" in out and "me@x.com" in out and "wip" in out and "(you)" in out
+
+
+def test_browse_snapshot_structured(monkeypatch):
+    _patch_identity(monkeypatch)
+    captured = {}
+    monkeypatch.setattr(
+        server.httpx,
+        "get",
+        lambda url, headers: captured.update(url=url)
+        or _Resp(
+            {
+                "userId": "u1",
+                "snapshot": "wip",
+                "groups": [{"key": "backend", "label": "backend", "facts": [{"id": "f1", "text": "x"}]}],
+            }
+        ),
+    )
+    out = server.praxis_browse_snapshot("u1", "wip")
+    assert captured["url"] == "http://api.test/org/sources/u1/snapshots/wip/facts"
+    data = _extract_json(out)
+    assert data["groups"][0]["facts"][0]["id"] == "f1"
+
+
+def test_fold_in_posts_selection(monkeypatch):
+    _patch_identity(monkeypatch)
+    captured = {}
+    monkeypatch.setattr(
+        server.httpx,
+        "post",
+        lambda url, json, headers: captured.update(url=url, json=json)
+        or _Resp({"folded": 2, "deduped": 1, "conflicts": [], "mode": "add"}),
+    )
+    out = server.praxis_fold_in("u1", "wip", ["f1", "f2"], mode="add")
+    assert captured["url"] == "http://api.test/fold-in"
+    assert captured["json"] == {
+        "sourceUser": "u1",
+        "snapshot": "wip",
+        "factIds": ["f1", "f2"],
+        "mode": "add",
+    }
+    data = _extract_json(out)
+    assert data["folded"] == 2 and data["deduped"] == 1
+
+
+def test_fold_in_requires_fact_ids(monkeypatch):
+    _patch_identity(monkeypatch)
+    out = server.praxis_fold_in("u1", "wip", [])
+    assert "fact_ids" in out
+
+
 def test_data_tool_when_not_logged_in_guides_to_login(monkeypatch):
     monkeypatch.setattr(identity, "is_logged_in", lambda: False)
     out = server.praxis_get_context("anything")
