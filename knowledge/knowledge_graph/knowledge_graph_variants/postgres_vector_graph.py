@@ -196,7 +196,11 @@ def _row_to_hit(r: tuple) -> SearchHit:
 
 
 def _rrf_fuse(
-    semantic: list[SearchHit], keyword: list[SearchHit], *, top_k: int
+    semantic: list[SearchHit],
+    keyword: list[SearchHit],
+    *,
+    top_k: int,
+    keyword_weight: float = _RRF_KEYWORD_WEIGHT,
 ) -> list[SearchHit]:
     """Fuse two ranked branches with Reciprocal Rank Fusion, returning top ``top_k``.
 
@@ -207,11 +211,16 @@ def _rrf_fuse(
     keep meaningful numbers — and falls back to the keyword branch's ts_rank for a
     keyword-only hit. Ties (equal fused score) break toward the semantic branch's
     order, then keyword order, giving a stable, deterministic ranking.
+
+    ``keyword_weight`` (gap H7) is the per-call fusion bias: the semantic branch is
+    fixed at ``_RRF_SEMANTIC_WEIGHT`` (1.0) and the keyword branch is scaled by this
+    relative weight. Raising it biases toward exact/symbol matches (a concept-vs-symbol
+    query knob); the default keeps the calibrated semantic-dominant behavior.
     """
     fused: dict[str, float] = {}
     hit_by_id: dict[str, SearchHit] = {}
     order: dict[str, int] = {}  # first-seen position, for stable tie-breaking
-    for branch, weight in ((semantic, _RRF_SEMANTIC_WEIGHT), (keyword, _RRF_KEYWORD_WEIGHT)):
+    for branch, weight in ((semantic, _RRF_SEMANTIC_WEIGHT), (keyword, keyword_weight)):
         for rank, hit in enumerate(branch, start=1):
             fid = hit.fact.id
             fused[fid] = fused.get(fid, 0.0) + weight / (_RRF_K + rank)
@@ -284,15 +293,22 @@ class PostgresVectorGraph(SearchableGraph):
 
     # --- KnowledgeGraph contract -------------------------------------------
     def read(
-        self, context: str | None = None, *, exclude_categories: list[str] | None = None
+        self,
+        context: str | None = None,
+        *,
+        exclude_categories: list[str] | None = None,
+        char_budget: int | None = None,
     ) -> str:
         """Retrieve tenant knowledge: top-k similar to ``context``, else recent.
 
         Score-ordered and token-bounded so the result is a usable reader prompt.
         ``exclude_categories`` (H2) omits those categories (e.g. ["episodic"]).
+        ``char_budget`` (gap H7) is the per-call context size cap; ``None`` uses the
+        default ``_READ_CHAR_BUDGET``. A smaller budget keeps the reader prompt tight.
         """
         context = (context or "").strip()
         excluded = set(exclude_categories or ())
+        budget = _READ_CHAR_BUDGET if char_budget is None else char_budget
         if context:
             hits = self.search(context, top_k=12, exclude_categories=exclude_categories)
             facts = [h.fact for h in hits]
@@ -301,7 +317,7 @@ class PostgresVectorGraph(SearchableGraph):
         parts: list[str] = []
         used = 0
         for fact in facts:
-            if used + len(fact.text) > _READ_CHAR_BUDGET and parts:
+            if used + len(fact.text) > budget and parts:
                 break
             parts.append(fact.text)
             used += len(fact.text)
@@ -623,11 +639,18 @@ class PostgresVectorGraph(SearchableGraph):
         state: str | None = "active",
         as_of: datetime | None = None,
         hybrid: bool = False,
+        keyword_weight: float | None = None,
         exclude_categories: list[str] | None = None,
         decay: bool = True,
     ) -> list[SearchHit]:
         """Retrieve relevant facts. Pure pgvector cosine by default; ``hybrid=True``
         additionally fuses a BM25 keyword branch.
+
+        ``keyword_weight`` (gap H7) tunes the RRF fusion bias per call (only meaningful
+        with ``hybrid=True``): the semantic branch stays at weight 1.0 and the keyword
+        branch is scaled by this value. ``None`` uses the calibrated default
+        (``_RRF_KEYWORD_WEIGHT``); raise it to favor exact/symbol matches for a
+        symbol-style query, lower it to lean more semantic.
 
         ``exclude_categories`` (gap H2) omits rows whose ``category`` is in the list
         (NULL category is never excluded), applied to BOTH branches via ``_where`` —
@@ -682,7 +705,8 @@ class PostgresVectorGraph(SearchableGraph):
             query, top_k=_FUSION_BRANCH_N, filters=filters, scope=scope, state=state, as_of=as_of,
             exclude_categories=exclude_categories,
         )
-        return _rrf_fuse(sem, kw, top_k=top_k)
+        kww = _RRF_KEYWORD_WEIGHT if keyword_weight is None else keyword_weight
+        return _rrf_fuse(sem, kw, top_k=top_k, keyword_weight=kww)
 
     def _where(
         self,

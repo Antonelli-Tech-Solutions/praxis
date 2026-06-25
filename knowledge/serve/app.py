@@ -1347,6 +1347,9 @@ def create_app(conn: Any | None = None) -> FastAPI:
         query: str = "",
         top_k: int = 8,
         include_episodic: bool = False,
+        hybrid: bool = False,
+        keyword_weight: float | None = None,
+        char_budget: int | None = None,
         principal: Principal = Depends(current_user),
         org: str = Depends(active_org),
     ) -> dict[str, Any]:
@@ -1359,17 +1362,29 @@ def create_app(conn: Any | None = None) -> FastAPI:
         Episodic decision logs (``category="episodic"``) are excluded by default (H2)
         so "why we decided" notes never pollute semantic recall; pass
         ``include_episodic=true`` to include them.
+
+        Retrieval-tuning knobs (gap H7), all optional, defaulting to the calibrated
+        behavior: ``hybrid`` fuses a BM25 keyword branch into the cosine ranking;
+        ``keyword_weight`` biases that fusion toward exact/symbol matches (only with
+        ``hybrid=true``); ``char_budget`` caps the returned ``context`` size. Fusion
+        knobs apply to the live graph; the mounted-snapshot union is cosine-only.
         """
         live = live_graph(org, principal.sub)
         mounts = mounted_store.list(org, principal.sub)
         graph = OverlayGraph(live, mounts) if mounts else live
         exclude = None if include_episodic else [EPISODIC_CATEGORY]
         hits = (
-            graph.search(query, top_k=top_k, exclude_categories=exclude)
+            graph.search(
+                query,
+                top_k=top_k,
+                hybrid=hybrid,
+                keyword_weight=keyword_weight,
+                exclude_categories=exclude,
+            )
             if query.strip() else []
         )
         return {
-            "context": graph.read(query, exclude_categories=exclude),
+            "context": graph.read(query, exclude_categories=exclude, char_budget=char_budget),
             "hits": [
                 {
                     "id": h.fact.id,
