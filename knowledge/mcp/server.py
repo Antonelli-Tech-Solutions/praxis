@@ -299,19 +299,30 @@ def praxis_resolve_contradiction(
     pair_id: str,
     keep_id: str | None = None,
     custom_text: str | None = None,
+    dismiss: bool = False,
 ) -> str:
     """Resolve a flagged contradiction pair (from ``praxis_get_contradictions``).
 
-    Pass either ``keep_id`` — the id of the side to keep (the other is superseded)
-    — or ``custom_text`` to replace both sides with a single reconciled fact.
+    Pass exactly one of:
+    - ``keep_id`` — the id of the side to keep (the other is superseded);
+    - ``custom_text`` — replace both sides with a single reconciled fact;
+    - ``dismiss=True`` — a *false positive*: both facts genuinely hold (e.g. they
+      describe different actors/scopes), so keep BOTH active and just clear the
+      flag. Non-lossy — nothing is superseded or merged.
+
     Confirm the choice with the user before calling; resolution mutates the graph.
     """
     if (hint := _not_ready()) is not None:
         return hint
-    if not keep_id and not (custom_text and custom_text.strip()):
-        return "Pass keep_id (the side to keep) or custom_text (a reconciled fact)."
+    if not dismiss and not keep_id and not (custom_text and custom_text.strip()):
+        return (
+            "Pass keep_id (the side to keep), custom_text (a reconciled fact), "
+            "or dismiss=True (both facts hold — clear the flag, keep both)."
+        )
     body: dict[str, object] = {}
-    if custom_text and custom_text.strip():
+    if dismiss:
+        body["dismiss"] = True
+    elif custom_text and custom_text.strip():
         body["customText"] = custom_text
     else:
         body["keepId"] = keep_id

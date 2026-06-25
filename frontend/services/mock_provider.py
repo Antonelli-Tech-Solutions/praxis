@@ -75,10 +75,16 @@ class MockDataProvider:
         contradiction_id: str,
         *,
         resolution: str,
-        keep_id: str,
+        keep_id: str | None = None,
     ) -> Candidate:
         if resolution == "defer":
             raise ValueError("Defer is a UI-only action — no mutation performed.")
+
+        if resolution == "dismiss":
+            return self._dismiss_contradiction(contradiction_id)
+
+        if not keep_id:
+            raise ValueError("keep_id is required unless resolution is 'dismiss'.")
 
         primary_id, rival_id = _parse_contradiction_pair(contradiction_id, keep_id)
         keeper = self._require_candidate(keep_id)
@@ -111,6 +117,29 @@ class MockDataProvider:
         updated = _clone_candidate(keeper, contradiction_ids=cleared_ids, extra=audit)
         self._candidates[keep_id] = updated
         return updated
+
+    def _dismiss_contradiction(self, contradiction_id: str) -> Candidate:
+        """H11: dismiss a false-positive contradiction — both facts hold. Keep
+        BOTH active and just clear the cross-link flag from each; nothing is
+        superseded. Returns the primary (first) member."""
+        primary_id, rival_id = _parse_contradiction_pair(contradiction_id, "")
+        primary = self._require_candidate(primary_id)
+        rival = self._require_candidate(rival_id)
+        for cand, cand_id, other_id in (
+            (primary, primary_id, rival_id),
+            (rival, rival_id, primary_id),
+        ):
+            cleared = [cid for cid in cand.contradiction_ids if cid != other_id]
+            audit = _append_audit(
+                cand,
+                action="contradiction_dismissed",
+                actor="human-gate",
+                note=f"dismissed contradiction with {other_id} (both hold)",
+            )
+            self._candidates[cand_id] = _clone_candidate(
+                cand, contradiction_ids=cleared, extra=audit
+            )
+        return self._candidates[primary_id]
 
     def list_api_keys(self) -> list[ApiKey]:
         return sorted(

@@ -55,9 +55,14 @@ class DataProvider(Protocol):
         contradiction_id: str,
         *,
         resolution: str,
-        keep_id: str,
+        keep_id: str | None = None,
     ) -> Candidate:
-        """Resolve a contradiction pair; keep_id is the winning candidate."""
+        """Resolve a contradiction pair; keep_id is the winning candidate.
+
+        With ``resolution="dismiss"`` (H11) the pair is a false positive — both
+        facts hold — so no ``keep_id`` is needed: both stay active and the flag
+        is cleared.
+        """
         ...
 
     def list_api_keys(self) -> list[ApiKey]:

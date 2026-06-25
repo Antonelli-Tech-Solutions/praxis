@@ -469,6 +469,48 @@ class FactsCandidates:
         )
         return candidate
 
+    def resolve_dismiss(self, cluster_id: str) -> list[Candidate]:
+        """H11: dismiss a *false-positive* contradiction — both facts genuinely
+        hold (e.g. captain-approval vs. coach-immediate, different actors), so
+        neither should be superseded or merged.
+
+        The one intentional override of FR-005's ≤1-active-contradictor rule, on
+        explicit human judgement. Unlike :meth:`resolve` (one side wins, loser
+        rejected) and :meth:`resolve_custom` (both rejected, a new fact replaces
+        them), dismiss is non-lossy: it flips each pending ``contradiction`` edge
+        among the members to ``dismissed`` — preserved and reversible (FR-004),
+        not deleted, so the human decision stays discoverable — and forces every
+        member to ``active``. A ``dismissed`` edge is neither ``contradiction``
+        (pending) nor ``contradicted_by`` (resolved/superseded), so the pair drops
+        out of ``get_contradictions`` while both facts remain in recall.
+        """
+        member_ids = [fid for fid in cluster_id.split("__") if fid]
+        present = {
+            fid: fact
+            for fid in member_ids
+            if (fact := self.graph.get_fact(fid)) is not None
+        }
+        if not present:
+            raise KeyError(cluster_id)
+        ids = list(present)
+        for i, x in enumerate(ids):
+            for y in ids[i + 1 :]:
+                self.graph.flip_edge_kind(
+                    x, y, from_kind="contradiction", to_kind="dismissed"
+                )
+        for fid, fact in present.items():
+            if fact.state != "active":
+                self.graph.set_state(fid, "active")
+            self._append_audit(
+                fact, "dismissed", note="contradiction dismissed (both hold)"
+            )
+        resolved: list[Candidate] = []
+        for fid in present:
+            candidate = self.get(fid)
+            assert candidate is not None
+            resolved.append(candidate)
+        return resolved
+
     def resolve_custom(self, cluster_id: str, custom_text: str) -> Candidate:
         """Settle a contradiction cluster by rejecting its members and adding a new,
         user-authored fact that *supersedes* them.

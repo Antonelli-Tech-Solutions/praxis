@@ -24,6 +24,11 @@ _RESOLUTION_TO_API: dict[str, str] = {
     "keep_b": "keep_b",
 }
 
+# H11: dismiss / keep-both — a false-positive contradiction (both facts hold). The
+# server clears the flag and leaves both active; no side is kept/superseded, so it
+# carries no keepId and is *not* a keep_a/keep_b enum value.
+RESOLUTION_DISMISS = "dismiss"
+
 
 def contract_version() -> str:
     """Contract version from PRAXIS_CONTRACT_VERSION (default 1)."""
@@ -73,7 +78,12 @@ def normalize_resolution(resolution: str) -> str:
     return mapped
 
 
-def build_resolve_body(*, resolution: str, keep_id: str) -> dict[str, str]:
+def build_resolve_body(*, resolution: str, keep_id: str | None = None) -> dict[str, Any]:
+    # H11: dismiss carries no winner — the server keeps both facts active.
+    if resolution == RESOLUTION_DISMISS:
+        return {"dismiss": True}
+    if not keep_id:
+        raise ValueError("keep_id is required unless resolution is 'dismiss'")
     return {
         "resolution": normalize_resolution(resolution),
         "keepId": keep_id,

@@ -150,13 +150,20 @@ class ApiDataProvider:
         contradiction_id: str,
         *,
         resolution: str,
-        keep_id: str,
+        keep_id: str | None = None,
     ) -> Candidate:
         encoded = urllib.parse.quote(contradiction_id, safe="")
         body = build_resolve_body(resolution=resolution, keep_id=keep_id)
         payload = self._request("POST", f"/contradictions/{encoded}/resolve", body=body)
         if not isinstance(payload, dict):
             raise ValueError("Resolve response must include the kept candidate")
+        # H11: dismiss keeps BOTH facts active; the server returns
+        # {"dismissed": true, "facts": [...]} rather than a single kept candidate.
+        if payload.get("dismissed"):
+            facts = payload.get("facts") or []
+            if not facts:
+                raise ValueError("Dismiss response must include the kept facts")
+            return Candidate.from_mapping(facts[0])
         return Candidate.from_mapping(payload)
 
     def list_api_keys(self) -> list[ApiKey]:

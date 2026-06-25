@@ -269,6 +269,48 @@ def test_insights_surface_mode_keeps_both_and_surfaces_contradiction(client):
     assert "500" in ctx["context"] and "100 requests per second" not in ctx["context"]
 
 
+def test_resolve_dismiss_keeps_both_active_and_clears_pending(client):
+    # H11: when a surfaced contradiction is a FALSE POSITIVE (two facts that both
+    # actually hold), dismiss clears the flag non-lossily — neither side is
+    # superseded (keepId) nor replaced (customText). Both stay active; the pending
+    # pair drops out of /contradictions.
+    first = client.post(
+        "/insights",
+        json={"insight": "The factory's default rate limit is 100 requests per second."},
+    )
+    assert first.status_code == 200, first.text
+    second = client.post(
+        "/insights",
+        json={
+            "insight": "The factory's default rate limit is 500 requests per second.",
+            "onConflict": "surface",
+        },
+    )
+    assert second.status_code == 200, second.text
+
+    clusters = client.get("/contradictions").json()
+    assert clusters, "surface mode should leave a pending contradiction"
+    pair = clusters[0]["pairs"][0]
+
+    res = client.post(f"/contradictions/{pair['id']}/resolve", json={"dismiss": True})
+    assert res.status_code == 200, res.text
+    body = res.json()
+    assert body["dismissed"] is True
+    assert {f["state"] for f in body["facts"]} == {"active"}
+
+    # The pending pair is gone...
+    assert client.get("/contradictions").json() == []
+
+    # ...and BOTH facts remain active (nothing rejected, nothing merged).
+    states = {
+        c["content"]: c["state"]
+        for c in client.get("/candidates").json()
+        if "rate limit" in c["content"]
+    }
+    assert len(states) == 2, f"both rate-limit facts should still exist: {states}"
+    assert set(states.values()) == {"active"}, f"dismiss must keep both active: {states}"
+
+
 def test_context_hits_include_provenance_keys(client):
     client.post("/insights", json={"insight": "use uv, not pip, in this repo"})
     ctx = client.get("/context", params={"query": "deps install tool"}).json()

@@ -398,6 +398,13 @@ def create_app(conn: Any | None = None) -> FastAPI:
         org: str = Depends(active_org),
     ) -> dict[str, Any]:
         facade = candidates_for(org, principal.sub)
+        # H11: dismiss / keep-both — a false-positive contradiction (two facts that
+        # both actually hold). Non-lossy: drops the pending edge, leaves both active.
+        if bool(body.get("dismiss")):
+            try:
+                return {"dismissed": True, "facts": facade.resolve_dismiss(pair_id)}
+            except KeyError:
+                raise HTTPException(status_code=404, detail=f"unknown contradiction {pair_id}")
         custom_text = body.get("customText")
         if custom_text is not None and str(custom_text).strip():
             try:
@@ -408,7 +415,7 @@ def create_app(conn: Any | None = None) -> FastAPI:
                 raise HTTPException(status_code=400, detail=str(exc))
         keep_id = body.get("keepId")
         if not keep_id:
-            raise HTTPException(status_code=400, detail="keepId or customText required")
+            raise HTTPException(status_code=400, detail="keepId, customText, or dismiss required")
         try:
             return facade.resolve(pair_id, str(keep_id))
         except KeyError:
