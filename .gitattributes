@@ -1,0 +1,5 @@
+# Pin LF on files that break or churn with CRLF on Windows checkouts.
+# Kept narrow on purpose: avoids a repo-wide `text=auto` renormalization.
+*.yml  text eol=lf
+*.yaml text eol=lf
+*.sh   text eol=lf
