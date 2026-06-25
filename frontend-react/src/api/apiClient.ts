@@ -16,7 +16,7 @@ import {
   deriveGraphFromCandidates,
   parseGraphPayload,
 } from "./graphModel";
-import type { DataProvider, Snapshot } from "./dataProvider";
+import type { ContradictionClusterWire, DataProvider, Snapshot } from "./dataProvider";
 import type { CandidateWriteInput } from "../types/candidate";
 
 class ApiConflictError extends Error {
@@ -375,6 +375,11 @@ export function createApiDataProvider(
         buildCustomResolveBody(customText),
       );
       return candidateFromMapping(payload as Record<string, unknown>);
+    },
+
+    async getContradictions() {
+      const payload = await request("GET", "/contradictions");
+      return (payload as ContradictionClusterWire[]) ?? [];
     },
 
     async getGraph(state = "active") {

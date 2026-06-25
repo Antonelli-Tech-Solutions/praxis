@@ -1,0 +1,63 @@
+# MULTI-WAY / non-transitive contradiction. Three rules form a chain A-B-C where
+# A contradicts B and B contradicts C, but A and C do NOT contradict — because the
+# clashes live on two DIFFERENT functional slots:
+#
+#   A: deployments are released MANUALLY        -> (production deployments, release method) = manual
+#   B: released AUTOMATICALLY, deploy day FRIDAY -> (production deployments, release method) = automatic
+#                                                   (production deployments, deploy day)     = friday
+#   C: deploy day TUESDAY                        -> (production deployments, deploy day)     = tuesday
+#
+# B is the hinge: it makes two assertions on two independent axes. A clashes with B
+# on "release method" (manual vs automatic); C clashes with B on "deploy day" (Friday
+# vs Tuesday). A and C share no slot — a manually-released deployment whose deploy day
+# is Tuesday is perfectly consistent — so they must NOT be flagged as contradictory.
+#
+# This pins the structural detector's per-slot behaviour: contradiction is per
+# (subject, attribute) slot and is NOT transitive across slots. The graph must hold
+# exactly TWO pairwise contradictions (A-B and B-C), never a third, fabricated A-C
+# link from treating "same cluster" as "mutually exclusive". (Downstream, the serve
+# layer's serialize_clusters relies on exactly this to split the chain into two
+# slot-clusters instead of one false 3-way; see test_facts_candidates.py.)
+#
+# Component eval (no agent); vector substrate exercises the real write policy
+# (ClaimExtractor -> ClaimConflictDetector). Replays from the committed claim +
+# conflict cassettes and the cached embedding fixture offline (no live calls); with
+# a key it records them.
+id: multiway_two_slots
+component: knowledge_graph
+substrate: vector
+embedder: cached  # real vectors so the slot recall surfaces the related candidates
+conflict_model: openai/gpt-4o-mini  # ClaimExtractor + ClaimValueJudge; replayed from the committed cassettes
+
+seeded_insight:
+  via_ingestor: []
+  direct_to_graph:
+    - "Production deployments are released manually."
+    - "Production deployments are released automatically, and they always use Friday as their deploy day."
+    - "Production deployments always use Tuesday as their deploy day."
+
+deterministic_checks:
+  # Non-transitivity, stated as a count: exactly two pairwise contradictions. The only
+  # three possible pairs are A-B, A-C, B-C; two of them clash. Zero would mean the
+  # detector missed the clashes; three would mean it fabricated the A-C link (treating
+  # the chain as one mutually-exclusive cluster) — the bug this case guards against.
+  - name: exactly_two_contradictions
+    ref: "knowledge.evals.deterministic_checks.text:occurs_exactly"
+    params:
+      text: "CONTRADICTION"
+      n: 2
+  # A and C never clash: no single CONTRADICTION line pairs the manual-release rule
+  # (A) with the Tuesday rule (C). Combined with the count of 2, this forces the two
+  # real pairs to be exactly A-B and B-C.
+  - name: no_false_a_c_contradiction
+    ref: "knowledge.evals.deterministic_checks.text:regex_absent"
+    params:
+      pattern: "(?i)CONTRADICTION:[^\\n]*manually[^\\n]*Tuesday|CONTRADICTION:[^\\n]*Tuesday[^\\n]*manually"
+  # Flag-don't-drop: all three rules survive verbatim as distinct stored facts.
+  - name: all_three_rules_kept
+    ref: "knowledge.evals.deterministic_checks.text:requires_all_substrings"
+    params:
+      texts:
+        - "Production deployments are released manually."
+        - "Production deployments are released automatically, and they always use Friday as their deploy day."
+        - "Production deployments always use Tuesday as their deploy day."

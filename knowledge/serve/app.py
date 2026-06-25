@@ -32,6 +32,13 @@ from dotenv import load_dotenv
 # with an empty env: no DB, no Cognito ("invalid token"), no embedder key.
 load_dotenv()
 
+# Export LLM/embedding spans to Phoenix when PHOENIX_COLLECTOR_ENDPOINT is set
+# (no-op otherwise). Must run here, not in __main__, because uvicorn imports the
+# app by string and never executes that block.
+from knowledge.observability.tracing import setup_tracing  # noqa: E402
+
+setup_tracing()
+
 from fastapi import Body, Depends, FastAPI, Header, HTTPException  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 

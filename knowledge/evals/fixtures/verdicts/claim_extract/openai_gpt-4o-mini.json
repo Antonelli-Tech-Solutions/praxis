@@ -89,6 +89,26 @@
 "pole": "centralized"
 }
 },
+"35d7c03b83a9e5e61e0af3813be26c667c2b459e0df6765cb3148ab4bfaf9e43": {
+"claims": [
+{
+"attribute": "release method",
+"functional": true,
+"subject": "production deployments",
+"value": "automatically"
+},
+{
+"attribute": "deploy day",
+"functional": true,
+"subject": "production deployments",
+"value": "Friday"
+}
+],
+"stance": {
+"axis": "none",
+"pole": ""
+}
+},
 "42bb2ae2ff99f7d6fdf7664da213518e0ab0ef3b96658591d768ac1af8807b7b": {
 "claims": [
 {
@@ -108,6 +128,20 @@
 "stance": {
 "axis": "axis:error-fail-fast-vs-fail-safe",
 "pole": "fail-fast"
+}
+},
+"457e220ccb031585d6373c48246982b0e562f33fecef2f13fa665148317a990b": {
+"claims": [
+{
+"attribute": "deploy day",
+"functional": true,
+"subject": "production deployments",
+"value": "Tuesday"
+}
+],
+"stance": {
+"axis": "none",
+"pole": ""
 }
 },
 "4a14ec44a9d885a7cf6686c942b47facfdeb7b512bc212b2fe43ec789c0b3809": {
@@ -227,6 +261,20 @@
 "functional": true,
 "subject": "voltaic pile",
 "value": "electric battery"
+}
+],
+"stance": {
+"axis": "none",
+"pole": ""
+}
+},
+"87a05e9c0cc6308da6fce6b0326a8bb6533da414f40fbc0e0156403ada27aa52": {
+"claims": [
+{
+"attribute": "release method",
+"functional": true,
+"subject": "production deployments",
+"value": "manual"
 }
 ],
 "stance": {

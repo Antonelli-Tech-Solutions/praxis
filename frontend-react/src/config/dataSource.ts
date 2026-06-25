@@ -38,6 +38,8 @@ export const DATA_SOURCE_PRESETS: DataSourcePreset[] = [
     id: PRESET_IDS.postgres,
     label: "Remote Postgres",
     mode: "live",
+    helpText:
+      "Hosted knowledge/serve API — set VITE_PRAXIS_POSTGRES_API_BASE_URL for the remote Postgres endpoint.",
   },
 ];
 

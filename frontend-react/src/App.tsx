@@ -16,7 +16,10 @@ import { CandidateTable } from "./components/CandidateTable";
 import {
   ContradictionsReview,
   contradictionClusters,
+  type ContradictionCluster,
+  type ContradictionPair,
 } from "./components/ContradictionsReview";
+import type { ContradictionClusterWire } from "./api/dataProvider";
 import { GraphExplorer } from "./components/graph/GraphExplorer";
 import { McpSetupGuide } from "./components/McpSetupGuide";
 import { AppShell } from "./components/layout/AppShell";
@@ -38,6 +41,38 @@ import type { Candidate, CandidateWriteInput } from "./types/candidate";
 import type { LocalLogFileInput } from "./types/transcript";
 import type { ViewTab } from "./types/view";
 import "./index.css";
+
+/**
+ * Hydrate the backend's slot-aware clusters (ids only) into the shape the review
+ * UI renders, by looking each member/pair id up in the loaded candidates. The
+ * grouping is the backend's — this only attaches full candidate objects.
+ */
+function hydrateClusters(
+  wire: ContradictionClusterWire[],
+  candidates: Candidate[],
+): ContradictionCluster[] {
+  const byId = new Map(candidates.map((c) => [c.id, c]));
+  const clusters: ContradictionCluster[] = [];
+  for (const w of wire) {
+    const members = w.members
+      .map((m) => byId.get(m.id))
+      .filter((c): c is Candidate => !!c);
+    if (members.length < 2) continue;
+    const pairs: ContradictionPair[] = [];
+    for (const p of w.pairs) {
+      const primary = byId.get(p.a.id);
+      const rival = byId.get(p.b.id);
+      if (primary && rival) pairs.push({ primary, rival });
+    }
+    clusters.push({
+      id: w.id,
+      slot: w.slot ? { subject: w.slot.subject, attribute: w.slot.attribute } : null,
+      members,
+      pairs,
+    });
+  }
+  return clusters;
+}
 
 export default function App() {
   const [localSession, setLocalSession] = useState<ReturnType<typeof buildLocalLogSession> | null>(
@@ -104,10 +139,39 @@ export default function App() {
     [candidates, searchQuery, stateFilter],
   );
 
-  const contradictionCount = useMemo(
-    () => contradictionClusters(candidates).length,
-    [candidates],
+  // Slot-aware clusters come from the backend (GET /contradictions); offline
+  // providers that can't compute them fall back to client-side clustering. Refetch
+  // when candidates change so resolutions drop their clusters from the queue.
+  const [wireClusters, setWireClusters] = useState<ContradictionClusterWire[] | null>(
+    null,
   );
+  useEffect(() => {
+    if (!provider.getContradictions) {
+      setWireClusters(null);
+      return;
+    }
+    let active = true;
+    provider
+      .getContradictions()
+      .then((w) => {
+        if (active) setWireClusters(w);
+      })
+      .catch(() => {
+        if (active) setWireClusters([]);
+      });
+    return () => {
+      active = false;
+    };
+  }, [provider, candidates]);
+
+  const contradictionClusterList = useMemo(
+    () =>
+      wireClusters
+        ? hydrateClusters(wireClusters, candidates)
+        : contradictionClusters(candidates),
+    [wireClusters, candidates],
+  );
+  const contradictionCount = contradictionClusterList.length;
 
   useEffect(() => {
     if (filtered.length === 0) {
@@ -574,7 +638,7 @@ export default function App() {
         <LoadingSkeleton />
       ) : viewTab === "contradictions" ? (
         <ContradictionsReview
-          candidates={candidates}
+          clusters={contradictionClusterList}
           onResolve={handleResolve}
           onResolveCustom={handleResolveCustom}
           onDefer={handleDefer}
