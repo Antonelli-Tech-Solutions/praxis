@@ -269,10 +269,10 @@ def evaluate_gate(report: dict) -> dict:
     if errors:
         reasons.append("data errors: " + "; ".join(errors))
 
-    # Even a clean GO is provisional: the gate rests on one validated footgun, and the
-    # upstream "does knowledge help at all" dogfood signal is unestablished.
-    provisional_note = ("GO is PROVISIONAL — rests on a single validated footgun (yoyo) and an "
-                        "unestablished dogfood premise; see RESULTS.md")
+    # Even a clean GO is provisional: the upstream "does knowledge help at all" dogfood
+    # premise is unestablished, and (at n=3) flips remain noisy.
+    provisional_note = (f"GO is PROVISIONAL — {len(gating)} validated gating footgun(s), but the "
+                        "dogfood 'does knowledge help' premise is unestablished and n=3; see RESULTS.md")
     return {
         "verdict": "GO (provisional)" if go else "NO-GO",
         "provisional": go,

@@ -4,65 +4,131 @@
       "task": "autodistill_yoyo_lazy_import",
       "kind": "footgun",
       "auto": {
-        "cost": 0.0561178,
+        "cost": 0.09010730000000002,
         "turns": 8,
-        "tokens": 2017,
+        "tokens": 1903,
         "correct": true
       },
       "control": {
-        "cost": 0.08620099999999999,
-        "turns": 7,
-        "tokens": 1387,
-        "correct": false
-      },
-      "curated": {
-        "cost": 0.0511446,
-        "turns": 6,
-        "tokens": 1824,
-        "correct": true
-      }
-    },
-    {
-      "task": "autodistill_yoyo_lazy_import",
-      "kind": "footgun",
-      "auto": {
-        "cost": 0.049604800000000004,
-        "turns": 8,
-        "tokens": 1486,
-        "correct": true
-      },
-      "control": {
-        "cost": 0.048375600000000005,
-        "turns": 6,
-        "tokens": 1480,
-        "correct": false
-      },
-      "curated": {
-        "cost": 0.051198900000000006,
-        "turns": 6,
-        "tokens": 1789,
-        "correct": true
-      }
-    },
-    {
-      "task": "autodistill_yoyo_lazy_import",
-      "kind": "footgun",
-      "auto": {
-        "cost": 0.06640140000000001,
-        "turns": 8,
-        "tokens": 2524,
-        "correct": true
-      },
-      "control": {
-        "cost": 0.07449009999999999,
+        "cost": 0.0943706,
         "turns": 9,
-        "tokens": 4112,
+        "tokens": 2105,
         "correct": false
       },
       "curated": {
-        "cost": 0.05968260000000001,
-        "turns": 8,
-        "tokens": 2576,
+        "cost": 0.057693999999999995,
+        "turns": 5,
+        "tokens": 2684,
+        "correct": true
+      }
+    },
+    {
+      "task": "autodistill_yoyo_lazy_import",
+      "kind": "footgun",
+      "auto": {
+        "cost": 0.0657284,
+        "turns": 7,
+        "tokens": 2887,
+        "correct": true
+      },
+      "control": {
+        "cost": 0.056264100000000004,
+        "turns": 7,
+        "tokens": 2518,
+        "correct": false
+      },
+      "curated": {
+        "cost": 0.036973200000000005,
+        "turns": 2,
+        "tokens": 1117,
+        "correct": true
+      }
+    },
+    {
+      "task": "autodistill_yoyo_lazy_import",
+      "kind": "footgun",
+      "auto": {
+        "cost": 0.04568010000000001,
+        "turns": 6,
+        "tokens": 1380,
+        "correct": true
+      },
+      "control": {
+        "cost": 0.060626200000000005,
+        "turns": 9,
+        "tokens": 2245,
+        "correct": true
+      },
+      "curated": {
+        "cost": 0.050458800000000005,
+        "turns": 7,
+        "tokens": 1696,
+        "correct": true
+      }
+    },
+    {
+      "task": "autodistill_delete_active_guard",
+      "kind": "footgun",
+      "auto": {
+        "cost": 0.035587799999999996,
+        "turns": 2,
+        "tokens": 873,
+        "correct": false
+      },
+      "control": {
+        "cost": 0.032971799999999996,
+        "turns": 2,
+        "tokens": 562,
+        "correct": false
+      },
+      "curated": {
+        "cost": 0.0367449,
+        "turns": 2,
+        "tokens": 1091,
+        "correct": true
+      }
+    },
+    {
+      "task": "autodistill_delete_active_guard",
+      "kind": "footgun",
+      "auto": {
+        "cost": 0.035645500000000004,
+        "turns": 2,
+        "tokens": 877,
+        "correct": false
+      },
+      "control": {
+        "cost": 0.033340800000000004,
+        "turns": 2,
+        "tokens": 611,
+        "correct": false
+      },
+      "curated": {
+        "cost": 0.0334457,
+        "turns": 2,
+        "tokens": 596,
+        "correct": false
+      }
+    },
+    {
+      "task": "autodistill_delete_active_guard",
+      "kind": "footgun",
+      "auto": {
+        "cost": 0.0344149,
+        "turns": 2,
+        "tokens": 712,
+        "correct": false
+      },
+      "control": {
+        "cost": 0.0332138,
+        "turns": 2,
+        "tokens": 584,
+        "correct": false
+      },
+      "curated": {
+        "cost": 0.035966899999999996,
+        "turns": 2,
+        "tokens": 979,
         "correct": true
       }
     },
@@ -70,16 +136,16 @@
       "task": "autodistill_umap_neighbors",
       "kind": "footgun",
       "auto": {
-        "cost": 0.0595865,
+        "cost": 0.060035099999999994,
         "turns": 5,
-        "tokens": 2658,
+        "tokens": 2876,
         "correct": true
       },
       "control": {
-        "cost": 0.0583607,
-        "turns": 5,
-        "tokens": 2980,
-        "correct": true
+        "cost": 0.0653492,
+        "turns": 7,
+        "tokens": 3116,
+        "correct": false
       },
       "curated": null
     },
@@ -87,16 +153,16 @@
       "task": "autodistill_umap_neighbors",
       "kind": "footgun",
       "auto": {
-        "cost": 0.0748097,
-        "turns": 6,
-        "tokens": 4490,
+        "cost": 0.06496629999999999,
+        "turns": 5,
+        "tokens": 3572,
         "correct": true
       },
       "control": {
-        "cost": 0.0500437,
+        "cost": 0.0481722,
         "turns": 3,
-        "tokens": 2512,
-        "correct": true
+        "tokens": 2248,
+        "correct": false
       },
       "curated": null
     },
@@ -104,22 +170,27 @@
       "task": "autodistill_umap_neighbors",
       "kind": "footgun",
       "auto": {
-        "cost": 0.061777600000000016,
-        "turns": 6,
-        "tokens": 2485,
+        "cost": 0.052888899999999996,
+        "turns": 5,
+        "tokens": 1844,
         "correct": true
       },
       "control": {
-        "cost": 0.057862300000000005,
+        "cost": 0.054681,
         "turns": 5,
-        "tokens": 2759,
-        "correct": true
+        "tokens": 2107,
+        "correct": false
       },
       "curated": null
     }
   ],
   "diagnostics": {
     "autodistill_yoyo_lazy_import": {
+      "fact_in_artifact": true,
+      "surfaced": true,
+      "surfaced_trials": "3/3"
+    },
+    "autodistill_delete_active_guard": {
       "fact_in_artifact": true,
       "surfaced": true,
       "surfaced_trials": "3/3"
@@ -137,34 +208,70 @@
         "is_footgun": true,
         "is_gating": true,
         "auto": {
-          "cost_mean": 0.05737466666666668,
-          "cost_sd": 0.008468543455242667,
-          "tokens_mean": 2009.0,
-          "tokens_sd": 519.04624071464,
-          "turns_mean": 8.0
+          "cost_mean": 0.06717193333333334,
+          "cost_sd": 0.022248749769893442,
+          "tokens_mean": 2056.6666666666665,
+          "tokens_sd": 765.1616386969052,
+          "turns_mean": 7.0
         },
         "control": {
-          "cost_mean": 0.0696889,
-          "cost_sd": 0.019364370952086197,
-          "tokens_mean": 2326.3333333333335,
-          "tokens_sd": 1547.1316470595943,
-          "turns_mean": 7.333333333333333
+          "cost_mean": 0.0704203,
+          "cost_sd": 0.020855925576919378,
+          "tokens_mean": 2289.3333333333335,
+          "tokens_sd": 210.0388852887325,
+          "turns_mean": 8.333333333333334
         },
         "curated": {
-          "cost_mean": 0.0540087,
-          "cost_sd": 0.004913816544194547,
-          "tokens_mean": 2063.0,
-          "tokens_sd": 444.61556427997436,
-          "turns_mean": 6.666666666666667
+          "cost_mean": 0.04837533333333333,
+          "cost_sd": 0.010516345048225321,
+          "tokens_mean": 1832.3333333333333,
+          "tokens_sd": 792.346094414135,
+          "turns_mean": 4.666666666666667
         },
-        "token_delta": -317.3333333333335,
+        "token_delta": -232.66666666666697,
         "token_reduced": true,
-        "turn_delta": 0.666666666666667,
-        "turn_reduced": false,
+        "turn_delta": -1.333333333333334,
+        "turn_reduced": true,
         "auto_avoid_rate": 1.0,
-        "control_exhibit_rate": 1.0,
+        "control_exhibit_rate": 0.6666666666666667,
         "curated_avoid_rate": 1.0,
         "flip": true,
+        "curated_flip": true,
+        "trials": 3
+      },
+      "autodistill_delete_active_guard": {
+        "kind": "footgun",
+        "is_footgun": true,
+        "is_gating": true,
+        "auto": {
+          "cost_mean": 0.035216066666666664,
+          "cost_sd": 0.000694430229276732,
+          "tokens_mean": 820.6666666666666,
+          "tokens_sd": 94.12934363594242,
+          "turns_mean": 2.0
+        },
+        "control": {
+          "cost_mean": 0.03317546666666667,
+          "cost_sd": 0.00018746288521554052,
+          "tokens_mean": 585.6666666666666,
+          "tokens_sd": 24.54248017893329,
+          "turns_mean": 2.0
+        },
+        "curated": {
+          "cost_mean": 0.03538583333333333,
+          "cost_sd": 0.001724647504081145,
+          "tokens_mean": 888.6666666666666,
+          "tokens_sd": 259.56951541606986,
+          "turns_mean": 2.0
+        },
+        "token_delta": 235.0,
+        "token_reduced": false,
+        "turn_delta": 0.0,
+        "turn_reduced": false,
+        "auto_avoid_rate": 0.0,
+        "control_exhibit_rate": 1.0,
+        "curated_avoid_rate": 0.6666666666666666,
+        "flip": false,
         "curated_flip": true,
         "trials": 3
       },
@@ -173,28 +280,28 @@
         "is_footgun": true,
         "is_gating": false,
         "auto": {
-          "cost_mean": 0.06539126666666667,
-          "cost_sd": 0.008229847789803487,
-          "tokens_mean": 3211.0,
-          "tokens_sd": 1111.018901729399,
-          "turns_mean": 5.666666666666667
+          "cost_mean": 0.05929676666666666,
+          "cost_sd": 0.006072458297372927,
+          "tokens_mean": 2764.0,
+          "tokens_sd": 869.4273977739601,
+          "turns_mean": 5.0
         },
         "control": {
-          "cost_mean": 0.05542223333333334,
-          "cost_sd": 0.0046646078348917324,
-          "tokens_mean": 2750.3333333333335,
-          "tokens_sd": 234.1203394268284,
-          "turns_mean": 4.333333333333333
+          "cost_mean": 0.05606746666666667,
+          "cost_sd": 0.008672026845745653,
+          "tokens_mean": 2490.3333333333335,
+          "tokens_sd": 546.4104074167451,
+          "turns_mean": 5.0
         },
         "curated": null,
-        "token_delta": 460.6666666666665,
+        "token_delta": 273.6666666666665,
         "token_reduced": false,
-        "turn_delta": 1.333333333333334,
+        "turn_delta": 0.0,
         "turn_reduced": false,
         "auto_avoid_rate": 1.0,
-        "control_exhibit_rate": 0.0,
+        "control_exhibit_rate": 1.0,
         "curated_avoid_rate": null,
-        "flip": false,
+        "flip": true,
         "curated_flip": null,
         "trials": 3
       }
@@ -204,14 +311,16 @@
   "gate": {
     "verdict": "NO-GO",
     "provisional": false,
-    "gating_flip": true,
+    "gating_flip": false,
     "flips": {
-      "autodistill_yoyo_lazy_import": true
+      "autodistill_yoyo_lazy_import": true,
+      "autodistill_delete_active_guard": false
     },
     "tasks_reduced": 1,
-    "tasks_total": 2,
+    "tasks_total": 3,
     "reasons": [
-      "token/turn reduced on only 1/2 tasks (need a majority)"
+      "gating footgun did not flip: autodistill_delete_active_guard",
+      "token/turn reduced on only 1/3 tasks (need a majority)"
     ]
   }
 }
