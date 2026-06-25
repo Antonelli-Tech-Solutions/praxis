@@ -49,9 +49,13 @@ class OverlayGraph(SearchableGraph):
         once and unions the live ``facts`` and ``cached_facts`` branches in one
         round trip. Mounted hits are tagged in ``fact.meta["mountedFrom"]``.
         """
+        # Forward the H2 exclusion only when present, so callers/doubles that don't
+        # take the kwarg are unaffected (the live overlay_search accepts it).
+        extra = {}
+        if kwargs.get("exclude_categories"):
+            extra["exclude_categories"] = kwargs["exclude_categories"]
         return self._live.overlay_search(
-            query, [(u, key) for (u, _name, key) in self._mounts], top_k=top_k,
-            exclude_categories=kwargs.get("exclude_categories"),
+            query, [(u, key) for (u, _name, key) in self._mounts], top_k=top_k, **extra
         )
 
     # --- KnowledgeGraph read ----------------------------------------------
