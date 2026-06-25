@@ -1,0 +1,392 @@
+# AUTO arm — auto-distilled facts (frozen from ~30 merged PRs) seeded active and read
+# through the retrieving reader over a vector substrate + cached embeddings. The agent
+# must RETRIEVE the neutralizing fact from the full 154-fact corpus to avoid the footgun.
+# Generated from facts.frozen.txt by backfill (do not hand-edit the seed). See README.md.
+
+id: autodistill_yoyo_lazy_import
+needs:
+- sandbox
+- file_io
+output_file: 0002_backfill_fact_source.py
+substrate: vector
+reader: retrieving
+embedder: cached
+seed_prompt: 'Write a yoyo migration file `0002_backfill_fact_source.py` that backfills the
+
+  `source` column on the `facts` table: for every row with a NULL/empty source, set
+
+  it by calling `derive_source(text)` from the project''s
+
+  `knowledge.knowledge_graph.provenance` module. Use yoyo''s `step()` API — the step
+
+  function receives a psycopg connection `conn`. Edit only 0002_backfill_fact_source.py.
+
+  '
+target_commit: '0000000000000000000000000000000000000000'
+start_commit: null
+repo: null
+seeded_insight:
+  via_ingestor: []
+  direct_to_graph:
+  - Bi-temporal validity is implemented with `valid_at` and `invalid_at` timestamps on facts, allowing
+    retrieval of only currently-valid facts by default, which ensures that superseded facts are retained
+    for historical reference.
+  - Semantic contradiction handling uses a two-stage detection process where an embedding-narrow model
+    identifies paraphrase contradictions that do not share functional slots, prioritizing precision in
+    conflict detection.
+  - The Mem0-style merge approach allows related additive facts to be combined into a single fact, with
+    high-confidence contradictions being auto-resolved if the `PRAXIS_AUTO_RESOLVE_CONTRADICTIONS` flag
+    is enabled, which is off by default to prevent unintended merges.
+  - Hybrid retrieval is implemented as an opt-in feature, defaulting to `hybrid=False`, due to findings
+    that cosine ranking alone can misrank rare identifiers, necessitating a more cautious approach to
+    ensure accuracy in retrieval results.
+  - The `TemporalSupersessionDetector` distinguishes between temporal supersession and contradictions
+    by analyzing both temporal and non-temporal slots, ensuring that only genuine contradictions are flagged
+    while allowing for valid supersession cases.
+  - The hybrid search functionality integrates both vector and BM25 retrieval methods using Reciprocal
+    Rank Fusion (RRF), which improves the ranking of exact matches that might otherwise be demoted by
+    cosine similarity alone.
+  - The default behavior of the hybrid search is to be off, with a df-ratio gate implemented to prevent
+    common words from admitting documents to the keyword branch, ensuring that only relevant documents
+    are retrieved.
+  - The implementation of a wider recall window for semantic contradiction detection allows for improved
+    identification of genuine paraphrase contradictions, which previously fell below the deduplication
+    recall floor.
+  - The design decision to keep superseded facts in the system rather than deleting them allows for historical
+    tracking and auditing of changes in the knowledge graph, which is critical for maintaining data integrity.
+  - The integration of a dedicated recall floor for semantic detection ensures that the system can effectively
+    flag previously missed pairs, enhancing the overall accuracy of the knowledge graph's conflict detection
+    capabilities.
+  - The architecture allows for read-only mounted snapshots that do not merge into the live graph or carry
+    over on save, ensuring data integrity and separation of live and mounted data.
+  - The `OverlayGraph` uses a `UNION ALL` operation instead of a join to combine live and mounted snapshots,
+    which is necessary because there is no row correspondence between the two datasets, optimizing performance
+    by embedding the query once.
+  - Mounted snapshots can be accessed by any member of the organization, but the membership is validated
+    by the route, maintaining a trust boundary similar to the existing `OrgSourceReader` functionality.
+  - The mounted snapshots are flagged with metadata indicating their source and ownership, which is crucial
+    for managing access and visibility in a multi-user environment.
+  - The design explicitly avoids merging mounted snapshots into the live graph, which prevents unintended
+    data overwrites and maintains the integrity of the live data during snapshot operations.
+  - The MCP tools now provide full parity with the dashboard's graph and Snapshots actions, allowing agents
+    to manage fact lifecycle and snapshots, which enhances functionality and user experience.
+  - The authorization model enforces that users can only edit their own snapshots and read across their
+    organization, ensuring data integrity and security.
+  - The `praxis_promote_fact`, `praxis_reject_fact`, and `praxis_delete_fact` functions are designed to
+    manage the lifecycle of facts, with clear user confirmation required for each action to prevent unintended
+    changes.
+  - The `praxis_clear_graph` function is destructive and should be used with caution; users are advised
+    to save a snapshot first to avoid data loss.
+  - 'The `praxis_load_snapshot` function supports two modes: ''replace'' truncates the current graph while
+    ''add'' merges the snapshot, which allows for flexible data management.'
+  - The decision to set UMAP's n_neighbors to 10 instead of 15 prevents heterogeneous corpora from collapsing
+    into a single mega-cluster, allowing for coherent topic segmentation.
+  - A regression guard was added to ensure that the clustering process does not produce fewer than two
+    clusters, preventing under-segmentation of the corpus.
+  - The convention of using a frozen embedding matrix for testing ensures that the clustering behavior
+    is consistent and reproducible across runs.
+  - The approach of using HDBSCAN for clustering after dimensionality reduction with UMAP is preferred
+    to ensure that the resulting clusters are meaningful and not overly fragmented.
+  - Contradiction is defined per `(subject, attribute)` slot and is not transitive across slots, ensuring
+    that multi-way conflicts are accurately represented without false links between unrelated facts.
+  - Custom resolution is treated as a supersession of all members in a slot-cluster, which allows for
+    a clear and reversible relationship between the new fact and the rejected facts, avoiding the creation
+    of misleading contradiction links.
+  - The React UI now relies on backend-provided slot-aware clusters for contradiction review, ensuring
+    that the clustering logic is centralized and accurate, rather than being derived client-side.
+  - The new evaluation case demonstrates that the contradiction detection must yield exactly two pairwise
+    contradictions in a multi-way conflict scenario, preventing the erroneous creation of additional links
+    between unrelated facts.
+  - Candidate cards and tables now allow selection by clicking on the card whitespace, improving user
+    interaction by eliminating the need for a separate Inspect in detail button.
+  - Unavailable candidate actions are hidden in both Card and Table views instead of rendering disabled
+    controls, which enhances the user experience by reducing visual clutter.
+  - Pagination controls have been standardized across both CandidateCards and CandidateTable components,
+    ensuring consistent navigation and user experience.
+  - The previous approach of rendering disabled controls for unavailable actions has been rejected in
+    favor of hiding these actions entirely, which simplifies the UI.
+  - The pagination implementation includes a default page size of 10 and options for 10, 25, and 50 items
+    per page, providing flexibility for users in managing displayed data.
+  - The CandidateCards and CandidateTable components now manage pagination state internally, which allows
+    for better control over the displayed candidates based on the current page and page size.
+  - The primary section navigation has been integrated into the header to improve layout efficiency and
+    reduce visual clutter, which enhances user experience by providing a more compact interface.
+  - The FilterBar component now only renders on the Knowledge tab, which simplifies its functionality
+    and reduces unnecessary complexity in the UI for other tabs.
+  - The 'Add eval' button has been removed from the UI, indicating a shift in focus away from that functionality,
+    which may affect user workflows that previously relied on it.
+  - The new SectionTabs component is designed to encapsulate the section navigation functionality, promoting
+    better separation of concerns and reusability within the header layout.
+  - The footer now displays the organization name alongside the user identity, enhancing clarity about
+    the current user's context within the application.
+  - The design decision to enforce FR-005 ensures that only one side of a contradiction can be active
+    at any time, preventing logical inconsistencies in the knowledge graph.
+  - The implementation of `demote_active_contradiction()` in `write_policy_def.py` is crucial for maintaining
+    the integrity of the knowledge graph by demoting conflicting claims to 'proposed' instead of allowing
+    both to be active.
+  - Keying the LLM cassettes on the fully-rendered prompt rather than a sub-slice prevents stale hits
+    from occurring when prompts are edited, ensuring that only relevant data is replayed.
+  - The addition of the deterministic check `at_most_one_active()` is essential for validating that only
+    one side of a contradictory pair is active, which is a requirement of FR-005.
+  - The use of `atomic_write_text()` to handle cache writes addresses a specific Windows crash issue,
+    ensuring that file writes are atomic and reducing the risk of errors during concurrent operations.
+  - The new header toolbar design consolidates multiple UI elements into a compact button row, improving
+    page clarity and user experience by utilizing modal popovers for panel content.
+  - The `Modal` component is designed to be wide (92vw, capped at 1280px) and adjusts its height based
+    on content, ensuring a responsive and user-friendly interface.
+  - The `ApiKeysPanel` is integrated into the header toolbar, allowing for in-page management of API keys,
+    which streamlines user interactions with API key functionalities.
+  - The `embedded` mode for each panel renders it without additional UI elements, providing a cleaner
+    presentation within modals.
+  - The API key management functions (`createApiKey`, `listApiKeys`, `revokeApiKey`) are designed to ensure
+    that raw keys are only returned once during creation, enhancing security by preventing key exposure.
+  - Praxis now supports scoped API-key authentication, allowing external agents to authenticate without
+    relying solely on Cognito JWT, which simplifies onboarding for automated consumers.
+  - The new batch ingest endpoint allows multiple documents to be ingested in a single request, making
+    it easier for external agents to submit tax-related documents as a bundle.
+  - MCP tools now return structured JSON instead of plain text, enabling external agents to consume context
+    programmatically without needing to parse strings, which reduces brittleness in integration.
+  - The tax-return evaluation set serves as a proof of concept that demonstrates the end-to-end functionality
+    of Praxis, showing that it can handle the entire process from document ingestion to context retrieval
+    for tax filing.
+  - The design of the tax-return eval cases emphasizes the need for real-world scenarios to validate the
+    functionality of the knowledge graph, ensuring that the system can accurately process and retrieve
+    information based on actual tax documents.
+  - The decision to include provenance information in context retrieval responses allows external agents
+    to trace the source of retrieved facts, enhancing trust and transparency in the knowledge graph's
+    outputs.
+  - The rejection of a DAG-as-agent-graph approach indicates a preference for maintaining a simpler architecture
+    that does not complicate the integration of external agents with Praxis.
+  - The decision to document a quickstart guide for external consumers highlights the importance of providing
+    clear onboarding instructions to facilitate the use of Praxis as a knowledge graph backend.
+  - Candidate action controls have been streamlined by integrating the 'Inspect in detail' functionality
+    into the card view, which simplifies the user interface and reduces the number of buttons presented
+    to the user.
+  - Unavailable actions in the Candidate Cards and Table are now hidden instead of being displayed as
+    disabled buttons, which improves the visual clarity of the interface.
+  - The 'canReject' condition is introduced to determine if a candidate can be rejected based on their
+    current state, ensuring that the rejection action is only available when appropriate.
+  - The 'isInteractiveTarget' function is added to prevent card selection when clicking on interactive
+    elements, which enhances user experience by ensuring that only non-interactive areas trigger selection.
+  - The 'promoteUnavailableReason' function has been removed from the CandidateTable component, indicating
+    a shift in how promotion blocking is handled, which may affect future logic related to candidate promotion.
+  - Yoyo migration files should avoid top-level imports that depend on the repo root being in sys.path,
+    as this can lead to ModuleNotFoundError when loaded with importlib.exec_module.
+  - Lazy imports should be used for dependencies that are only needed in specific functions, as demonstrated
+    by moving the import of connect into the main() function.
+  - The migration functions _apply and _rename_state do not require any external dependencies and should
+    be implemented as pure SQL to ensure compatibility with migration tools.
+  - The `OrgSourceReader` is designed to provide read-only access to saved snapshots, ensuring that users
+    can browse and fold in skills without modifying the original data.
+  - The migration process now utilizes yoyo migrations, which ensures that each migration is applied exactly
+    once and can be safely re-run without side effects, enhancing the reliability of database updates.
+  - The dropdown for selecting snapshots has been updated to display usernames alongside snapshot counts,
+    improving user experience by providing clearer context for each option.
+  - The `username` field in the `OrgSource` interface is nullable, indicating that it may not be available
+    for all users, particularly for teammates whose emails are not stored in the application.
+  - The approach of using yoyo migrations for schema changes means that any destructive changes must be
+    expressed as a migration file, rather than directly in the schema, to maintain idempotency and safety
+    during deployment.
+  - The skill-sharing feature is now restricted to only share deliberately-saved snapshots, enhancing
+    privacy and simplifying the codebase by reducing the complexity of source types.
+  - The `GET /org/sources/{user_id}/snapshots/{name}/facts` endpoint replaces the previous live graph
+    access, ensuring that only snapshot data is fetched, which aligns with the new privacy-focused design.
+  - The `POST /fold-in` operation now requires a `mode` parameter, which can be either `add` or `replace`,
+    affecting how facts are integrated into the caller's graph.
+  - The `OrgSourceReader` class has been modified to eliminate the live-graph reading path, which now
+    mandates the use of a `cache_key` for reading cached facts, streamlining data access.
+  - The frontend now exclusively lists snapshots in the source dropdown, removing the option to select
+    live graphs, which reflects the backend changes to enhance user privacy.
+  - The `FoldInMode` type is introduced to standardize the modes used in the fold-in operation, ensuring
+    clarity in how facts are added or replaced in the graph.
+  - The previous approach of allowing access to a member's entire live private graph has been explicitly
+    rejected in favor of a more privacy-conscious design that only shares selected snapshots.
+  - The Monica dashboard and human-gate eval suite is designed to support the live demo flow and is grounded
+    in specific documentation, ensuring that all cases can be discovered and executed as a focused suite.
+  - Candidate rows must include specific fields such as title, content, lifecycle state, confidence, provenance,
+    confidence breakdown, and audit trail to meet the requirements of the candidate contract check.
+  - The dashboard's data source fallback readiness allows it to explain mock/live mode, contract version,
+    API URL, and eval metrics source without being tightly coupled to the database, enhancing flexibility
+    in deployment.
+  - The eval suite's cases are organized under the canonical eval registry path, allowing for easy discovery
+    and execution through the shared harness, which is a convention for structuring eval cases.
+  - The approach of requiring explicit confirmation for low-confidence candidates before promotion was
+    explicitly chosen to ensure quality control in the evaluation process.
+  - The `OrgSourceReader` class is designed as a read-only, write-free class to prevent mutation of another
+    member's facts, ensuring that the predicate bypass does not leak into a write context.
+  - Conflicts during the fold-in process are flagged and never overwritten, ensuring that existing facts
+    are preserved and users are prompted to resolve contradictions instead of having them silently clobbered.
+  - The API endpoint `/org/sources` returns a list of foldable sources, including user IDs and roles,
+    which are essential for managing access to shared facts within an organization.
+  - The design of the fold-in feature includes a distillation-free policy that utilizes a sequence of
+    components (`Deduper`, `ClaimExtractor`, `ClaimConflictDetector`) to manage the integration of selected
+    facts into the caller's live graph.
+  - The structural contradiction detection approach decomposes facts into atomic (subject, attribute,
+    value) claims, allowing for precise identification of contradictions based on shared subjects and
+    functional attributes with incompatible values.
+  - The use of a gray-zone value-equality check with an LLM is limited to cases where values are not deterministically
+    clashing, ensuring that the detection process prioritizes precision and minimizes false positives.
+  - The structural detector is now the default policy for contradiction detection, replacing the previous
+    cosine recall and boolean LLM judge methods, which were found to produce a higher rate of false positives.
+  - Contradiction clusters are now grouped by conflicting slots, allowing for a more organized review
+    process where each cluster represents a unique set of competing facts.
+  - The resolution semantics remain unchanged, where a new fact contradicting an established fact is marked
+    as proposed and in contradiction, requiring human vetting for resolution.
+  - The previous implicit cross-vocabulary detection and auto-resolution approaches were explicitly deferred
+    and are not part of the current implementation, indicating a focus on the structural detection method
+    instead.
+  - The ingestion pipeline now ensures that image assets are seeded correctly by calling `embed_cache.refresh()`,
+    preventing cache misses and ensuring that 13 active, VLM-captioned asset cards are generated.
+  - The `PromptIngestor` now includes a `segment_passthrough()` method that strips non-essential sections
+    from text ingested from Wikipedia, improving the quality of stored facts by reducing noise from 61
+    lines to approximately 78 clean facts.
+  - The `distill_case` function has been updated to handle seeds differently based on their channel, ensuring
+    that `direct_to_graph` seeds are written verbatim without LLM calls, thus preserving the integrity
+    of curated text.
+  - Topic clustering has been enhanced to allow for navigation-only super-nodes, which do not affect retrieval
+    but enable a cleaner dashboard representation of the knowledge graph.
+  - Cluster IDs in the topic clustering feature are intentionally not stable across runs, meaning that
+    the view will group by current IDs and labels rather than maintaining consistency across sessions.
+  - 'The ingestion process now sets `ingest_state: active` for ingested facts to ensure they are visible
+    to the active-gated reader, addressing a previous issue where facts were defaulting to `state=proposed`
+    and thus hidden.'
+  - The new evaluation cases for `skill_unification` and `skills_ingestion` are designed to test the ingestion
+    and distillation processes over realistic skill and command markdown, ensuring that the system can
+    handle real-world data effectively.
+  - The contradiction detection mechanism is being redefined to focus on structural claims rather than
+    text-pair similarity, aiming to reduce false positives and improve precision in identifying contradictions.
+  - The design for contradiction detection includes a requirement for a claim-based representation of
+    facts, which will help in accurately identifying contradictions based on functional attributes rather
+    than topical similarity.
+  - The contradiction resolution process has been changed to be non-destructive and reversible, allowing
+    both facts to be retained and linked, which facilitates easier review and potential undoing of decisions.
+  - The state previously known as 'decayed' has been renamed to 'rejected' across the system, which standardizes
+    terminology and clarifies the lifecycle of facts.
+  - Deletion of facts is now gated to only 'proposed' or 'rejected' states, preventing accidental deletion
+    of active facts and ensuring that all contradictions are resolved before deletion.
+  - The approach of overwriting existing facts with new ones has been explicitly rejected in favor of
+    a model that retains both the active and rejected states, preserving the original text and allowing
+    for better tracking of contradictions.
+  - The data source switching mechanism now validates organization membership immediately upon selection,
+    eliminating the need for separate refresh actions to prevent stale context errors.
+  - The cache mechanism for evaluating cases is now keyed by the case ID provided by the backend, allowing
+    for accurate cache lookups even when folder names differ from case IDs.
+  - The `caseId` field has been added to the `EvalScope` interface to ensure that the correct case ID
+    is used for cache lookups, accommodating cases where folder names do not match the case ID.
+  - The approach of matching cache keys solely on the folder's leaf name has been rejected in favor of
+    using the backend-supplied case ID, which provides a more reliable mechanism for cache validation.
+  - The dashboard now allows instant switching of data sources without requiring a separate load or refresh
+    action, improving user experience by providing immediate feedback and reducing confusion about org
+    membership validation.
+  - Switching to a different live server reloads the application to ensure that the org membership is
+    validated against the correct backend, preventing potential 403 errors due to stale org context.
+  - The application now uses a single state filter for the graph, where selecting 'All' displays all lifecycle
+    states, while other selections filter the graph accordingly, maintaining clarity in data representation.
+  - The approach of using a runtime swap for org context validation has been rejected in favor of a full
+    reload to ensure accurate membership checks against the selected backend.
+  - The grounding-aware rubric judge now verifies claims against the material the scenario was built from
+    by threading each case's seeded reference into the judge, which improves the accuracy of grounding
+    and honesty criteria.
+  - The `build_judge_prompt` helper for both judges inserts a neutrally-labeled REFERENCE block framed
+    as context for grading, ensuring that it is not treated as a rule the answer must obey, thus preventing
+    mis-penalization in safety/override and conflict cases.
+  - Deterministic checks have been widened from brittle literal-keyword checks to synonym-tolerant checks
+    using `mentions_any` sets, which are anchored to seeded facts to improve robustness against variations
+    in phrasing.
+  - The safety criterion `ignores_graph_rule` does not discriminate effectively, as evidenced by live
+    testing where it scored stylistic all-uppercase answers the same as correct overrides; thus, scenarios
+    were repointed to the observable `casing_honored` criterion for reliable grading.
+  - Deletion of facts is now gated to only allow hard-deletion from `proposed` or `rejected` states, preventing
+    direct deletion from `active` to ensure that live facts are not removed without a deliberate two-step
+    process of rejection followed by deletion.
+  - The `mentions_any` check allows for a more flexible evaluation of answers by passing if any accepted
+    spelling is used, which helps in accommodating synonyms and variations in phrasing.
+  - The decision to keep both contradicting facts when one is rejected, linking them with a `CONTRADICTED_BY`
+    pointer, ensures that contradictions remain auditable and reversible, enhancing the integrity of the
+    fact lifecycle.
+  - The `casing_honored` criterion is now the reliable method for grading overrides, as it differentiates
+    between stylistic choices and correct answers, addressing a previous limitation in the grading system.
+  - The OPENROUTER_API_KEY must be set as a required GitHub secret for the deployment workflow, ensuring
+    that sensitive information is not hardcoded in the codebase.
+  - Secrets like OPENROUTER_API_KEY are injected at runtime by App Runner and are not baked into Docker
+    image layers to prevent exposure in published images.
+  - The backend service stack conditionally includes the OPENROUTER_API_KEY as an environment variable,
+    allowing local deployments without the key to proceed without pushing an empty value.
+  - Candidate deletion is restricted to candidates in 'proposed' or 'decayed' states, ensuring that only
+    facts that have been rejected or proposed can be deleted, which maintains data integrity.
+  - The language used in the frontend for knowledge review actions has been standardized to 'Approve'
+    and 'Reject', which clarifies the actions available to users and aligns with the state management
+    of candidates.
+  - The refresh functionality for individual candidate items has been removed from the table and card
+    views, simplifying the user interface and reducing unnecessary data fetching.
+  - The previous approach of removing contradiction edges during candidate resolution has been rejected
+    in favor of keeping these edges, which allows for better tracking of candidate relationships and states.
+  - The backend architecture now relies on a single source of truth, the `facts` table, eliminating the
+    previously parallel `candidates` table to prevent data drift and inconsistencies.
+  - The new database migration workflow requires the `PRAXIS_DB_URL` or AWS credentials to be set as GitHub
+    secrets, and the RDS instance must be reachable from the GitHub runner, which may necessitate a self-hosted
+    runner or bastion setup.
+  - The server is now exclusively Postgres, and the data source dropdown has been simplified to only include
+    Local and Remote Postgres options, reflecting a shift towards a more streamlined database interaction.
+  - The approach of using explicit cross-modal entity-linking edges for images was rejected, as it would
+    not align with the existing text retrieval mechanisms and would add unnecessary complexity without
+    retrieval benefits.
+  - The ingestion process for the application eval suite now utilizes a deterministic ingestion cassette,
+    which records the output of the LLM ingestion splitter to ensure consistent results across runs, addressing
+    issues of irreproducibility and high costs associated with live embedding calls.
+  - The `IngestionCassette` class is designed to throw a `RuntimeError` on a replay miss during continuous
+    integration, ensuring that any discrepancies in the expected output are immediately flagged rather
+    than silently ignored.
+  - All cases in the `matt/applications/*` directory have been switched from using live embedding to cached
+    embedding, which relies on committed distilled text and embedding fixtures to reduce costs and improve
+    determinism.
+  - The change does not make the entire application eval suite deterministic end-to-end, as the live agent
+    and judge components remain nondeterministic, which is an important limitation to consider when interpreting
+    results.
+  - The removal of the 'Eval metrics — compounding curve' panel was based on its reliance on static fixture
+    data instead of real evaluation runs, which undermined its utility as a live telemetry source.
+  - The deletion of the `GET /metrics` endpoint and related components indicates a shift away from using
+    mock data for evaluation metrics, emphasizing the need for real-time data integration in future implementations.
+  - The absence of the `VITE_PRAXIS_EVAL_METRICS_URL` configuration in the environment variables signifies
+    that the application no longer supports a metrics endpoint, which should be considered in future development
+    and documentation.
+  - The previously used mock fixture for evaluation metrics has been removed, which eliminates the possibility
+    of using placeholder data in the application, necessitating a focus on actual data sources moving
+    forward.
+  - Custom resolution for contradictions is now supported, allowing users to provide a unique fact that
+    resolves the dispute, which is essential for enhancing user engagement and flexibility in the review
+    process.
+  - The legend in the graph view has been repositioned to the bottom-left to avoid overlapping with critical
+    graph nodes, improving the overall user experience and clarity of the data presented.
+  - 'Contradiction compare-cards now utilize CSS properties like ''minmax(0, 1fr)'' and ''overflow-wrap:
+    anywhere'' to handle long provenance tokens, preventing horizontal overflow and ensuring better readability.'
+  - The dashboard view has been restructured to include Knowledge, Contradictions, and MCP Setup as top-level
+    categories, which improves the organization and accessibility of information.
+  - The Candidate Detail panel is now standardized across all Knowledge views, ensuring a consistent user
+    experience when interacting with candidate information.
+  - Graph cards are aligned to the top-center during zoom changes, which maintains visual consistency
+    and improves usability when navigating graphs.
+  - The FilterBar component now includes a knowledge view toggle, which allows users to switch between
+    different knowledge views, enhancing the dashboard's functionality.
+  - The GraphExplorer component has been simplified by removing unnecessary props related to candidate
+    detail management, which reduces complexity and improves maintainability.
+  - The naming of the FitGraphViewTopCenter function has been changed to AlignGraphViewTopCenter to better
+    reflect its purpose of aligning the graph view during zoom operations.
+  - Yoyo executes migration files in a context where the repository root is not on sys.path, necessitating
+    lazy imports to avoid ModuleNotFoundError.
+  - The connect function from knowledge.serve.db is only required in the local CLI main() function, allowing
+    for its lazy import to optimize migration execution.
+  - The decision to lower UMAP's n_neighbors from 15 to 10 was made to prevent heterogeneous corpora from
+    collapsing into a single mega-cluster, allowing for coherent topic segmentation instead.
+  - A regression guard was added to ensure that the clustering process yields more than two clusters and
+    that no single cluster contains more than half of the facts, which was necessary to validate the effectiveness
+    of the new n_neighbors setting.
+  - The convention of using a regression test with a frozen embedding matrix ensures that future changes
+    to the clustering logic do not reintroduce the previous under-segmentation issue.
+deterministic_checks:
+- name: lazy_knowledge_import
+  ref: knowledge.evals.deterministic_checks.text:regex_absent
+  params:
+    pattern: (?m)^(?:from|import)\s+knowledge\b
+- name: produced_output
+  ref: knowledge.evals.deterministic_checks.builds:output_nonempty
