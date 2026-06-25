@@ -171,20 +171,23 @@ The diff against `CommitIngestor` is the prompt and the class name. That is the 
 variants should be **near-identical**, with the `_SCHEMA` (and ideally the shared scaffolding of
 `synthesis`) factored into one module so a future schema change touches both at once.
 
-**Where the LLM call is made matters.** `synthesis` calls `Llm.complete`. To keep ce-compound's
-in-session experience (the agent already has the narrative in context), the distillation can run
-in-session and POST the resulting `Insight[]` to the candidate API as `proposed` candidates — rather
-than re-feeding the whole transcript to a backend ingestor. Either way the *destination* is the
-candidate lifecycle, and the markdown doc (if kept) is provenance, not the record.
+**Where the LLM call is made.** `synthesis` calls `Llm.complete`. The distillation runs **backend**:
+ce-compound POSTs the rendered narrative to a session-ingest endpoint that runs `SessionIngestor` and
+writes `proposed` candidates through the same `Ingestor.ingest` path as `CommitIngestor` — one
+extractor in one place, matching the deployed split where distillation + writes are already
+backend-side. (A client-side variant — distill in-session, POST the `Insight[]` — stays open as a
+later option if keeping the narrative warm proves worthwhile; see Key Decisions.) Either way the
+*destination* is the candidate lifecycle, and the markdown doc is provenance, not the record.
 
 ## How ce-compound changes
 
 Minimal, and opt-in per repo (a Praxis-configured project):
 
-- After ce-compound's Phase 1 extraction, run the session narrative through the `SessionIngestor`
-  distillation (in-session call) and write the resulting `Insight[]` as `proposed` candidates.
-- Keep writing the markdown doc **only** as human-readable provenance, or drop it — the graph fact is
-  the record. (In this repo only one such doc exists, so almost nothing is lost either way.)
+- After ce-compound's Phase 1 extraction, POST the rendered session narrative to the backend
+  session-ingest endpoint, which distills it via `SessionIngestor` and writes the resulting `Insight[]`
+  as `proposed` candidates.
+- Keep writing the markdown doc as human-readable provenance that links to its facts — the graph fact
+  is the record, the doc is a non-authoritative log.
 - The Discoverability Check that ce-compound runs against `CLAUDE.md` becomes "agents can reach Praxis
   via `praxis_get_context`," not "agents can grep `docs/solutions/`."
 
@@ -205,6 +208,20 @@ Minimal, and opt-in per repo (a Praxis-configured project):
   gap attributed to semantic-only retrieval (see the
   [auto-distill slice](2026-06-24-pr-knowledge-auto-distill-slice.md)). Until then, ce-compound writes
   to Praxis but agents should not yet *rely* on Praxis as their only recall path.
+- **Distill in the backend (revisit client-side later).** ce-compound POSTs the rendered narrative to a
+  backend session-ingest endpoint that runs `SessionIngestor` and writes `proposed` candidates through
+  the same `Ingestor.ingest` path as `CommitIngestor` — one extractor in one place, matching the
+  deployed split where distillation + writes are already backend-side. A client-side distillation
+  variant stays open as a later option if keeping the narrative warm proves worthwhile.
+- **Keep the markdown doc as provenance.** The graph fact is the record; ce-compound still writes the
+  human-readable doc as a non-authoritative log that links to its facts, keeping the artifact browsable
+  and `ce-compound-refresh` working. This is not the "two stores" risk — one record (graph) plus a
+  readable log, not two records of truth.
+- **Overlap with `CommitIngestor`: dedup, don't couple.** A session that ends in a merged PR is
+  distilled twice, and that is healthy: the sources aren't redundant (session = the journey + rejected
+  approaches; PR = the reviewed result + review threads), and near-duplicate insights merge to bump
+  `observation_count` (a confidence signal). Reject commit-trailer coupling between the triggers;
+  consider source-keyed idempotency only if measured LLM cost justifies it.
 
 ## Requirements
 
@@ -285,41 +302,24 @@ pairing is the confirming step.
 
 ## Open questions
 
-1. **Distill in-session or backend?** In-session keeps the narrative warm and avoids re-feeding the
-   transcript, but puts the `Llm.complete` call in the agent loop rather than the backend ingestor.
-   Decide before planning.
-2. **Does the markdown doc survive at all?** Keep as provenance (links from facts back to a readable
-   write-up) or drop entirely once the graph is the record?
-3. **Scope inference for session facts.** A debugging session names files in its narrative —
-   provenance — but where the lesson *applies* is a separate judgment (per the sibling proposal's
-   "provenance is not scope"). The write-side smoke test confirmed this is the distiller's **least
-   reliable output**: does the session prompt need extra guidance (e.g. "the files named are where the
-   lesson was *found*, not necessarily where it *applies*") to set `scope` well, or is scope better
-   left to a downstream pass?
-4. **Overlap with `CommitIngestor` coverage** — *provisionally resolved: default to dedup, do not
-   couple the sources.* A session that ends in a merged PR will be distilled twice (session-end and
-   post-merge). The instinct to suppress one trigger (e.g. a `Praxis-Ingested: session/<id>` commit
-   trailer the PR ingestor parses and skips) is rejected:
-   - **The sources aren't redundant.** The session sees the *journey* (dead ends, the `rejected`-category
-     knowledge that never reaches the final diff); the merged PR sees the *reviewed result* — notably
-     the review threads, which the [sibling proposal](2026-06-24-ingest-commits-and-prs.md) flags as the
-     highest-signal source and which the session never saw. Skipping the PR loses the review-thread
-     knowledge.
-   - **Double-distillation is a confidence signal, not waste.** Near-duplicate insights merge and bump
-     `observation_count` (which exists to raise confidence on repeated independent observation). A
-     fact surfaced by both a session and a PR review is *more* trustworthy; a skip mechanism suppresses
-     that.
-   - **The units don't align.** Session ≠ commit ≠ PR (a session spans commits; a PR bundles commits
-     from several sessions; session knowledge can land across PRs), so a commit-level marker can't
-     cleanly gate PR-level distillation — and editing the trailer post-hoc fights git timing
-     (ce-compound runs after the commit; the PR isn't known until later).
+The distill-locus, doc-survival, and double-distill forks were resolved into Key Decisions (backend
+distillation; keep the doc as provenance; dedup rather than couple the triggers). What remains:
 
-   The cost of the extra LLM call is the only legitimate concern. If measured cost justifies it, the
-   right lever is **source-keyed idempotency in the ingestor** (skip a unit whose `source` was already
-   ingested) — but note `session/<id>` ≠ `git/pr:<n>`, so that only dedups re-runs of the *same* unit,
-   not across session↔PR. Cross-source, dedup the *outputs* (the graph already does), don't couple the
-   triggers.
-5. **Filtering in-flight experiment state.** The write-side smoke test recovered facts describing an
-   experiment's *current state* ("the dogfood suite dropped phoenix"), not durable code knowledge.
-   Should the prompt actively suppress these, should they be a distinct low-confidence category, or is
-   the human gate the right place to drop them?
+**Resolve before planning**
+
+- None outstanding. The blocking forks were resolved this pass — see Key Decisions.
+
+**Deferred to planning**
+
+1. **Scope inference for session facts.** *Approach decided:* add prompt guidance ("the files a session
+   names are where the lesson was *found*, not necessarily where it *applies*") and let the human gate
+   correct scope at review. The write-side smoke test flagged scope as the distiller's least reliable
+   output. Deferred: the exact prompt wording, and whether the real model's scope error rate justifies a
+   dedicated scope-inference pass (don't build one speculatively).
+2. **Filtering in-flight experiment state.** *Approach decided:* prompt guidance to prefer durable
+   code/architecture knowledge over an in-flight experiment's current state, with the human gate as
+   backstop and the supersession/decay model aging out stale experiment facts. Deferred pending gate
+   results: whether a distinct low-confidence category is still needed.
+3. **Backend session-ingest endpoint.** Does a path to create `proposed` candidates from a rendered
+   narrative already exist, or is it new backend surface (it follows from the backend-distill decision)?
+   Resolve during planning research.
