@@ -46,11 +46,14 @@ class Ingestor(ABC):
         """
         insights = self.synthesis(raw_input, source=source)
         for insight in insights:
-            # Only thread ``source`` through when provided: not every graph
-            # implementation (in-memory/test doubles) accepts the kwarg — only the
-            # persistent store carries fact provenance.
+            # Only thread optional kwargs through when they carry signal: not every
+            # graph implementation (in-memory/test doubles) accepts them. ``source``
+            # is the persistent store's fact provenance; ``tabular`` flags a
+            # table-derived write so the deduper's slot-guard engages downstream.
+            kwargs: dict = {"state": state}
             if source is not None:
-                self.graph.write(insight.raw_text, state=state, source=source)
-            else:
-                self.graph.write(insight.raw_text, state=state)
+                kwargs["source"] = source
+            if insight.tabular:
+                kwargs["tabular"] = True
+            self.graph.write(insight.raw_text, **kwargs)
         return self.graph.read()

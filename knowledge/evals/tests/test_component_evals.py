@@ -78,6 +78,8 @@ def test_run_case_routes_component_and_ignores_runner():
         "kg_roundtrip",
         "ingestion_passthrough",
         "reader_retrieval",
+        "tabular_ingestion/linearize_field_table_offline",
+        "tabular_ingestion/linearize_role_permission_table_offline",
     ],
 )
 def test_registered_component_cases_pass(case_id):

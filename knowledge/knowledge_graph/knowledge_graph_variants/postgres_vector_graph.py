@@ -31,6 +31,7 @@ from knowledge.knowledge_graph.write_policy.write_policy_def import (
     demote_active_contradiction,
 )
 from knowledge.knowledge_graph.write_policy.write_step_variants import (
+    TABULAR_FLAG,
     AugmentJudge,
     Augmenter,
     ClaimConflictDetector,
@@ -109,16 +110,20 @@ def default_write_policy(llm: Llm | None = None) -> list[WriteStep]:
     (subject, attribute, value) claims and ``ClaimConflictDetector`` flags
     same-functional-slot value clashes. Mirrors ``VectorGraph``'s default; the
     forced-overwrite add path injects a ``ConflictOverwriter`` policy instead.
+    ``ClaimExtractor`` runs before ``Deduper`` so the deduper's tabular slot-guard
+    can read ``decision.claims``.
     """
     base = llm or OpenRouterLlm()
     return [
         Redactor(),
+        # ClaimExtractor runs before Deduper so the deduper's tabular slot-guard can
+        # read decision.claims.
+        ClaimExtractor(judge=ClaimExtractionJudge(llm=base)),
         Deduper(),
         # Mem0-style UPDATE/merge: fold a related-but-additive note into an existing
         # fact. Runs after Deduper (dups already collapsed) and before the conflict
         # detector (a genuine clash is still flagged, not silently merged).
         Augmenter(judge=AugmentJudge(llm=base)),
-        ClaimExtractor(judge=ClaimExtractionJudge(llm=base)),
         ClaimConflictDetector(judge=ClaimValueJudge(llm=base)),
         # Second-pass semantic fallback (Graphiti two-stage): catches paraphrase
         # contradictions among cosine-recalled neighbours that share no slot.
@@ -282,6 +287,7 @@ class PostgresVectorGraph(SearchableGraph):
         scope: str | None = None,
         category: str | None = None,
         meta: dict | None = None,
+        tabular: bool = False,
     ) -> str | None:
         """Run the write-policy pipeline over ``content``, then persist.
 
@@ -305,6 +311,8 @@ class PostgresVectorGraph(SearchableGraph):
         if not content:
             return None
         decision = WriteDecision(text=content, state="active" if state == "active" else "proposed")
+        if tabular:
+            decision.flags.append(TABULAR_FLAG)
         # Stash the persistence attributes on the decision so _add/_overwrite
         # (which read them off the decision via getattr) write them through.
         decision.source = source

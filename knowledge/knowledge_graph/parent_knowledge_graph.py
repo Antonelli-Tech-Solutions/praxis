@@ -26,7 +26,9 @@ class KnowledgeGraph(ABC):
         """
 
     @abstractmethod
-    def write(self, content: str, *, state: str = "proposed") -> None:
+    def write(
+        self, content: str, *, state: str = "proposed", tabular: bool = False
+    ) -> None:
         """Persist ``content`` into the store.
 
         Semantics are integrate/append, not replace: the ingestor calls this
@@ -37,4 +39,8 @@ class KnowledgeGraph(ABC):
         caller is enacting a direct user approval, "proposed" (the default) when
         the system is adding knowledge passively. A variant that doesn't track
         state may ignore it.
+
+        ``tabular`` marks a write distilled from detected tabular/templated input;
+        policy-running variants flag it so the deduper's slot-guard engages. A
+        variant without a write policy may ignore it.
         """
