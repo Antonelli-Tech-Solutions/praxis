@@ -6,6 +6,19 @@ Plan alignment: [PRAXIS_Project_Plan.html](../plans/PRAXIS_Project_Plan.html) na
 
 Team timing constraint: Monica's demo segment is capped at about **2 minutes** so Matthew can present the ML/Knowledge Pipeline pillar and Dominic can present the Architecture/Eval/Integration pillar.
 
+## Capstone Story Alignment
+
+Dominic's original demo arc is: **Dumb Agent -> PRAXIS learns from the run -> Smart Agent**. Monica's segment should support that story as the trust checkpoint in the middle, not replace Matthew's pipeline explanation or Dominic's measured proof.
+
+| Team beat | Owner | Monica support |
+|---|---|---|
+| Dumb Agent baseline | Dominic | Do not spend Monica time proving the baseline; reference that the dashboard starts after raw run evidence has produced candidates. |
+| Candidate creation and knowledge substrate | Matthew | Show candidate evidence, confidence, and provenance as the review surface for Matthew's pipeline output. |
+| Human gate | Monica | Demonstrate that proposed lessons become usable knowledge only through transparent human approval and contradiction resolution. |
+| Smart Agent / compounding proof | Dominic | Hand off cleanly to eval results showing whether approved knowledge reduces corrections on future runs. |
+
+Use current repository lifecycle language in Monica's segment: `proposed -> active` and `rejected`. The project plan's older `proposed -> suggested -> active` wording represents the same human-gate intent, but the current code and demo docs should use the implemented states.
+
 ## Current Repo State
 
 Evidence checked from the current repository:
@@ -43,11 +56,11 @@ Target duration: 1:45-2:00.
 
 | Time | Beat | Screen/action | Say |
 |---|---|---|---|
-| 0:00-0:15 | Role setup | Dashboard open; confirm data source | "My pillar is the Dashboard and Human Gate: the review surface where distilled candidate lessons become auditable, human-approved knowledge." |
-| 0:15-0:40 | Provenance and confidence | Select `cand_1`; show detail, provenance, confidence breakdown | "The dashboard does not ask reviewers to trust an opaque score. Each candidate shows source evidence, confidence, and an audit trail before promotion." |
+| 0:00-0:15 | Role setup | Dashboard open; confirm data source | "Dominic's demo arc is dumb agent to smart agent. My pillar is the trust checkpoint in the middle: the Dashboard and Human Gate where distilled candidate lessons become auditable, human-approved knowledge." |
+| 0:15-0:40 | Provenance and confidence | Select `cand_1`; show detail, provenance, confidence breakdown | "This is Matthew's pipeline output at the review boundary. The dashboard does not ask reviewers to trust an opaque score; it shows source evidence, confidence, and an audit trail before promotion." |
 | 0:40-1:10 | Human promotion | Promote `cand_1` from `proposed` to `active` | "The key control is explicit human approval. A candidate moves from proposed to active only after a reviewer confirms it." |
 | 1:10-1:35 | Contradiction handling | Open `cand_9` / `cand_16`; keep the stronger candidate | "When lessons conflict, the UI makes the contradiction visible and forces a human decision instead of silently compounding bad memory." |
-| 1:35-1:55 | Team handoff | Point to graph/eval/data-source area | "My dashboard is the gate. Matthew owns the pipeline that creates and stores these candidates, and Dominic owns the eval and integration proof that promoted knowledge improves future runs." |
+| 1:35-1:55 | Team handoff | Point to graph/eval/data-source area | "My dashboard is the gate. Matthew owns the pipeline that creates and stores these candidates, and Dominic owns the dumb-agent versus smart-agent eval proof that promoted knowledge improves future runs." |
 | 1:55-2:00 | Handoff | Stop sharing or pass narration | "I am handing off to the pipeline and eval pillars." |
 
 ## Rehearsal Checklist
