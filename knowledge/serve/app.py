@@ -45,6 +45,9 @@ from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 from knowledge.knowledge_graph.knowledge_graph_variants.org_source_reader import (  # noqa: E402
     OrgSourceReader,
 )
+from knowledge.knowledge_graph.knowledge_graph_variants.overlay_graph import (  # noqa: E402
+    OverlayGraph,
+)
 from knowledge.knowledge_graph.knowledge_graph_variants.postgres_vector_graph import (  # noqa: E402
     PostgresVectorGraph,
     default_write_policy,
@@ -66,6 +69,7 @@ from knowledge.serve.facts_candidates import (  # noqa: E402
     FactsCandidates,
     PromotionError,
 )
+from knowledge.serve.mounted_store import MountedStore  # noqa: E402
 from knowledge.serve.orgs_store import OrgsStore  # noqa: E402
 from knowledge.serve.regenerate import (  # noqa: E402
     PipelineConfig,
@@ -101,6 +105,7 @@ def create_app(conn: Any | None = None) -> FastAPI:
     # idempotent, so no need to call it again here.
     conn = conn if conn is not None else db.connect()
     orgs_store = OrgsStore(conn)
+    mounted_store = MountedStore(conn)
     # Bind the auth dependency to this connection so it can also resolve API keys
     # (X-Praxis-Key) in addition to the Cognito Bearer JWT / dev seam.
     current_user = make_current_user(conn)
@@ -490,7 +495,73 @@ def create_app(conn: Any | None = None) -> FastAPI:
         org: str = Depends(active_org),
     ) -> dict[str, Any]:
         live_graph(org, principal.sub).delete_cache(f"snapshot:{name}")
+        # Drop any mounts the owner had of this snapshot (it no longer exists).
+        mounted_store.unmount(org, principal.sub, principal.sub, name)
         return {"deleted": name}
+
+    # --- mounted snapshots (read-only overlay selection) -------------------
+    def _validate_mount_target(org: str, source_user: str, name: str) -> None:
+        """Ensure ``source_user`` is an org member and the snapshot exists."""
+        if not orgs_store.is_member(org, source_user):
+            raise HTTPException(
+                status_code=404, detail=f"{source_user!r} is not a member of org {org!r}"
+            )
+        if live_graph(org, source_user).cache_count(f"snapshot:{name}") == 0:
+            raise HTTPException(status_code=404, detail=f"unknown snapshot {name!r}")
+
+    @app.get("/mounts")
+    def list_mounts(
+        principal: Principal = Depends(current_user),
+        org: str = Depends(active_org),
+    ) -> dict[str, Any]:
+        """List the caller's mounted snapshots (read-only retrieval overlays).
+
+        Each mount adds a snapshot's facts to what retrieval reads, without
+        merging them into the live graph and without being carried over on save.
+        """
+        mounts = mounted_store.list(org, principal.sub)
+        return {
+            "mounts": [
+                {
+                    "sourceUser": m["source_user_id"],
+                    "snapshot": m["snapshot_name"],
+                    "isSelf": m["source_user_id"] == principal.sub,
+                    "count": live_graph(org, m["source_user_id"]).cache_count(
+                        f"snapshot:{m['snapshot_name']}"
+                    ),
+                }
+                for m in mounts
+            ]
+        }
+
+    @app.post("/mounts")
+    def add_mount(
+        body: dict[str, Any] = Body(default={}),
+        principal: Principal = Depends(current_user),
+        org: str = Depends(active_org),
+    ) -> dict[str, Any]:
+        """Mount a snapshot (your own or an org member's) as a read overlay."""
+        source_user = str(body.get("sourceUser") or principal.sub).strip()
+        name = str(body.get("snapshot") or "").strip()
+        if not name:
+            raise HTTPException(status_code=400, detail="snapshot required")
+        _validate_mount_target(org, source_user, name)
+        mounted_store.mount(org, principal.sub, source_user, name)
+        return {"sourceUser": source_user, "snapshot": name, "mounted": True}
+
+    @app.delete("/mounts")
+    def remove_mount(
+        body: dict[str, Any] = Body(default={}),
+        principal: Principal = Depends(current_user),
+        org: str = Depends(active_org),
+    ) -> dict[str, Any]:
+        """Unmount a snapshot (no-op if it was not mounted)."""
+        source_user = str(body.get("sourceUser") or principal.sub).strip()
+        name = str(body.get("snapshot") or "").strip()
+        if not name:
+            raise HTTPException(status_code=400, detail="snapshot required")
+        mounted_store.unmount(org, principal.sub, source_user, name)
+        return {"sourceUser": source_user, "snapshot": name, "mounted": False}
 
     # --- skill sharing: browse another member's facts + fold them in -------
     def _fact_brief(fact: Any) -> dict[str, Any]:
@@ -971,8 +1042,15 @@ def create_app(conn: Any | None = None) -> FastAPI:
         principal: Principal = Depends(current_user),
         org: str = Depends(active_org),
     ) -> dict[str, Any]:
-        """Return active-fact context relevant to ``query`` (the eval read path)."""
-        graph = live_graph(org, principal.sub)
+        """Return active-fact context relevant to ``query`` (the eval read path).
+
+        If the caller has mounted snapshots (read-only overlays), retrieval unions
+        the live graph with those snapshots; overlay hits are flagged ``mounted``
+        with their ``owner``/``snapshot``. Mounts never affect writes or saves.
+        """
+        live = live_graph(org, principal.sub)
+        mounts = mounted_store.list(org, principal.sub)
+        graph = OverlayGraph(live, mounts) if mounts else live
         _, _, reader = build_trio(graph=graph, llm=None)
         hits = graph.search(query, top_k=top_k) if query.strip() else []
         return {
@@ -985,6 +1063,9 @@ def create_app(conn: Any | None = None) -> FastAPI:
                     "source": getattr(h.fact, "source", None),
                     "scope": getattr(h.fact, "scope", None),
                     "category": getattr(h.fact, "category", None),
+                    "mounted": bool((h.fact.meta or {}).get("mountedFrom")),
+                    "owner": (h.fact.meta or {}).get("mountedFrom", {}).get("userId"),
+                    "snapshot": (h.fact.meta or {}).get("mountedFrom", {}).get("snapshot"),
                 }
                 for h in hits
             ],

@@ -1,0 +1,45 @@
+# Component eval: ingestion only (no agent, no models, no embedder) — the OFFLINE
+# arm for the SECOND PRD table shape: same subject, attribute varies (a
+# role x permission table where every row is about "coach"). This is the shape a
+# subject-only guard would miss; here it exercises the linearizer's offline path
+# (loss point A), proving each permission row survives as its own clean fact rather
+# than collapsing or carrying table syntax.
+#
+# RED on current code (the `segment_passthrough` path keeps pipes + separator);
+# GREEN once loss point A merges. Phrasing-independent: asserts the distinguishing
+# permission of each row survives and that no table artifacts remain.
+#
+# NOTE: the offline path does not run the MergeJudge (no model), so this case does
+# NOT prove the slot-guard stops semantic over-merge — that requires a real embedder
+# + merge cassette and lives in the model-dependent cases described in this folder's
+# README (record after loss point B lands).
+id: linearize_role_permission_table_offline
+component: ingestion
+
+seeded_insight:
+  via_ingestor:
+    - |
+      | Role | Permission |
+      | --- | --- |
+      | coach | edit themes |
+      | coach | edit prompts |
+      | coach | manage roster |
+
+deterministic_checks:
+  - name: no_table_pipes
+    ref: "knowledge.evals.deterministic_checks.text:regex_absent"
+    params:
+      pattern: '\|'
+  - name: no_separator_row
+    ref: "knowledge.evals.deterministic_checks.text:regex_absent"
+    params:
+      pattern: '-{3,}'
+  # Each row's distinguishing permission must survive as a distinct fact — proves no
+  # same-subject row was dropped or folded into a single "coach permissions" fact.
+  - name: all_permissions_present
+    ref: "knowledge.evals.deterministic_checks.text:requires_all_substrings"
+    params:
+      texts:
+        - "edit themes"
+        - "edit prompts"
+        - "manage roster"

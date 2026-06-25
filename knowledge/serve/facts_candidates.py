@@ -17,6 +17,8 @@ translation.
 
 from __future__ import annotations
 
+import os
+import re
 from datetime import datetime, timezone
 from typing import Any
 
@@ -35,6 +37,41 @@ Candidate = dict[str, Any]
 _NEXT_STATE = {"proposed": "active"}
 
 
+# Opt-in auto-resolution (Mem0-style): when enabled, a freshly-detected
+# contradiction whose underlying slot clash is *high confidence* (a deterministic
+# numeric or stance clash — the same signal ClaimConflictDetector resolves without
+# an LLM) is auto-resolved via the existing supersede path (newest fact wins, loser
+# rejected, edge flipped to contradicted_by) instead of being left PENDING for a
+# human. Low-confidence (gray-zone judge) contradictions always stay pending. Off
+# by default so existing behavior/tests are unchanged.
+_AUTO_RESOLVE_ENV = "PRAXIS_AUTO_RESOLVE_CONTRADICTIONS"
+
+_NUM_RE = re.compile(r"-?\d+(?:\.\d+)?")
+
+
+def auto_resolve_enabled() -> bool:
+    """True iff the opt-in auto-resolution flag is set (default off)."""
+    return os.getenv(_AUTO_RESOLVE_ENV, "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _deterministic_clash(attribute: str, a: str, b: str) -> bool:
+    """High-confidence clash test mirroring ClaimConflictDetector._incompatible.
+
+    A stance attribute with two different poles, or two values that both carry
+    numbers and disagree, is a deterministic (no-LLM) contradiction — i.e. high
+    confidence. Everything else (free-text / synonym gray zone) is NOT, so it stays
+    pending for manual review.
+    """
+    an = " ".join(a.lower().split())
+    bn = " ".join(b.lower().split())
+    if an == bn:
+        return False
+    if attribute.strip().lower() == "stance":
+        return True
+    na, nb = _NUM_RE.findall(a), _NUM_RE.findall(b)
+    return bool(na and nb and na != nb)
+
+
 class PromotionError(ValueError):
     """Raised when a candidate can't be promoted from its current state."""
 
@@ -49,6 +86,20 @@ class DeletionError(ValueError):
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _invalidate(graph: Any, loser_id: str, winner_id: str | None = None) -> None:
+    """Close a superseded fact's bi-temporal validity window (additive helper).
+
+    Delegates to ``graph.invalidate`` (set ``invalid_at`` to the winner's
+    ``valid_at``, falling back to ``now()``) on top of the existing ``rejected``
+    state. Guarded with ``hasattr`` so a graph facade lacking the method (e.g. an
+    overlay wrapper) degrades to the prior state-only behavior rather than
+    failing — invalidation is purely additive.
+    """
+    invalidate = getattr(graph, "invalidate", None)
+    if callable(invalidate):
+        invalidate(loser_id, winner_id)
 
 
 def _audit_entry(
@@ -170,6 +221,11 @@ class FactsCandidates:
         )
         if fid is None:
             raise ValueError("failed to create candidate")
+        # Opt-in: auto-resolve any high-confidence contradiction this add tripped
+        # (deterministic numeric/stance clash) so it never lands pending. Low-
+        # confidence (gray-zone) contradictions are left for manual review.
+        if auto_resolve_enabled():
+            self.auto_resolve_high_confidence(prefer_id=fid)
         candidate = self.get(fid)
         if candidate is None:
             raise ValueError(f"candidate {fid} not found after create")
@@ -208,6 +264,9 @@ class FactsCandidates:
             if rival is None or rival.state != "active":
                 continue
             self.graph.set_state(rival_id, "rejected")
+            # Bi-temporal invalidation (additive): the re-approved fact wins, so
+            # close each demoted rival's validity window at the winner's valid_at.
+            _invalidate(self.graph, rival_id, cid)
             self.graph.flip_edge_kind(
                 cid, rival_id, from_kind="contradiction", to_kind="contradicted_by"
             )
@@ -333,6 +392,48 @@ class FactsCandidates:
         slot_info = self._slot_info_multi(member_ids)
         return serialize_clusters(candidates, slot_info, status_filter="pending")
 
+    def auto_resolve_high_confidence(self, *, prefer_id: str | None = None) -> list[str]:
+        """Auto-resolve pending contradictions that are high-confidence clashes.
+
+        Opt-in (caller gates on :func:`auto_resolve_enabled`). For every pending
+        contradiction whose two facts share a functional slot with a *deterministic*
+        clash (numeric/stance — the same high-confidence signal the structural
+        detector resolves without an LLM), settle it through the existing
+        :meth:`resolve` supersede path: the winner stays active, the loser is
+        rejected, and the edge is flipped to ``contradicted_by`` (reversible).
+
+        The winner is ``prefer_id`` when it is one of the pair (a fresh add wins
+        over the stale fact it contradicts, FR-005-style "newest approved truth");
+        otherwise the newer fact (``all_facts`` is newest-first). Gray-zone
+        (free-text) contradictions are left pending. Returns the resolved pair ids.
+        """
+        facts = self.graph.all_facts()  # newest-first
+        order = {f.id: i for i, f in enumerate(facts)}  # lower index == newer
+        slot_info = self._slot_info_multi(list(order))
+        candidates = self.list()
+        resolved: list[str] = []
+        for pair in serialize_pairs(candidates, status_filter="pending"):
+            a, b = pair["a"]["id"], pair["b"]["id"]
+            shared = {s for s, _ in slot_info.get(a, [])} & {
+                s for s, _ in slot_info.get(b, [])
+            }
+            val_a = dict(slot_info.get(a, []))
+            val_b = dict(slot_info.get(b, []))
+            high = any(
+                _deterministic_clash(slot[1], val_a[slot], val_b[slot])
+                for slot in shared
+                if slot in val_a and slot in val_b
+            )
+            if not high:
+                continue  # gray-zone -> leave pending for manual review
+            if prefer_id in (a, b):
+                keep = prefer_id
+            else:
+                keep = a if order.get(a, 1 << 30) <= order.get(b, 1 << 30) else b
+            self.resolve(pair["id"], keep)
+            resolved.append(pair["id"])
+        return resolved
+
     def resolve(self, pair_id: str, keep_id: str) -> Candidate:
         a, _, b = pair_id.partition("__")
         loser_id = b if keep_id == a else a
@@ -348,6 +449,10 @@ class FactsCandidates:
         self._append_audit(kept, "kept_over_contradiction", note=f"superseded {loser_id}")
         if loser is not None:
             self.graph.set_state(loser_id, "rejected")
+            # Bi-temporal invalidation (additive to the rejected state): close the
+            # loser's validity window at the winner's valid_at so it drops out of
+            # default recall but remains for point-in-time `as_of` queries.
+            _invalidate(self.graph, loser_id, keep_id)
             self.graph.flip_edge_kind(
                 keep_id, loser_id, from_kind="contradiction", to_kind="contradicted_by"
             )
@@ -416,8 +521,12 @@ class FactsCandidates:
         if new_id is None:
             raise ValueError("failed to create custom resolution candidate")
         # Link the new fact to each superseded fact (directional: new supersedes old).
+        # Bi-temporal invalidation (additive): close each superseded member's
+        # validity window at the new fact's valid_at, keeping the rows for
+        # point-in-time recall.
         for fid in present:
             self.graph.add_edge(new_id, fid, "supersedes")
+            _invalidate(self.graph, fid, new_id)
         candidate = self.get(new_id)
         assert candidate is not None
         return candidate

@@ -24,3 +24,6 @@ class Insight(BaseModel):
     scope: str | None = None  # service / directory / "global"; supplied by the runner
     category: str | None = None  # e.g. error_fix | constraint | pattern | api_behavior
     observation_count: int = 1  # times this insight has been seen
+    tabular: bool = False  # distilled from detected tabular/templated input; signals
+    # the write path to flag the write so the deduper's slot-guard engages (sibling
+    # rows of a table must not be silently merged — loss point B).

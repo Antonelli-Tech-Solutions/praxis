@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import re
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -143,14 +144,78 @@ def candidates_from_graph(graph: VectorGraph) -> list[dict[str, Any]]:
     return out
 
 
-def ingest_insights(graph: VectorGraph, insights: list[Insight]) -> None:
-    """Write distilled insights through the vector graph policy pipeline."""
+@dataclass
+class IngestReport:
+    """Inline rows-in vs facts-out reconciliation for one ingest call (§3a).
+
+    Every submitted insight lands in exactly one bucket, so the accounting
+    invariant always holds::
+
+        facts_active + len(merged_into_existing) + rejected == rows_submitted
+
+    - ``facts_active`` — submitted rows that produced a *new* stored fact (action
+      ``add``/``overwrite``). Named "active" for the report contract; the fact's own
+      lifecycle state is whatever ``write`` seeded (``proposed`` by default).
+    - ``merged_into_existing`` — the ``update_target_id`` of each row the deduper
+      folded into an existing fact (action ``update``). This is where silently-
+      dropped sibling rows would show up as a too-short ``facts_active`` count, so
+      the caller can audit which incumbents absorbed incoming rows.
+    - ``rejected`` — rows the pipeline dropped (``decision.dropped``) or that yielded
+      no fact at all (empty text → ``write`` returns ``None``). These are the
+      "audit the rejected pile" rows the candidate surface (``/candidates?state=
+      rejected``) lets a reviewer inspect.
+    """
+
+    rows_submitted: int = 0
+    facts_active: int = 0
+    merged_into_existing: list[str] = field(default_factory=list)
+    rejected: int = 0
+
+    @property
+    def accounted_for(self) -> bool:
+        """The completeness invariant: every submitted row landed in a bucket."""
+        return (
+            self.facts_active + len(self.merged_into_existing) + self.rejected
+            == self.rows_submitted
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        """The wire shape surfaced in the ingest HTTP response (§3a)."""
+        return {
+            "rows_submitted": self.rows_submitted,
+            "facts_active": self.facts_active,
+            "merged_into_existing": list(self.merged_into_existing),
+            "rejected": self.rejected,
+        }
+
+
+def ingest_insights(graph: VectorGraph, insights: list[Insight]) -> IngestReport:
+    """Write distilled insights through the vector graph policy pipeline.
+
+    Returns an :class:`IngestReport` reconciling rows-in vs facts-out so a caller
+    can verify ingestion didn't silently drop rows. Each write's enacted
+    ``WriteDecision`` tells us the per-row outcome (a new fact, a merge into an
+    existing one, or a drop) without diffing ``facts`` before/after.
+    """
+    report = IngestReport(rows_submitted=len(insights))
     for insight in insights:
-        before = len(graph.facts)
-        graph.write(insight.raw_text)
-        if len(graph.facts) <= before:
+        decision = graph.write(insight.raw_text)
+        # Empty/whitespace text writes nothing (``write`` returns None); a step may
+        # also have suppressed the write entirely — both are rejected/dropped rows.
+        if decision is None or decision.dropped:
+            report.rejected += 1
             continue
-        fact = graph.facts[-1]
+        # A merge bumped an existing fact in place: record which incumbent absorbed
+        # this row. No new fact was created, so there's nothing to post-process.
+        if decision.action == "update" and decision.update_target_id:
+            report.merged_into_existing.append(decision.update_target_id)
+            continue
+        # A fresh fact was appended (add / overwrite): stamp the insight's metadata
+        # onto it via the id the store recorded on the decision.
+        report.facts_active += 1
+        fact = _fact_by_id(graph, decision.added_fact_id)
+        if fact is None:
+            continue
         if insight.source is not None:
             fact.source = insight.source
         fact.confidence = insight.confidence
@@ -159,6 +224,16 @@ def ingest_insights(graph: VectorGraph, insights: list[Insight]) -> None:
         if insight.category is not None:
             fact.category = insight.category
         fact.observation_count = insight.observation_count
+    return report
+
+
+def _fact_by_id(graph: VectorGraph, fact_id: str | None) -> Fact | None:
+    if fact_id is None:
+        return None
+    for fact in graph.facts:
+        if fact.id == fact_id:
+            return fact
+    return None
 
 
 def load_insights(path: Path = DEFAULT_INSIGHTS) -> list[Insight]:

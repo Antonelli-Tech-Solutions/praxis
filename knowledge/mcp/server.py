@@ -90,7 +90,9 @@ def praxis_get_context(query: str, top_k: int = 8) -> str:
 
     Returns a human summary plus a structured JSON block with ``context`` and
     per-hit ``hits`` (each with ``id``/``text``/``score``/``source``/``scope``/
-    ``category``) so callers can consume provenance without regex-parsing.
+    ``category``) so callers can consume provenance without regex-parsing. If you
+    have mounted snapshots (``praxis_mount_snapshot``), their facts are included
+    too and flagged with ``mounted``/``owner``/``snapshot`` on the hit.
     """
     if (hint := _not_ready()) is not None:
         return hint
@@ -659,6 +661,90 @@ def praxis_fold_in(
         f"{payload.get('deduped', 0)}, flagged {len(conflicts)} conflict(s) ({mode}).",
         payload,
     )
+
+
+@mcp.tool()
+def praxis_list_mounts() -> str:
+    """List your mounted snapshots — read-only overlays added to retrieval.
+
+    A mounted snapshot's facts are included when you read (``praxis_get_context``)
+    but are NOT merged into your live graph and are NOT carried over when you save
+    a snapshot. Mounts can be your own snapshots or any org member's.
+    """
+    if (hint := _not_ready()) is not None:
+        return hint
+    try:
+        resp = httpx.get(f"{identity.api_base()}/mounts", headers=_headers())
+        resp.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        return _friendly(exc)
+    mounts = resp.json().get("mounts", [])
+    if not mounts:
+        return "No snapshots are mounted."
+    lines = [f"{len(mounts)} mounted snapshot(s):"]
+    for m in mounts:
+        who = "you" if m.get("isSelf") else m.get("sourceUser")
+        lines.append(f"  {m.get('snapshot')} (from {who}) — {m.get('count')} node(s)")
+    return "\n".join(lines)
+
+
+@mcp.tool()
+def praxis_mount_snapshot(snapshot: str, source_user: str | None = None) -> str:
+    """Mount a snapshot as a read-only overlay (adds it to what reads recall).
+
+    Once mounted, ``praxis_get_context`` also recalls this snapshot's facts —
+    without merging them into your live graph and without them being carried over
+    on a save. ``source_user`` defaults to you (mount your own snapshot); pass an
+    org member's id (from ``praxis_list_org_sources``) to mount theirs. Idempotent.
+    """
+    if (hint := _not_ready()) is not None:
+        return hint
+    if not snapshot.strip():
+        return "Pass a snapshot name."
+    body: dict[str, object] = {"snapshot": snapshot.strip()}
+    if source_user is not None:
+        body["sourceUser"] = source_user
+    try:
+        resp = httpx.post(
+            f"{identity.api_base()}/mounts", json=body, headers=_headers()
+        )
+        resp.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code == 404:
+            return (
+                "Unknown member or snapshot — check praxis_list_org_sources / "
+                "praxis_list_snapshots."
+            )
+        return _friendly(exc)
+    m = resp.json()
+    return f"Mounted snapshot {m.get('snapshot')!r} from {m.get('sourceUser')} for reads."
+
+
+@mcp.tool()
+def praxis_unmount_snapshot(snapshot: str, source_user: str | None = None) -> str:
+    """Unmount a read-only snapshot overlay (stops including it in reads).
+
+    ``source_user`` defaults to you. No-op if it was not mounted.
+    """
+    if (hint := _not_ready()) is not None:
+        return hint
+    if not snapshot.strip():
+        return "Pass a snapshot name."
+    body: dict[str, object] = {"snapshot": snapshot.strip()}
+    if source_user is not None:
+        body["sourceUser"] = source_user
+    try:
+        resp = httpx.request(
+            "DELETE",
+            f"{identity.api_base()}/mounts",
+            json=body,
+            headers=_headers(),
+        )
+        resp.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        return _friendly(exc)
+    m = resp.json()
+    return f"Unmounted snapshot {m.get('snapshot')!r} from {m.get('sourceUser')}."
 
 
 @mcp.tool()

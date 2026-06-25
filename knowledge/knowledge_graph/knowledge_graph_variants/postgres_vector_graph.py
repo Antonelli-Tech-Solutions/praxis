@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import uuid
+from datetime import datetime, timezone
 
 import psycopg
 from pgvector import Vector
@@ -30,12 +31,18 @@ from knowledge.knowledge_graph.write_policy.write_policy_def import (
     demote_active_contradiction,
 )
 from knowledge.knowledge_graph.write_policy.write_step_variants import (
+    TABULAR_FLAG,
+    AugmentJudge,
+    Augmenter,
     ClaimConflictDetector,
     ClaimExtractionJudge,
     ClaimExtractor,
     ClaimValueJudge,
     Deduper,
     Redactor,
+    SemanticConflictDetector,
+    SemanticConflictJudge,
+    TemporalSupersessionDetector,
 )
 from knowledge.llm.embedder_variants.openrouter_embedder import OpenRouterEmbedder
 from knowledge.llm.llm_variants.openrouter_llm import OpenRouterLlm
@@ -52,6 +59,29 @@ _EMBED_DIM = 1536
 # stays bounded. ~4 chars/token, so this is a few thousand tokens.
 _READ_CHAR_BUDGET = 8000
 
+# Reciprocal Rank Fusion constant (Graphiti/Zep use ~60). Larger k flattens the
+# weight of top ranks, blending the two branches more gently; 60 is the standard.
+_RRF_K = 60
+
+# How deep each branch fetches before fusion. Pulling more than top_k from each
+# side lets a fact that is, say, #4 in cosine but #1 in BM25 still win after RRF.
+_FUSION_BRANCH_N = 20
+
+# Semantic-dominant fusion. The keyword (BM25) branch is down-weighted in RRF so it
+# can RESCUE/nudge a fact (e.g. one carrying a rare identifier) but cannot DEMOTE a
+# strong semantic top hit below a keyword-only match on an incidental shared word.
+# The audit showed equal-weight fusion let an off-topic doc sharing one ordinary
+# token (e.g. "expense"/"team") displace the correct semantic #1 — this guards that.
+_RRF_SEMANTIC_WEIGHT = 1.0
+_RRF_KEYWORD_WEIGHT = 0.25
+
+# Discriminativeness gate for the keyword branch: a query lexeme only contributes a
+# doc's keyword score when it appears in at most this fraction of the tenant's docs.
+# A common word (high document frequency) is non-selective and is ignored, so it
+# can't pull an off-topic doc into the keyword branch; a rare token (identifier,
+# error/runbook code) stays well under the cap and still surfaces its doc.
+_KEYWORD_MAX_DF_RATIO = 0.5
+
 # Table names are interpolated directly into SQL (psycopg can't parametrize
 # identifiers), so they must NEVER be user-controlled. Only these fixed names
 # are permitted: the live-knowledge spine and the saved-state cache.
@@ -62,7 +92,8 @@ _ALLOWED_EDGES_TABLES = {"fact_edges", "cached_fact_edges"}
 # save/load (everything except the cache_key, which is stamped per copy).
 _FACT_COPY_COLS = (
     "id, org_id, user_id, shared, text, source, confidence, scope, category, "
-    "observation_count, state, embedding, cluster_id, cluster_label, meta, created_at"
+    "observation_count, state, embedding, cluster_id, cluster_label, "
+    "valid_at, invalid_at, meta, created_at"
 )
 
 # Columns copied verbatim between `claims` and `cached_claims` (cache_key stamped
@@ -79,13 +110,28 @@ def default_write_policy(llm: Llm | None = None) -> list[WriteStep]:
     (subject, attribute, value) claims and ``ClaimConflictDetector`` flags
     same-functional-slot value clashes. Mirrors ``VectorGraph``'s default; the
     forced-overwrite add path injects a ``ConflictOverwriter`` policy instead.
+    ``ClaimExtractor`` runs before ``Deduper`` so the deduper's tabular slot-guard
+    can read ``decision.claims``.
     """
     base = llm or OpenRouterLlm()
     return [
         Redactor(),
-        Deduper(),
+        # ClaimExtractor runs before Deduper so the deduper's tabular slot-guard can
+        # read decision.claims.
         ClaimExtractor(judge=ClaimExtractionJudge(llm=base)),
+        Deduper(),
+        # Mem0-style UPDATE/merge: fold a related-but-additive note into an existing
+        # fact. Runs after Deduper (dups already collapsed) and before the conflict
+        # detector (a genuine clash is still flagged, not silently merged).
+        Augmenter(judge=AugmentJudge(llm=base)),
         ClaimConflictDetector(judge=ClaimValueJudge(llm=base)),
+        # Second-pass semantic fallback (Graphiti two-stage): catches paraphrase
+        # contradictions among cosine-recalled neighbours that share no slot.
+        SemanticConflictDetector(judge=SemanticConflictJudge(llm=base)),
+        # Last: reinterpret a dated same-slot value change (e.g. HQ in 2019 vs 2024)
+        # as supersession rather than a standing contradiction. Only touches flags
+        # the detectors above already raised, so it cannot lower their precision.
+        TemporalSupersessionDetector(),
     ]
 
 
@@ -103,6 +149,59 @@ def _fit(vec: list[float]) -> Vector:
     return Vector(vec)
 
 
+def _row_to_hit(r: tuple) -> SearchHit:
+    """Build a ``SearchHit`` from a search row.
+
+    Row shape (shared by the cosine and keyword branches):
+    ``(id, text, source, confidence, scope, category, observation_count, state, score)``.
+    """
+    return SearchHit(
+        fact=Fact(
+            id=r[0],
+            text=r[1],
+            source=r[2],
+            confidence=r[3] if r[3] is not None else 1.0,
+            scope=r[4],
+            category=r[5],
+            observation_count=r[6],
+            state=r[7],
+        ),
+        score=float(r[8]),
+    )
+
+
+def _rrf_fuse(
+    semantic: list[SearchHit], keyword: list[SearchHit], *, top_k: int
+) -> list[SearchHit]:
+    """Fuse two ranked branches with Reciprocal Rank Fusion, returning top ``top_k``.
+
+    RRF score for a fact is ``Σ 1/(_RRF_K + rank)`` over the branches it appears in
+    (rank is 1-based, best first). Position-only, so the (cosine) and (ts_rank)
+    score scales never need calibration. The kept ``SearchHit.score`` prefers the
+    semantic (cosine) similarity when present — so existing score-threshold callers
+    keep meaningful numbers — and falls back to the keyword branch's ts_rank for a
+    keyword-only hit. Ties (equal fused score) break toward the semantic branch's
+    order, then keyword order, giving a stable, deterministic ranking.
+    """
+    fused: dict[str, float] = {}
+    hit_by_id: dict[str, SearchHit] = {}
+    order: dict[str, int] = {}  # first-seen position, for stable tie-breaking
+    for branch, weight in ((semantic, _RRF_SEMANTIC_WEIGHT), (keyword, _RRF_KEYWORD_WEIGHT)):
+        for rank, hit in enumerate(branch, start=1):
+            fid = hit.fact.id
+            fused[fid] = fused.get(fid, 0.0) + weight / (_RRF_K + rank)
+            order.setdefault(fid, len(order))
+            # Prefer the semantic hit's score (cosine similarity) when this fact
+            # appeared in the semantic branch; otherwise keep the keyword score.
+            if fid not in hit_by_id or branch is semantic:
+                hit_by_id[fid] = hit
+    ranked = sorted(
+        hit_by_id.values(),
+        key=lambda h: (-fused[h.fact.id], order[h.fact.id]),
+    )
+    return ranked[:top_k]
+
+
 class PostgresVectorGraph(SearchableGraph):
     """A pgvector-backed fact store for one ``(org_id, user_id)`` tenant."""
 
@@ -116,6 +215,8 @@ class PostgresVectorGraph(SearchableGraph):
         policy: list[WriteStep] | None = None,
         recall_floor: float = 0.45,
         recall_k: int = 5,
+        semantic_recall_floor: float = 0.30,
+        semantic_recall_k: int = 10,
         facts_table: str = "facts",
         edges_table: str = "fact_edges",
         cache_key: str | None = None,
@@ -152,6 +253,9 @@ class PostgresVectorGraph(SearchableGraph):
         # per-write candidate pass keeps facts scoring >= recall_floor (top recall_k).
         self.recall_floor = recall_floor
         self.recall_k = recall_k
+        # Wider, lower-floor recall reserved for the semantic contradiction pass.
+        self.semantic_recall_floor = semantic_recall_floor
+        self.semantic_recall_k = semantic_recall_k
 
     # --- KnowledgeGraph contract -------------------------------------------
     def read(self, context: str | None = None) -> str:
@@ -183,6 +287,7 @@ class PostgresVectorGraph(SearchableGraph):
         scope: str | None = None,
         category: str | None = None,
         meta: dict | None = None,
+        tabular: bool = False,
     ) -> str | None:
         """Run the write-policy pipeline over ``content``, then persist.
 
@@ -206,6 +311,8 @@ class PostgresVectorGraph(SearchableGraph):
         if not content:
             return None
         decision = WriteDecision(text=content, state="active" if state == "active" else "proposed")
+        if tabular:
+            decision.flags.append(TABULAR_FLAG)
         # Stash the persistence attributes on the decision so _add/_overwrite
         # (which read them off the decision via getattr) write them through.
         decision.source = source
@@ -213,9 +320,13 @@ class PostgresVectorGraph(SearchableGraph):
         decision.category = category
         decision.meta = meta or {}
         claim_recalled = False
+        semantic_recalled = False
         for step in self.policy:
             if step.consumes_candidates and decision.embedding is None:
                 self._recall(decision)  # embed once + one shared candidate pass
+            if step.consumes_semantic_candidates and not semantic_recalled:
+                self._recall_semantic(decision)  # wider recall for the semantic pass
+                semantic_recalled = True
             if step.consumes_claim_candidates and not claim_recalled:
                 self._recall_claims(decision)  # slot recall, after ClaimExtractor ran
                 claim_recalled = True
@@ -231,6 +342,9 @@ class PostgresVectorGraph(SearchableGraph):
         demote_active_contradiction(decision)
         if decision.action == "update" and decision.update_target_id:
             self._merge(decision)
+            fact_id = decision.update_target_id
+        elif decision.action == "augment" and decision.update_target_id:
+            self._augment(decision)
             fact_id = decision.update_target_id
         elif decision.action == "overwrite" and decision.update_target_id:
             fact_id = self._overwrite(decision)
@@ -248,11 +362,37 @@ class PostgresVectorGraph(SearchableGraph):
         persisted edge from the new fact to the conflicting one.
         """
         for flag in decision.flags:
-            if not flag.startswith("contradiction:"):
-                continue
-            conflict_id = flag.split(":", 1)[1]
-            if conflict_id and conflict_id != fact_id:
-                self.add_edge(fact_id, conflict_id, "contradiction")
+            if flag.startswith("contradiction:"):
+                conflict_id = flag.split(":", 1)[1]
+                if conflict_id and conflict_id != fact_id:
+                    self.add_edge(fact_id, conflict_id, "contradiction")
+            elif flag.startswith("supersede:"):
+                # Temporal supersession (incoming newer): retire the older fact —
+                # close its validity window + mark rejected — and record lineage.
+                loser = flag.split(":", 1)[1]
+                if loser and loser != fact_id:
+                    self._supersede(winner_id=fact_id, loser_id=loser)
+            elif flag.startswith("supersede_self:"):
+                # Incoming is a backfilled historical fact: it lands already
+                # superseded by the existing newer fact, which stays current.
+                winner = flag.split(":", 1)[1]
+                if winner and winner != fact_id:
+                    self._supersede(winner_id=winner, loser_id=fact_id)
+
+    def _supersede(self, *, winner_id: str, loser_id: str) -> None:
+        """Retire ``loser_id`` in favor of ``winner_id`` (Graphiti invalidate-and-keep).
+
+        Closes the loser's bi-temporal window (``invalidate``), marks it ``rejected``
+        so it leaves the active/contradiction surfaces, and records a ``supersedes``
+        edge winner -> loser. The row is kept for point-in-time recall.
+        """
+        self.invalidate(loser_id, winner_id=winner_id)
+        self._conn.execute(
+            f"UPDATE {self._facts_table} SET state = 'rejected' "
+            "WHERE org_id = %s AND user_id = %s AND id = %s",
+            (self.org_id, self.user_id, loser_id),
+        )
+        self.add_edge(winner_id, loser_id, "supersedes")
 
     def _persist_claims(self, fact_id: str, claims: list[Claim]) -> None:
         """Replace the stored claims for ``fact_id`` with ``claims``.
@@ -309,32 +449,81 @@ class PostgresVectorGraph(SearchableGraph):
         filters: dict | None = None,
         scope: str | None = None,
         state: str | None = "active",
+        as_of: datetime | None = None,
+        hybrid: bool = False,
     ) -> list[SearchHit]:
-        return self._search_vec(
-            _fit(self._embed(query)),
-            top_k=top_k,
-            filters=filters,
-            scope=scope,
-            state=state,
-        )
+        """Retrieve relevant facts. Pure pgvector cosine by default; ``hybrid=True``
+        additionally fuses a BM25 keyword branch.
 
-    def _search_vec(
-        self,
-        qvec: Vector,
-        *,
-        top_k: int = 10,
-        filters: dict | None = None,
-        scope: str | None = None,
-        state: str | None = "active",
-    ) -> list[SearchHit]:
-        sql = (
-            "SELECT id, text, source, confidence, scope, category, "
-            "observation_count, state, 1 - (embedding <=> %s) AS score "
-            f"FROM {self._facts_table} "
-            "WHERE org_id = %s AND (shared OR user_id = %s) "
-            "AND embedding IS NOT NULL"
+        Borrows Graphiti/Zep's search stack. Two indexed branches run over the same
+        tenant/state/scope/filter predicate:
+
+          * **semantic** — pgvector cosine (HNSW index on ``embedding``), the default.
+          * **keyword (BM25-style)** — Postgres full-text over the generated
+            ``text_tsv`` column (GIN index), scored by the BM25 IDF component so a
+            rare exact term/identifier (token, name, error/runbook code) outranks
+            common-word matches.
+
+        Fused with **Reciprocal Rank Fusion** (``Σ weight/(_RRF_K + rank)``). Two
+        guards keep keyword noise from hurting precision: a *discriminativeness gate*
+        (``_KEYWORD_MAX_DF_RATIO`` — common, low-IDF lexemes never admit a doc to the
+        keyword branch) and a *down-weighted* keyword branch (``_RRF_KEYWORD_WEIGHT``
+        < semantic) so keyword can rescue/nudge but is unlikely to demote a strong
+        semantic hit.
+
+        **Why hybrid is OFF by default (evidence-based).** A larger live eval on this
+        embedding stack found the cosine branch already ranks rare identifiers #1, so
+        keyword fusion yielded *no* wins, while additive fusion can still demote a
+        correct semantic answer that happens to share no query keyword (a keyword-only
+        match on an incidental shared word gets a bonus the keyword-absent winner can't
+        match). Net: on-by-default fusion was a precision regression. Hybrid remains
+        available opt-in for keyword-centric lookups (e.g. searching by an exact error
+        code). Making it safe to default-on would need a promotion-only / score-aware
+        fusion, not the additive RRF here.
+
+        The internal candidate-recall pass (``_recall`` -> ``_search_vec``) is always
+        pure-semantic — dedup/conflict want embedding recall, not keyword matching.
+        """
+        qvec = _fit(self._embed(query))
+        if not hybrid:
+            return self._search_vec(
+                qvec, top_k=top_k, filters=filters, scope=scope, state=state, as_of=as_of
+            )
+        sem = self._search_vec(
+            qvec, top_k=_FUSION_BRANCH_N, filters=filters, scope=scope, state=state, as_of=as_of
         )
-        params: list[object] = [qvec, self.org_id, self.user_id]
+        kw = self._search_keyword(
+            query, top_k=_FUSION_BRANCH_N, filters=filters, scope=scope, state=state, as_of=as_of
+        )
+        return _rrf_fuse(sem, kw, top_k=top_k)
+
+    def _where(
+        self,
+        *,
+        filters: dict | None,
+        scope: str | None,
+        state: str | None,
+        as_of: datetime | None = None,
+    ) -> tuple[str, list[object]]:
+        """The shared tenant/cache/state/scope/filter predicate for a search branch.
+
+        Returns ``(sql_fragment, params)`` so the cosine and keyword branches apply
+        the exact same row gating — only their ranking expression differs.
+        """
+        sql = "WHERE org_id = %s AND (shared OR user_id = %s)"
+        params: list[object] = [self.org_id, self.user_id]
+        # Bi-temporal validity (Graphiti/Zep): both the semantic and keyword
+        # branches gate on the same validity window. Default returns only
+        # currently-valid facts; `as_of` rewinds to point-in-time recall. A NULL
+        # valid_at is treated as always-valid (legacy rows).
+        if as_of is not None:
+            sql += (
+                " AND (valid_at IS NULL OR valid_at <= %s) "
+                "AND (invalid_at IS NULL OR invalid_at > %s)"
+            )
+            params.extend([as_of, as_of])
+        else:
+            sql += " AND (invalid_at IS NULL OR invalid_at > now())"
         if self._cache_key is not None:
             # A cache-bound graph only ever sees its own partition, so recall /
             # dedup / conflict stay within the one eval case (and contradiction
@@ -350,25 +539,190 @@ class PostgresVectorGraph(SearchableGraph):
         for key, value in (filters or {}).items():
             sql += f" AND {key} = %s"
             params.append(value)
-        sql += " ORDER BY embedding <=> %s LIMIT %s"
-        params.extend([qvec, top_k])
+        return sql, params
+
+    def _search_vec(
+        self,
+        qvec: Vector,
+        *,
+        top_k: int = 10,
+        filters: dict | None = None,
+        scope: str | None = None,
+        state: str | None = "active",
+        as_of: datetime | None = None,
+    ) -> list[SearchHit]:
+        where, where_params = self._where(filters=filters, scope=scope, state=state, as_of=as_of)
+        sql = (
+            "SELECT id, text, source, confidence, scope, category, "
+            "observation_count, state, 1 - (embedding <=> %s) AS score "
+            f"FROM {self._facts_table} {where} AND embedding IS NOT NULL "
+            "ORDER BY embedding <=> %s LIMIT %s"
+        )
+        params: list[object] = [qvec, *where_params, qvec, top_k]
         rows = self._conn.execute(sql, params).fetchall()
-        return [
-            SearchHit(
-                fact=Fact(
-                    id=r[0],
-                    text=r[1],
-                    source=r[2],
-                    confidence=r[3] if r[3] is not None else 1.0,
-                    scope=r[4],
-                    category=r[5],
-                    observation_count=r[6],
-                    state=r[7],
-                ),
-                score=float(r[8]),
-            )
-            for r in rows
+        return [_row_to_hit(r) for r in rows]
+
+    def _search_keyword(
+        self,
+        query: str,
+        *,
+        top_k: int = 10,
+        filters: dict | None = None,
+        scope: str | None = None,
+        state: str | None = "active",
+        as_of: datetime | None = None,
+    ) -> list[SearchHit]:
+        """BM25-style keyword branch: IDF-weighted full-text match over ``text_tsv``.
+
+        The point of the keyword branch is to surface a fact carrying a rare, exact
+        term/identifier (a token, name, error/runbook code) that cosine ranks out of
+        top-k. Postgres ``ts_rank`` has no IDF — it rewards docs matching many query
+        words, so common words (here every "on-call engineer" distractor) outrank the
+        one doc with the rare identifier, defeating the purpose. So this scores each
+        candidate by the **BM25 IDF component**: for every query lexeme a doc shares,
+        add ``ln(N / df)`` (N = corpus size in this tenant partition, df = how many
+        docs contain that lexeme). A rare token like ``rbk``/``-7782`` (df=1) carries
+        a large weight; ubiquitous words carry near-zero — so the identifier fact
+        wins. The query is lexed with ``to_tsvector('english', …)`` (same config as
+        the stored column) and OR-matched via array intersection on the GIN-indexed
+        ``text_tsv``; empty/stopword-only queries yield nothing (RRF then degrades to
+        the cosine branch alone). Score is the summed IDF; fusion ranks on position,
+        so its scale never needs to match cosine.
+        """
+        where, where_params = self._where(filters=filters, scope=scope, state=state, as_of=as_of)
+        sql = (
+            "WITH params AS (SELECT tsvector_to_array(to_tsvector('english', %s)) AS qlex), "
+            "docs AS ("
+            "  SELECT id, text, source, confidence, scope, category, observation_count, state, "
+            "         tsvector_to_array(text_tsv) AS dlex "
+            f"  FROM {self._facts_table} {where} AND text_tsv IS NOT NULL"
+            "), "
+            "ndoc AS (SELECT count(*)::float AS n FROM docs), "
+            "matched AS ("
+            "  SELECT d.id, unnest(ARRAY(SELECT unnest(d.dlex) INTERSECT SELECT unnest(p.qlex))) AS lex "
+            "  FROM docs d CROSS JOIN params p"
+            "), "
+            "df AS (SELECT lex, count(*)::float AS df FROM matched GROUP BY lex) "
+            # Only discriminative lexemes (df <= max_df_ratio * N) count toward a
+            # doc's keyword score; common words are ignored so they can't surface an
+            # off-topic doc. CASE-gate inside the sum (not a row filter) so a doc that
+            # matched ONLY common words scores 0 and is dropped by the HAVING.
+            "SELECT d.id, d.text, d.source, d.confidence, d.scope, d.category, "
+            "       d.observation_count, d.state, "
+            "       COALESCE(sum(CASE WHEN df.df <= %s * ndoc.n "
+            "                         THEN ln(ndoc.n / df.df) ELSE 0 END), 0) AS score "
+            "FROM docs d CROSS JOIN ndoc "
+            "LEFT JOIN matched m ON m.id = d.id "
+            "LEFT JOIN df ON df.lex = m.lex "
+            "GROUP BY d.id, d.text, d.source, d.confidence, d.scope, d.category, "
+            "         d.observation_count, d.state "
+            "HAVING COALESCE(sum(CASE WHEN df.df <= %s * ndoc.n "
+            "                        THEN ln(ndoc.n / df.df) ELSE 0 END), 0) > 0 "
+            "ORDER BY score DESC LIMIT %s"
+        )
+        params: list[object] = [
+            query, *where_params, _KEYWORD_MAX_DF_RATIO, _KEYWORD_MAX_DF_RATIO, top_k
         ]
+        rows = self._conn.execute(sql, params).fetchall()
+        return [_row_to_hit(r) for r in rows]
+
+    def overlay_search(
+        self,
+        query: str,
+        mounts: list[tuple[str, str]],
+        *,
+        top_k: int = 10,
+    ) -> list[SearchHit]:
+        """Vector-search the live graph unioned with mounted snapshots, in one query.
+
+        Backs the mounted read-only overlay (see ``overlay_graph.py``). ``mounts``
+        is a list of ``(source_user_id, cache_key)`` pairs naming saved snapshots
+        to also expose. The query is embedded **once** and a single ``UNION ALL``
+        ranks the live ``facts`` branch and the ``cached_facts`` branch together —
+        no per-mount round trip, no re-embedding. Both tables have an HNSW
+        embedding index, so each branch is a sub-linear indexed search.
+
+        The live branch keeps the normal tenant predicate
+        (``org_id AND (shared OR user_id)``); the mounted branch is org-scoped but
+        cross-user (``org_id AND (user_id, cache_key) ∈ mounts``) — the same
+        within-org trust boundary :class:`OrgSourceReader` relies on, with org
+        membership validated by the mount route. Mounted hits carry
+        ``fact.meta["mountedFrom"]`` so callers can tell them from live facts.
+        Results are deduped by id (a live fact wins over a same-id snapshot copy),
+        ranked by score, and truncated to ``top_k``.
+        """
+        qvec = _fit(self._embed(query))
+        cols = (
+            "id, text, source, confidence, scope, category, observation_count, state"
+        )
+        live = (
+            f"SELECT {cols}, NULL::text AS mount_user, NULL::text AS mount_key, "
+            "1 - (embedding <=> %s) AS score FROM facts "
+            "WHERE org_id = %s AND (shared OR user_id = %s) "
+            "AND state = 'active' AND embedding IS NOT NULL "
+            "ORDER BY embedding <=> %s LIMIT %s"
+        )
+        params: list[object] = [qvec, self.org_id, self.user_id, qvec, top_k]
+        sql = f"SELECT * FROM ({live}) AS live"
+        if mounts:
+            ors = " OR ".join(["(user_id = %s AND cache_key = %s)"] * len(mounts))
+            mounted = (
+                f"SELECT {cols}, user_id AS mount_user, cache_key AS mount_key, "
+                "1 - (embedding <=> %s) AS score FROM cached_facts "
+                f"WHERE org_id = %s AND ({ors}) "
+                "AND state = 'active' AND embedding IS NOT NULL "
+                "ORDER BY embedding <=> %s LIMIT %s"
+            )
+            sql += f" UNION ALL SELECT * FROM ({mounted}) AS mounted"
+            params += [qvec, self.org_id]
+            for source_user_id, cache_key in mounts:
+                params += [source_user_id, cache_key]
+            params += [qvec, top_k]
+        rows = self._conn.execute(sql, params).fetchall()
+
+        # Each branch is capped at top_k, so this is at most ~2*top_k rows. Dedupe
+        # by id preferring the live copy (mount_user IS NULL), then rank + cap.
+        best: dict[str, SearchHit] = {}
+        for r in rows:
+            mount_user, mount_key, score = r[8], r[9], float(r[10])
+            hit = SearchHit(
+                fact=Fact(
+                    id=r[0], text=r[1], source=r[2],
+                    confidence=r[3] if r[3] is not None else 1.0,
+                    scope=r[4], category=r[5], observation_count=r[6], state=r[7],
+                ),
+                score=score,
+            )
+            if mount_user is not None:
+                hit.fact.meta["mountedFrom"] = {
+                    "userId": mount_user,
+                    "snapshot": mount_key.split("snapshot:", 1)[-1],
+                }
+            existing = best.get(hit.fact.id)
+            if existing is None:
+                best[hit.fact.id] = hit
+                continue
+            # Prefer a live hit over a same-id snapshot copy; else higher score.
+            existing_mounted = bool(existing.fact.meta.get("mountedFrom"))
+            this_mounted = mount_user is not None
+            if existing_mounted and not this_mounted:
+                best[hit.fact.id] = hit
+            elif existing_mounted == this_mounted and hit.score > existing.score:
+                best[hit.fact.id] = hit
+        ranked = sorted(best.values(), key=lambda h: h.score, reverse=True)
+        return ranked[:top_k]
+
+    def recent_cache(
+        self, *, source_user_id: str, cache_key: str, limit: int
+    ) -> list[Fact]:
+        """Newest active facts of a snapshot — the no-query overlay read path."""
+        rows = self._conn.execute(
+            "SELECT id, text, source, confidence, scope, category, observation_count, state "
+            "FROM cached_facts WHERE org_id = %s AND user_id = %s AND cache_key = %s "
+            "AND state = 'active' ORDER BY created_at DESC LIMIT %s",
+            (self.org_id, source_user_id, cache_key, limit),
+        ).fetchall()
+        return [self._row_to_fact(r) for r in rows]
 
     # --- dashboard snapshot (the graph the dashboard renders) --------------
     def active_facts(self) -> list[Fact]:
@@ -512,6 +866,34 @@ class PostgresVectorGraph(SearchableGraph):
             "WHERE org_id = %s AND user_id = %s AND id = %s",
             (state, self.org_id, self.user_id, fact_id),
         )
+
+    def invalidate(self, fact_id: str, winner_id: str | None = None) -> None:
+        """Close a fact's bi-temporal validity window (Graphiti/Zep model).
+
+        Sets ``invalid_at`` to the winner's ``valid_at`` when a superseding
+        ``winner_id`` is given (falling back to ``now()``), marking the fact no
+        longer currently true while keeping the row for point-in-time recall.
+        This is additive to the ``rejected`` state set on the resolve paths;
+        callers still flip ``state`` separately. Idempotent-safe to call on an
+        already-invalidated row (it just re-stamps the window close).
+        """
+        if winner_id is not None:
+            self._conn.execute(
+                f"UPDATE {self._facts_table} AS loser "
+                "SET invalid_at = COALESCE("
+                f"  (SELECT winner.valid_at FROM {self._facts_table} AS winner "
+                "    WHERE winner.org_id = loser.org_id "
+                "      AND winner.user_id = loser.user_id AND winner.id = %s), "
+                "  now()) "
+                "WHERE loser.org_id = %s AND loser.user_id = %s AND loser.id = %s",
+                (winner_id, self.org_id, self.user_id, fact_id),
+            )
+        else:
+            self._conn.execute(
+                f"UPDATE {self._facts_table} SET invalid_at = now() "
+                "WHERE org_id = %s AND user_id = %s AND id = %s",
+                (self.org_id, self.user_id, fact_id),
+            )
 
     def update_fact(
         self,
@@ -838,6 +1220,24 @@ class PostgresVectorGraph(SearchableGraph):
         hits = self._search_vec(_fit(decision.embedding), top_k=self.recall_k, state=None)
         decision.candidates = [h for h in hits if h.score >= self.recall_floor]
 
+    def _recall_semantic(self, decision: WriteDecision) -> None:
+        """Fill ``decision.semantic_candidates`` via a wider, lower-floor recall.
+
+        Reuses the already-computed ``decision.embedding`` (one embedding per write
+        still holds). Returns existing facts scoring >= ``semantic_recall_floor``
+        (well below the dedup/conflict floor), capped at ``semantic_recall_k``, so
+        the semantic LLM judge can see paraphrase contradictions the narrow pass
+        drops. Searches all states, like ``_recall``.
+        """
+        if decision.embedding is None:
+            decision.embedding = self._embed(decision.text)
+        hits = self._search_vec(
+            _fit(decision.embedding), top_k=self.semantic_recall_k, state=None
+        )
+        decision.semantic_candidates = [
+            h for h in hits if h.score >= self.semantic_recall_floor
+        ]
+
     def _recall_claims(self, decision: WriteDecision) -> None:
         """Fill ``decision.claim_candidates`` via the functional (subject, attribute) slot.
 
@@ -897,9 +1297,17 @@ class PostgresVectorGraph(SearchableGraph):
         embedding = _fit(decision.embedding)  # reuse the vector from _recall
         fact_id = uuid.uuid4().hex
         meta = getattr(decision, "meta", None) or {}
+        # Bi-temporal validity: a new fact becomes valid now and stays valid
+        # (invalid_at NULL) until something supersedes it. Callers may backdate
+        # world-time validity by supplying meta["valid_at"] (ISO string or a
+        # datetime); fall back to SQL now() otherwise.
+        valid_at = meta.get("valid_at")
+        if valid_at is None:
+            valid_at = datetime.now(timezone.utc)
         # cache_key only exists on cached_facts; meta exists on both tables.
         cols = ["id", "org_id", "user_id", "text", "source", "confidence",
-                "scope", "category", "state", "embedding", "meta"]
+                "scope", "category", "state", "embedding",
+                "valid_at", "invalid_at", "meta"]
         vals: list[object] = [
             fact_id,
             self.org_id,
@@ -911,6 +1319,8 @@ class PostgresVectorGraph(SearchableGraph):
             getattr(decision, "category", None),
             decision.state,
             embedding,
+            valid_at,
+            None,
             json.dumps(meta),
         ]
         if self._cache_key is not None:
@@ -933,6 +1343,24 @@ class PostgresVectorGraph(SearchableGraph):
             (self.org_id, self.user_id, decision.update_target_id),
         )
 
+    def _augment(self, decision: WriteDecision) -> None:
+        """Mem0 UPDATE/merge: rewrite the target fact's text to the merged survivor.
+
+        Keeps a single fact: the existing fact (``update_target_id``) absorbs the
+        incoming note's content (``augment_text``), is re-embedded so retrieval
+        tracks the merged text, and bumps observation_count/confidence. The
+        incoming note is not inserted as a separate row. Claims are left as-is on
+        the surviving fact (the merged text is additive, not a slot conflict).
+        """
+        merged = (decision.augment_text or decision.text).strip()
+        self._conn.execute(
+            f"UPDATE {self._facts_table} SET text = %s, embedding = %s, "
+            "observation_count = observation_count + 1, "
+            "confidence = LEAST(1.0, COALESCE(confidence, 1.0) + 0.05) "
+            "WHERE org_id = %s AND user_id = %s AND id = %s",
+            (merged, _fit(self._embed(merged)), self.org_id, self.user_id, decision.update_target_id),
+        )
+
     def _overwrite(self, decision: WriteDecision) -> str:
         """Non-destructive resolution of an approved contradiction (FR-003/FR-005).
 
@@ -950,10 +1378,20 @@ class PostgresVectorGraph(SearchableGraph):
         for loser_id in losers:
             if not loser_id or loser_id == fact_id:
                 continue
+            # Bi-temporal invalidation (additive to the existing `rejected`
+            # state): the loser stopped being true when the winner became true,
+            # so close its validity window at the winner's valid_at (falling
+            # back to now()). The row and its text are kept for point-in-time
+            # recall — an `as_of` before the winner still recovers the loser.
             self._conn.execute(
-                f"UPDATE {self._facts_table} SET state = 'rejected' "
-                "WHERE org_id = %s AND user_id = %s AND id = %s",
-                (self.org_id, self.user_id, loser_id),
+                f"UPDATE {self._facts_table} AS loser SET state = 'rejected', "
+                "invalid_at = COALESCE("
+                f"  (SELECT winner.valid_at FROM {self._facts_table} AS winner "
+                "    WHERE winner.org_id = loser.org_id "
+                "      AND winner.user_id = loser.user_id AND winner.id = %s), "
+                "  now()) "
+                "WHERE loser.org_id = %s AND loser.user_id = %s AND loser.id = %s",
+                (fact_id, self.org_id, self.user_id, loser_id),
             )
             src, dst = sorted((fact_id, loser_id))
             self.add_edge(src, dst, "contradicted_by")

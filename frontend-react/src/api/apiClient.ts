@@ -791,6 +791,65 @@ export async function deleteSnapshot(
   return { deleted: typeof row.deleted === "string" ? row.deleted : name };
 }
 
+/** A mounted snapshot: a read-only overlay added to retrieval reads. */
+export interface Mount {
+  sourceUser: string;
+  snapshot: string;
+  isSelf: boolean;
+  count: number;
+}
+
+function normalizeMount(payload: unknown): Mount {
+  const row =
+    payload && typeof payload === "object" ? (payload as Record<string, unknown>) : {};
+  return {
+    sourceUser:
+      typeof row.sourceUser === "string" ? row.sourceUser : String(row.source_user ?? ""),
+    snapshot: typeof row.snapshot === "string" ? row.snapshot : String(row.snapshot ?? ""),
+    isSelf: Boolean(row.isSelf ?? row.is_self),
+    count: typeof row.count === "number" ? row.count : Number(row.count ?? 0),
+  };
+}
+
+/** `GET /mounts` — list the caller's mounted read-only snapshot overlays. */
+export async function listMounts(
+  apiBaseUrl: string,
+  auth?: string | ApiDataProviderAuth,
+): Promise<Mount[]> {
+  const payload = await snapshotRequest(apiBaseUrl, "GET", "/mounts", auth);
+  const row =
+    payload && typeof payload === "object" ? (payload as Record<string, unknown>) : {};
+  const list = Array.isArray(row.mounts) ? row.mounts : [];
+  return list.map(normalizeMount);
+}
+
+/**
+ * `POST /mounts` — mount a snapshot as a read-only overlay. `sourceUser` defaults
+ * to the caller (your own snapshot); pass an org member's id to mount theirs.
+ */
+export async function mountSnapshot(
+  apiBaseUrl: string,
+  snapshot: string,
+  sourceUser?: string,
+  auth?: string | ApiDataProviderAuth,
+): Promise<void> {
+  const body: Record<string, unknown> = { snapshot };
+  if (sourceUser) body.sourceUser = sourceUser;
+  await snapshotRequest(apiBaseUrl, "POST", "/mounts", auth, body);
+}
+
+/** `DELETE /mounts` — unmount a read-only snapshot overlay. */
+export async function unmountSnapshot(
+  apiBaseUrl: string,
+  snapshot: string,
+  sourceUser?: string,
+  auth?: string | ApiDataProviderAuth,
+): Promise<void> {
+  const body: Record<string, unknown> = { snapshot };
+  if (sourceUser) body.sourceUser = sourceUser;
+  await snapshotRequest(apiBaseUrl, "DELETE", "/mounts", auth, body);
+}
+
 /** One saved snapshot in a source: its name and node count. */
 export interface SourceSnapshot {
   name: string;

@@ -1,0 +1,37 @@
+# Temporal supersession, not contradiction. Two facts assert the SAME subject's
+# (company headquarters) location with different values AND different year
+# qualifiers: Denver/2019 vs Austin/2024. The structural detector sees a slot
+# clash, but the TemporalSupersessionDetector recognizes the accompanying year-slot
+# clash (2019 vs 2024) as dating the change — so this is supersession (the newer
+# fact retires the older), NOT a standing contradiction.
+#
+# Contrast with claim_fd_year_conflict (invention year 1799 vs 1800), where the
+# year IS the disputed value with no non-temporal slot change -> that stays a
+# contradiction. Component eval (no agent); vector substrate runs the real write
+# policy. Replays from committed claim_extract + conflict verdict cassettes +
+# embedding fixture offline (no live calls).
+#
+# Desired behavior: NO contradiction flagged; the current (Austin) fact is present.
+id: temporal_supersession_change
+component: knowledge_graph
+substrate: vector
+embedder: cached
+conflict_model: openai/gpt-4o-mini
+
+seeded_insight:
+  via_ingestor: []
+  direct_to_graph:
+    - "Our company headquarters was in Denver in 2019."
+    - "Our company headquarters is in Austin in 2024."
+
+deterministic_checks:
+  # A dated value change is supersession, not a standing contradiction.
+  - name: no_contradiction_flagged
+    ref: "knowledge.evals.deterministic_checks.text:regex_absent"
+    params:
+      pattern: "(?i)CONTRADICTION"
+  # The current value (Austin) survives as a live fact.
+  - name: current_value_present
+    ref: "knowledge.evals.deterministic_checks.text:requires_all_substrings"
+    params:
+      texts: ["Austin"]
