@@ -1,31 +1,27 @@
-# Outcome / trust feedback on facts — RED SPEC proving the gap.
+# Outcome / trust feedback on facts — retrieval must prefer proven over failed.
 #
 # Two competing, both-active facts answer the same question:
 #   * FAILED: "open a new DB connection per request" — a tried-and-failed approach
 #     (connection-pool exhaustion under load). It echoes the query wording, so it is
-#     the more similar fact under cosine.
+#     the more cosine-similar fact.
 #   * PROVEN: "acquire a session from the shared pool via DI" — what actually worked,
 #     phrased differently from the query.
 #
-# We record the outcome history the only way Praxis allows today: failed fact gets
-# low confidence (0.1), proven fact high (1.0). The check asserts the PROVEN fact
-# ranks above the FAILED one.
+# The check records 5 failures on the failed fact and 5 successes on the proven one
+# (via record_outcome), then asserts the PROVEN fact ranks above the FAILED one.
 #
-# RED on the current store: search() ranks by cosine (+ optional BM25) and NEVER
-# consults confidence or any outcome signal, so the demonstrably-failed advice — by
-# virtue of being more query-similar — is returned first. There is no channel,
-# existing confidence included, by which a fact whose action repeatedly failed loses
-# to a proven one. GREEN once retrieval is outcome/trust-weighted.
+# Without outcome weighting this fails — search() ranks by cosine and the failed,
+# more-similar advice wins regardless of recorded outcomes. With the utility
+# multiplier folded into ranking (success/failure counts -> Fact.utility), the
+# repeatedly-failed fact decays below the proven one and the proven fact wins.
 #
 # Component eval; drives the REAL Postgres retrieval path via the check's own
 # isolated tenant. Needs a Postgres DSN (embedder: cached / substrate: vector) —
-# `just db-up` provides one — else the harness SKIPs. Marked xfail: it documents a
-# capability that is not built yet.
+# `just db-up` provides one — else the harness SKIPs.
 id: failed_advice_outranks_proven_db
 component: knowledge_graph
 substrate: vector
 embedder: cached
-xfail: "outcome/trust-aware retrieval not built — search ranks by similarity only; confidence/outcome never weights ranking"
 
 seeded_insight:
   via_ingestor: []
@@ -41,6 +37,6 @@ deterministic_checks:
       query: "How should the request handler manage its database connection?"
       failed_text: "In the request handler, open a new database connection for each request and close it when the handler returns."
       proven_text: "Acquire a database session from the shared async connection pool via a dependency; never instantiate raw clients inside endpoints."
-      failed_confidence: 0.1
-      proven_confidence: 1.0
+      failed_failures: 5
+      proven_successes: 5
       top_k: 2

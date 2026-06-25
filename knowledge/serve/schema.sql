@@ -32,6 +32,11 @@ CREATE TABLE IF NOT EXISTS facts (
     scope             text,
     category          text,
     observation_count integer NOT NULL DEFAULT 1,
+    -- Outcome / trust feedback (verification results fed back into the fact).
+    -- Retrieval folds these into a utility multiplier so a fact whose suggested
+    -- action keeps failing sinks and a proven one holds. 0/0 => neutral (no change).
+    success_count     integer NOT NULL DEFAULT 0,
+    failure_count     integer NOT NULL DEFAULT 0,
     -- Lifecycle state: 'proposed' (passive system add, staged), 'active' (user
     -- directly approved -- live knowledge), 'rejected' (superseded/retired;
     -- formerly 'decayed', renamed in specs/003-fact-rejection-lifecycle).

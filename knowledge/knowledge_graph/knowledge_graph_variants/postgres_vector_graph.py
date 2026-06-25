@@ -552,15 +552,39 @@ class PostgresVectorGraph(SearchableGraph):
         as_of: datetime | None = None,
     ) -> list[SearchHit]:
         where, where_params = self._where(filters=filters, scope=scope, state=state, as_of=as_of)
+        # Outcome/trust weighting: rank on cosine similarity scaled by a per-fact
+        # utility multiplier derived from recorded outcomes (mirrors Fact.utility) —
+        # neutral 1.0 until outcomes exist (no behavior change for un-scored facts),
+        # decaying toward 0 as a fact's action keeps failing. Ordering on the scaled
+        # score means we sort the matched partition rather than ride the HNSW index;
+        # fine for tenant-scoped recall, and what lets a proven fact beat a more
+        # similar but demonstrably-failed one.
         sql = (
-            "SELECT id, text, source, confidence, scope, category, "
-            "observation_count, state, 1 - (embedding <=> %s) AS score "
+            "SELECT id, text, source, confidence, scope, category, observation_count, state, "
+            "(1 - (embedding <=> %s)) * CASE WHEN success_count + failure_count = 0 THEN 1.0 "
+            "ELSE (success_count + 0.5) / (success_count + failure_count + 1.0) END AS score "
             f"FROM {self._facts_table} {where} AND embedding IS NOT NULL "
-            "ORDER BY embedding <=> %s LIMIT %s"
+            "ORDER BY score DESC LIMIT %s"
         )
-        params: list[object] = [qvec, *where_params, qvec, top_k]
+        params: list[object] = [qvec, *where_params, top_k]
         rows = self._conn.execute(sql, params).fetchall()
         return [_row_to_hit(r) for r in rows]
+
+    def record_outcome(self, fact_id: str, *, success: bool) -> None:
+        """Feed a downstream verification result back into a fact's trust.
+
+        Increments ``success_count`` or ``failure_count`` for ``fact_id`` within this
+        graph's tenant. ``search`` folds the counts into a utility multiplier so a
+        fact whose suggested action repeatedly fails sinks in ranking and a proven
+        one holds — the compounding signal (verified-good knowledge sharpens recall,
+        verified-bad knowledge fades) the store otherwise lacks.
+        """
+        column = "success_count" if success else "failure_count"
+        self._conn.execute(
+            f"UPDATE {self._facts_table} SET {column} = {column} + 1 "
+            "WHERE id = %s AND org_id = %s AND user_id = %s",
+            (fact_id, self.org_id, self.user_id),
+        )
 
     def _search_keyword(
         self,

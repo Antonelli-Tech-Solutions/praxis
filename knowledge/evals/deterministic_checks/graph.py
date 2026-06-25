@@ -212,12 +212,12 @@ def retrieval_prefers_proven_over_failed(
     query: str,
     proven_text: str,
     failed_text: str,
-    proven_confidence: float = 1.0,
-    failed_confidence: float = 0.1,
+    proven_successes: int = 5,
+    failed_failures: int = 5,
     top_k: int = 2,
 ) -> CheckResult:
-    """Outcome/trust-feedback red spec: a fact whose advice demonstrably FAILED
-    must not outrank a PROVEN fact for the same query.
+    """Outcome/trust-feedback spec: a fact whose advice demonstrably FAILED must not
+    outrank a PROVEN fact for the same query.
 
     Seeds two competing, both-``active`` facts answering the same question into a
     fresh isolated tenant:
@@ -227,17 +227,15 @@ def retrieval_prefers_proven_over_failed(
         the query's wording), so pure-similarity retrieval ranks it first.
       * ``proven_text`` — the approach that actually worked, phrased differently.
 
-    The outcome history is expressed the only way Praxis lets us today: the failed
-    fact is set to low ``confidence`` and the proven fact to high ``confidence``.
-    The check then runs the real ``search`` and asserts the proven fact ranks ABOVE
-    the failed one.
+    The outcome history is fed back the way the factory loop would: ``record_outcome``
+    logs ``failed_failures`` failures on the failed fact and ``proven_successes``
+    successes on the proven one. The check then runs the real ``search`` and asserts
+    the proven fact ranks ABOVE the failed one.
 
-    This FAILS on the current store: ``search`` ranks purely by cosine (+ optional
-    BM25) and **never consults ``confidence`` / any outcome signal** — so the failed
-    approach, being more query-similar, wins. It demonstrates that outcome/trust-aware
-    ranking is missing: there is no channel (existing ``confidence`` included) by which
-    a demonstrably-bad fact loses to a proven one. It would PASS once retrieval is
-    outcome/trust-weighted.
+    Without outcome/trust weighting this FAILS: ``search`` ranks purely by cosine
+    (+ optional BM25), so the failed approach — being more query-similar — wins, and
+    no recorded outcome can change that. With the utility multiplier folded into
+    ranking, the repeatedly-failed fact decays below the proven one and this PASSES.
 
     Requires a reachable Postgres DSN (``embedder: cached`` / ``substrate: vector``);
     without one the harness SKIPs the case.
@@ -262,14 +260,13 @@ def retrieval_prefers_proven_over_failed(
         conn, org, user, embedder=embedder, policy=[Redactor(), Deduper()]
     )
     try:
-        graph.write(proven_text, state="active")
-        graph.write(failed_text, state="active")
-        # Express the outcome history with the only trust-like field that exists.
-        for text, conf in ((proven_text, proven_confidence), (failed_text, failed_confidence)):
-            conn.execute(
-                "UPDATE facts SET confidence = %s WHERE org_id = %s AND user_id = %s AND text = %s",
-                (conf, org, user, text),
-            )
+        proven_id = graph.write(proven_text, state="active")
+        failed_id = graph.write(failed_text, state="active")
+        # Feed verification outcomes back the way the factory loop would.
+        for _ in range(proven_successes):
+            graph.record_outcome(proven_id, success=True)
+        for _ in range(failed_failures):
+            graph.record_outcome(failed_id, success=False)
         hits = graph.search(query, top_k=top_k)
         ranked = [h.fact.text for h in hits]
         proven_rank = ranked.index(proven_text) if proven_text in ranked else 1_000
@@ -279,13 +276,13 @@ def retrieval_prefers_proven_over_failed(
             name="retrieval_prefers_proven_over_failed",
             passed=ok,
             evidence=(
-                f"proven fact (conf {proven_confidence}) ranks #{proven_rank} vs "
-                f"failed fact (conf {failed_confidence}) #{failed_rank} for {query!r}"
+                f"proven fact ({proven_successes} successes) ranks #{proven_rank} vs "
+                f"failed fact ({failed_failures} failures) #{failed_rank} for {query!r}"
                 + (
                     ""
                     if ok
-                    else " — retrieval ignored outcome/confidence and surfaced the "
-                    "demonstrably-failed advice first (no outcome/trust signal in ranking)"
+                    else " — retrieval surfaced the demonstrably-failed advice first "
+                    "(outcome/trust not weighted in ranking)"
                 )
             ),
         )
