@@ -52,6 +52,14 @@ _EMBED_DIM = 1536
 # stays bounded. ~4 chars/token, so this is a few thousand tokens.
 _READ_CHAR_BUDGET = 8000
 
+# Reciprocal Rank Fusion constant (Graphiti/Zep use ~60). Larger k flattens the
+# weight of top ranks, blending the two branches more gently; 60 is the standard.
+_RRF_K = 60
+
+# How deep each branch fetches before fusion. Pulling more than top_k from each
+# side lets a fact that is, say, #4 in cosine but #1 in BM25 still win after RRF.
+_FUSION_BRANCH_N = 20
+
 # Table names are interpolated directly into SQL (psycopg can't parametrize
 # identifiers), so they must NEVER be user-controlled. Only these fixed names
 # are permitted: the live-knowledge spine and the saved-state cache.
@@ -101,6 +109,59 @@ def _fit(vec: list[float]) -> Vector:
     elif len(vec) < _EMBED_DIM:
         vec = list(vec) + [0.0] * (_EMBED_DIM - len(vec))
     return Vector(vec)
+
+
+def _row_to_hit(r: tuple) -> SearchHit:
+    """Build a ``SearchHit`` from a search row.
+
+    Row shape (shared by the cosine and keyword branches):
+    ``(id, text, source, confidence, scope, category, observation_count, state, score)``.
+    """
+    return SearchHit(
+        fact=Fact(
+            id=r[0],
+            text=r[1],
+            source=r[2],
+            confidence=r[3] if r[3] is not None else 1.0,
+            scope=r[4],
+            category=r[5],
+            observation_count=r[6],
+            state=r[7],
+        ),
+        score=float(r[8]),
+    )
+
+
+def _rrf_fuse(
+    semantic: list[SearchHit], keyword: list[SearchHit], *, top_k: int
+) -> list[SearchHit]:
+    """Fuse two ranked branches with Reciprocal Rank Fusion, returning top ``top_k``.
+
+    RRF score for a fact is ``Σ 1/(_RRF_K + rank)`` over the branches it appears in
+    (rank is 1-based, best first). Position-only, so the (cosine) and (ts_rank)
+    score scales never need calibration. The kept ``SearchHit.score`` prefers the
+    semantic (cosine) similarity when present — so existing score-threshold callers
+    keep meaningful numbers — and falls back to the keyword branch's ts_rank for a
+    keyword-only hit. Ties (equal fused score) break toward the semantic branch's
+    order, then keyword order, giving a stable, deterministic ranking.
+    """
+    fused: dict[str, float] = {}
+    hit_by_id: dict[str, SearchHit] = {}
+    order: dict[str, int] = {}  # first-seen position, for stable tie-breaking
+    for branch in (semantic, keyword):
+        for rank, hit in enumerate(branch, start=1):
+            fid = hit.fact.id
+            fused[fid] = fused.get(fid, 0.0) + 1.0 / (_RRF_K + rank)
+            order.setdefault(fid, len(order))
+            # Prefer the semantic hit's score (cosine similarity) when this fact
+            # appeared in the semantic branch; otherwise keep the keyword score.
+            if fid not in hit_by_id or branch is semantic:
+                hit_by_id[fid] = hit
+    ranked = sorted(
+        hit_by_id.values(),
+        key=lambda h: (-fused[h.fact.id], order[h.fact.id]),
+    )
+    return ranked[:top_k]
 
 
 class PostgresVectorGraph(SearchableGraph):
@@ -309,32 +370,62 @@ class PostgresVectorGraph(SearchableGraph):
         filters: dict | None = None,
         scope: str | None = None,
         state: str | None = "active",
+        hybrid: bool = True,
     ) -> list[SearchHit]:
-        return self._search_vec(
-            _fit(self._embed(query)),
-            top_k=top_k,
-            filters=filters,
-            scope=scope,
-            state=state,
-        )
+        """Hybrid retrieval: pgvector cosine fused with a BM25 keyword branch.
 
-    def _search_vec(
-        self,
-        qvec: Vector,
-        *,
-        top_k: int = 10,
-        filters: dict | None = None,
-        scope: str | None = None,
-        state: str | None = "active",
-    ) -> list[SearchHit]:
-        sql = (
-            "SELECT id, text, source, confidence, scope, category, "
-            "observation_count, state, 1 - (embedding <=> %s) AS score "
-            f"FROM {self._facts_table} "
-            "WHERE org_id = %s AND (shared OR user_id = %s) "
-            "AND embedding IS NOT NULL"
+        Borrows Graphiti/Zep's search stack. Two indexed branches run over the same
+        tenant/state/scope/filter predicate:
+
+          * **semantic** — pgvector cosine (HNSW index on ``embedding``), the prior
+            behavior.
+          * **keyword (BM25-style)** — Postgres full-text: ``websearch_to_tsquery``
+            against the generated ``text_tsv`` column (GIN index), ranked by
+            ``ts_rank``. This is what surfaces an exact term/identifier (a token,
+            name, error/runbook code) that cosine alone can rank out of top-k.
+
+        The two rankings are fused with **Reciprocal Rank Fusion** (score
+        ``Σ 1/(k + rank)``, ``k=60``): each branch fetches ``_FUSION_BRANCH_N``, a
+        fact's RRF score sums the reciprocal of its rank in whichever branches it
+        appears, and the top ``top_k`` by fused score are returned. RRF needs no
+        score calibration between the (cosine) and (ts_rank) scales — it ranks on
+        position only. The returned ``SearchHit.score`` is the cosine similarity
+        when the fact appeared in the semantic branch (so existing score-based
+        callers keep meaningful numbers); keyword-only hits carry their ts_rank.
+
+        Backward compatible: ``hybrid=False`` falls back to the pure-cosine path
+        (``_search_vec``), and the signature is otherwise unchanged (``hybrid`` is a
+        new optional keyword). The internal candidate-recall pass (``_recall`` ->
+        ``_search_vec``) deliberately stays pure-semantic — dedup/conflict want
+        embedding recall, not keyword matching.
+        """
+        qvec = _fit(self._embed(query))
+        if not hybrid:
+            return self._search_vec(
+                qvec, top_k=top_k, filters=filters, scope=scope, state=state
+            )
+        sem = self._search_vec(
+            qvec, top_k=_FUSION_BRANCH_N, filters=filters, scope=scope, state=state
         )
-        params: list[object] = [qvec, self.org_id, self.user_id]
+        kw = self._search_keyword(
+            query, top_k=_FUSION_BRANCH_N, filters=filters, scope=scope, state=state
+        )
+        return _rrf_fuse(sem, kw, top_k=top_k)
+
+    def _where(
+        self,
+        *,
+        filters: dict | None,
+        scope: str | None,
+        state: str | None,
+    ) -> tuple[str, list[object]]:
+        """The shared tenant/cache/state/scope/filter predicate for a search branch.
+
+        Returns ``(sql_fragment, params)`` so the cosine and keyword branches apply
+        the exact same row gating — only their ranking expression differs.
+        """
+        sql = "WHERE org_id = %s AND (shared OR user_id = %s)"
+        params: list[object] = [self.org_id, self.user_id]
         if self._cache_key is not None:
             # A cache-bound graph only ever sees its own partition, so recall /
             # dedup / conflict stay within the one eval case (and contradiction
@@ -350,25 +441,82 @@ class PostgresVectorGraph(SearchableGraph):
         for key, value in (filters or {}).items():
             sql += f" AND {key} = %s"
             params.append(value)
-        sql += " ORDER BY embedding <=> %s LIMIT %s"
-        params.extend([qvec, top_k])
+        return sql, params
+
+    def _search_vec(
+        self,
+        qvec: Vector,
+        *,
+        top_k: int = 10,
+        filters: dict | None = None,
+        scope: str | None = None,
+        state: str | None = "active",
+    ) -> list[SearchHit]:
+        where, where_params = self._where(filters=filters, scope=scope, state=state)
+        sql = (
+            "SELECT id, text, source, confidence, scope, category, "
+            "observation_count, state, 1 - (embedding <=> %s) AS score "
+            f"FROM {self._facts_table} {where} AND embedding IS NOT NULL "
+            "ORDER BY embedding <=> %s LIMIT %s"
+        )
+        params: list[object] = [qvec, *where_params, qvec, top_k]
         rows = self._conn.execute(sql, params).fetchall()
-        return [
-            SearchHit(
-                fact=Fact(
-                    id=r[0],
-                    text=r[1],
-                    source=r[2],
-                    confidence=r[3] if r[3] is not None else 1.0,
-                    scope=r[4],
-                    category=r[5],
-                    observation_count=r[6],
-                    state=r[7],
-                ),
-                score=float(r[8]),
-            )
-            for r in rows
-        ]
+        return [_row_to_hit(r) for r in rows]
+
+    def _search_keyword(
+        self,
+        query: str,
+        *,
+        top_k: int = 10,
+        filters: dict | None = None,
+        scope: str | None = None,
+        state: str | None = "active",
+    ) -> list[SearchHit]:
+        """BM25-style keyword branch: IDF-weighted full-text match over ``text_tsv``.
+
+        The point of the keyword branch is to surface a fact carrying a rare, exact
+        term/identifier (a token, name, error/runbook code) that cosine ranks out of
+        top-k. Postgres ``ts_rank`` has no IDF — it rewards docs matching many query
+        words, so common words (here every "on-call engineer" distractor) outrank the
+        one doc with the rare identifier, defeating the purpose. So this scores each
+        candidate by the **BM25 IDF component**: for every query lexeme a doc shares,
+        add ``ln(N / df)`` (N = corpus size in this tenant partition, df = how many
+        docs contain that lexeme). A rare token like ``rbk``/``-7782`` (df=1) carries
+        a large weight; ubiquitous words carry near-zero — so the identifier fact
+        wins. The query is lexed with ``to_tsvector('english', …)`` (same config as
+        the stored column) and OR-matched via array intersection on the GIN-indexed
+        ``text_tsv``; empty/stopword-only queries yield nothing (RRF then degrades to
+        the cosine branch alone). Score is the summed IDF; fusion ranks on position,
+        so its scale never needs to match cosine.
+        """
+        where, where_params = self._where(filters=filters, scope=scope, state=state)
+        sql = (
+            "WITH params AS (SELECT tsvector_to_array(to_tsvector('english', %s)) AS qlex), "
+            "docs AS ("
+            "  SELECT id, text, source, confidence, scope, category, observation_count, state, "
+            "         tsvector_to_array(text_tsv) AS dlex "
+            f"  FROM {self._facts_table} {where} AND text_tsv IS NOT NULL"
+            "), "
+            "ndoc AS (SELECT count(*)::float AS n FROM docs), "
+            "matched AS ("
+            "  SELECT d.id, unnest(ARRAY(SELECT unnest(d.dlex) INTERSECT SELECT unnest(p.qlex))) AS lex "
+            "  FROM docs d CROSS JOIN params p"
+            "), "
+            "df AS (SELECT lex, count(*)::float AS df FROM matched GROUP BY lex) "
+            "SELECT d.id, d.text, d.source, d.confidence, d.scope, d.category, "
+            "       d.observation_count, d.state, "
+            "       COALESCE(sum(ln(ndoc.n / df.df)), 0) AS score "
+            "FROM docs d CROSS JOIN ndoc "
+            "LEFT JOIN matched m ON m.id = d.id "
+            "LEFT JOIN df ON df.lex = m.lex "
+            "GROUP BY d.id, d.text, d.source, d.confidence, d.scope, d.category, "
+            "         d.observation_count, d.state "
+            "HAVING COALESCE(sum(ln(ndoc.n / df.df)), 0) > 0 "
+            "ORDER BY score DESC LIMIT %s"
+        )
+        params: list[object] = [query, *where_params, top_k]
+        rows = self._conn.execute(sql, params).fetchall()
+        return [_row_to_hit(r) for r in rows]
 
     # --- dashboard snapshot (the graph the dashboard renders) --------------
     def active_facts(self) -> list[Fact]:

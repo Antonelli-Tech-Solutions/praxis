@@ -58,6 +58,16 @@ CREATE INDEX IF NOT EXISTS facts_tenant ON facts (org_id, shared, user_id, scope
 CREATE INDEX IF NOT EXISTS facts_embedding_hnsw
     ON facts USING hnsw (embedding vector_cosine_ops);
 
+-- Keyword (BM25-style) retrieval branch for hybrid search. A generated tsvector
+-- of the fact text, GIN-indexed, so search can fuse a full-text keyword ranking
+-- (websearch_to_tsquery + ts_rank) with the pgvector cosine ranking via Reciprocal
+-- Rank Fusion. STORED + generated keeps it always in sync with `text` on write,
+-- with no application code path to forget. English config matches the query side.
+ALTER TABLE facts ADD COLUMN IF NOT EXISTS text_tsv tsvector
+    GENERATED ALWAYS AS (to_tsvector('english', text)) STORED;
+
+CREATE INDEX IF NOT EXISTS facts_text_tsv_gin ON facts USING gin (text_tsv);
+
 -- Orgs: app-level tenants. A user creates an org (setting its password) or
 -- joins an existing one (supplying that password). The password is stored as a
 -- pbkdf2_hmac(sha256) hash with a per-org random salt (see orgs_store.py).
@@ -183,6 +193,13 @@ CREATE INDEX IF NOT EXISTS cached_facts_tenant ON cached_facts (org_id, shared, 
 
 CREATE INDEX IF NOT EXISTS cached_facts_embedding_hnsw
     ON cached_facts USING hnsw (embedding vector_cosine_ops);
+
+-- Keyword branch twin of `facts.text_tsv` (mirrors the facts/cached_facts split),
+-- so a cache-bound graph (snapshots / eval cache) gets the same hybrid retrieval.
+ALTER TABLE cached_facts ADD COLUMN IF NOT EXISTS text_tsv tsvector
+    GENERATED ALWAYS AS (to_tsvector('english', text)) STORED;
+
+CREATE INDEX IF NOT EXISTS cached_facts_text_tsv_gin ON cached_facts USING gin (text_tsv);
 
 CREATE INDEX IF NOT EXISTS cached_facts_key ON cached_facts (org_id, user_id, cache_key);
 
