@@ -4,7 +4,7 @@
 # n_neighbors left at 15. NON-GATING: the dogfood run showed this control is variance-prone
 # (exhibited 2/3 in v1, 0/3 in v2), so this task earns its place on the token/turn cost
 # signal, not on its flip. The check is recorded for diagnostic interest only.
-id: umap_neighbors_before
+id: autodistill_umap_neighbors_before
 needs: [sandbox, file_io]
 output_file: clustering.py
 seed_prompt: |

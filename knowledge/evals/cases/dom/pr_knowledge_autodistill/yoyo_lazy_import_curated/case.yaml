@@ -6,7 +6,7 @@
 # distillation or retrieval gap. If it flips where the auto arm doesn't, the gap is
 # extraction quality (the distilled phrasing was weaker than this ideal). Same seed_prompt
 # as yoyo_lazy_import / yoyo_lazy_import_before; only the seed + reader differ.
-id: yoyo_lazy_import_curated
+id: autodistill_yoyo_lazy_import_curated
 needs: [sandbox, file_io]
 output_file: 0002_backfill_fact_source.py
 reader: whole_file  # force-inject the ideal fact; no retrieval cutoff

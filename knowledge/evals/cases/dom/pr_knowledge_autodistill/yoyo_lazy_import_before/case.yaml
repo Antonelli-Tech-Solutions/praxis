@@ -4,7 +4,7 @@
 # universal Python default). A clean PASS means the footgun fired and the pair discriminates.
 # A FAIL means the blind agent deferred the import anyway (footgun not blind-tempting). The
 # dogfood v2 run validated this control fires 3/3 — re-confirm rather than re-discover.
-id: yoyo_lazy_import_before
+id: autodistill_yoyo_lazy_import_before
 needs: [sandbox, file_io]
 output_file: 0002_backfill_fact_source.py
 seed_prompt: |

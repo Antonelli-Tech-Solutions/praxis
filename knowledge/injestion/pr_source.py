@@ -26,6 +26,10 @@ Fetcher = Callable[[list[str]], str]
 # Truncate the unified diff to roughly this many lines before feeding the distiller.
 DIFF_LINE_CAP = 300
 
+# Per-call subprocess timeout (seconds) so a hung `gh`/`git` can't block the backfill
+# forever; a TimeoutExpired propagates and the backfill's per-unit guard skips that unit.
+FETCH_TIMEOUT_S = 60
+
 # File paths whose diff hunks are low-signal for durable knowledge — dropped first
 # when the diff is over the cap.
 _DEPRIORITIZED = ("tests/", "test_", ".lock", "lock.json", "package-lock",
@@ -65,7 +69,7 @@ def default_fetcher(argv: list[str]) -> str:
     platform default (cp1252 on Windows) crashes on bytes outside its map.
     """
     proc = subprocess.run(argv, capture_output=True, text=True,
-                          encoding="utf-8", errors="replace")
+                          encoding="utf-8", errors="replace", timeout=FETCH_TIMEOUT_S)
     if proc.returncode != 0:
         detail = (proc.stderr.strip() or proc.stdout.strip())[:500]
         raise RuntimeError(f"{argv[0]} exited {proc.returncode}: {detail}")

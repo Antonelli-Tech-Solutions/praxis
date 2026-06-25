@@ -3,7 +3,7 @@
 # must RETRIEVE the neutralizing fact from the full 154-fact corpus to avoid the footgun.
 # Generated from facts.frozen.txt by backfill (do not hand-edit the seed). See README.md.
 
-id: yoyo_lazy_import
+id: autodistill_yoyo_lazy_import
 needs:
 - sandbox
 - file_io

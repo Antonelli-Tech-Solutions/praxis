@@ -51,13 +51,20 @@ from knowledge.evals.analyze_utils import (  # noqa: E402
     rate,
 )
 
+# Below this many trials on a gating task the flip is a coin-flip and a GO is not
+# defensible — the gate downgrades to NO-GO (insufficient data) regardless of the flip.
+MIN_GATING_TRIALS = 3
+
 # The footgun-absence check (regex_absent) is applied uniformly to ALL arms so a
 # "flip" is comparable across them: correct == footgun avoided. `marker_terms` are
 # the substrings that identify this task's neutralizing fact for the R7 extraction
 # (was it distilled into the artifact?) and retrieval (did the reader surface it?)
 # diagnostics. `gating` marks the one footgun the verdict actually gates on.
 TASKS: dict[str, dict] = {
-    "yoyo_lazy_import": {
+    # Case ids are namespaced ("autodistill_*") because the harness's load_cases()
+    # globs a single global case dir and de-dupes by id — bare "yoyo_lazy_import"
+    # collides with the sibling dogfood suite and silently shadows this arm.
+    "autodistill_yoyo_lazy_import": {
         "kind": "footgun",
         "gating": True,
         "correct_check": ("knowledge.evals.deterministic_checks.text:regex_absent",
@@ -68,7 +75,7 @@ TASKS: dict[str, dict] = {
         "marker_terms": ["sys.path", "import"],
         "has_curated": True,
     },
-    "umap_neighbors": {
+    "autodistill_umap_neighbors": {
         "kind": "footgun",
         "gating": False,  # demoted to a non-gating cost signal (dogfood control 2/3 -> 0/3)
         "correct_check": ("knowledge.evals.deterministic_checks.text:regex_absent",
@@ -227,17 +234,25 @@ def evaluate_gate(report: dict) -> dict:
     gating = [n for n, t in tasks.items() if t["is_gating"]]
     gating_flip = bool(gating) and all(tasks[n]["flip"] for n in gating)
 
+    # A flip is a coin-flip at tiny n; the EXHIBIT_BAR (2/3) is only honest at n>=3.
+    # Refuse a GO when any gating task ran too few trials — otherwise a 1-trial
+    # --from-records blob or `--trials 1` prints a confident GO the data can't support.
+    underpowered = [n for n in gating if tasks[n]["trials"] < MIN_GATING_TRIALS]
+
     reduced = {n: (t["token_reduced"] or t["turn_reduced"]) for n, t in tasks.items()}
     n_reduced = sum(reduced.values())
     most_reduced = bool(tasks) and n_reduced > len(tasks) / 2
 
-    go = gating_flip and most_reduced and not errors
+    go = gating_flip and most_reduced and not underpowered and not errors
     reasons: list[str] = []
     if not gating:
         reasons.append("no gating footgun task present")
     if gating and not gating_flip:
         reasons.append("gating footgun did not flip: "
                        + ", ".join(n for n in gating if not tasks[n]["flip"]))
+    if underpowered:
+        reasons.append(f"gating task(s) under {MIN_GATING_TRIALS} trials (insufficient data): "
+                       + ", ".join(f"{n}={tasks[n]['trials']}" for n in underpowered))
     if not most_reduced:
         reasons.append(f"token/turn reduced on only {n_reduced}/{len(tasks)} tasks (need a majority)")
     if errors:
@@ -279,36 +294,50 @@ def run_experiment(trials: int, tasks: dict | None = None) -> tuple[list[dict], 
     from knowledge.evals.run import load_cases, run_case_full, select_runner
 
     tasks = tasks or TASKS
-    cases = {c.id: c for c in load_cases()}
-    runner, judge = select_runner("claude")
     insights = _load_insights()
+    if not insights:
+        raise SystemExit(
+            "facts.insights.json is missing/empty — run the live backfill first:\n"
+            "  python -m knowledge.injestion.backfill_prs 30\n"
+            "  python -m knowledge.evals.embed_cache --refresh"
+        )
+    cases = {c.id: c for c in load_cases()}
+    # Fail fast if any arm's case id is absent (e.g. a rename drifted) rather than
+    # KeyError-ing mid-run after spending on earlier trials.
+    for task, cfg in tasks.items():
+        needed = [task, control_id(task)] + ([curated_id(task)] if cfg.get("has_curated") else [])
+        missing = [cid for cid in needed if cid not in cases]
+        if missing:
+            raise SystemExit(f"unknown case id(s) for task {task!r}: {missing} (author U4 cases first)")
+    runner, judge = select_runner("claude")
 
     records: list[dict] = []
     diagnostics: dict[str, dict] = {}
     for task, cfg in tasks.items():
-        if task not in cases:
-            raise SystemExit(f"unknown case id: {task} (author U4 cases first)")
         check = cfg["correct_check"]
-        surfaced_any = False
+        markers = cfg.get("marker_terms", [])  # quantitative tasks carry none
+        surfaced_count = 0
         for n in range(trials):
             actx, _, _ = run_case_full(cases[task], runner, judge=judge)
             auto = measure(actx, check)
             cctx, _, _ = run_case_full(cases[control_id(task)], runner, judge=judge)
             control = measure(cctx, check)
             curated = None
-            if cfg.get("has_curated") and curated_id(task) in cases:
+            if cfg.get("has_curated"):
                 uctx, _, _ = run_case_full(cases[curated_id(task)], runner, judge=judge)
                 curated = measure(uctx, check)
-            if fact_surfaced(getattr(actx, "injected_knowledge", "") or "", cfg["marker_terms"]):
-                surfaced_any = True
+            if markers and fact_surfaced(getattr(actx, "injected_knowledge", "") or "", markers):
+                surfaced_count += 1
             records.append({"task": task, "kind": cfg["kind"],
                             "auto": auto, "control": control, "curated": curated})
             print(f"  {task} trial {n + 1}/{trials}: auto_avoid={auto['correct']} "
                   f"ctrl_avoid={control['correct']} curated_avoid="
                   f"{curated['correct'] if curated else 'n/a'}", flush=True)
         diagnostics[task] = {
-            "fact_in_artifact": neutralizing_fact_present(insights, cfg["marker_terms"]),
-            "surfaced": surfaced_any,
+            "fact_in_artifact": bool(markers) and neutralizing_fact_present(insights, markers),
+            # majority of trials, not any single one — an unstable retriever shouldn't read as surfaced
+            "surfaced": bool(markers) and surfaced_count >= (trials / 2),
+            "surfaced_trials": f"{surfaced_count}/{trials}",
         }
     return records, diagnostics
 

@@ -70,19 +70,24 @@ def backfill(
 
     insights: list[Insight] = []
     seen: set[str] = set()
+    skipped = 0
     for kind, ref in units:
         try:
             doc = (build_pr_document(int(ref), fetch=fetch) if kind == "pr"
                    else build_commit_document(ref, fetch=fetch))
             distilled = ingestor.synthesis(doc.render(), source=doc.unit_source)
         except Exception as exc:  # noqa: BLE001 — one bad unit shouldn't sink the backfill
-            print(f"  WARN: skipping {kind}:{ref} — {exc}", flush=True)
+            skipped += 1
+            print(f"  WARN: skipping {kind}:{ref} — {type(exc).__name__}: {exc}", flush=True)
             continue
         for ins in distilled:
             key = ins.raw_text.strip()
             if key and key not in seen:
                 seen.add(key)
                 insights.append(ins)
+    if skipped:
+        # Surface mass-skip (e.g. a code bug hitting every unit) before artifacts are frozen.
+        print(f"  NOTE: {skipped}/{len(units)} units skipped — review WARN lines above", flush=True)
     return insights
 
 

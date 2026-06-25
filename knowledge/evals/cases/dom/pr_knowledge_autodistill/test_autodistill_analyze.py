@@ -135,6 +135,39 @@ def test_attribution_none_when_auto_arm_flipped():
     ) is None
 
 
+def test_attribution_knowledge_value_when_no_curated_arm_to_consult():
+    # present + surfaced + auto misses + no curated arm -> default to the weaker-bet read
+    assert analyze.attribute_shortfall(
+        flip=False, fact_in_artifact=True, surfaced=True, curated_flip=None
+    ) == "KNOWLEDGE-VALUE"
+
+
+# --- gate edge cases -------------------------------------------------------
+
+def test_aggregate_reports_no_trials_as_error():
+    report = analyze.aggregate([], tasks=GATING)
+    assert "yoyo" not in report["tasks"]
+    assert any("no trials" in e for e in report["errors"])
+    assert analyze.evaluate_gate(report)["verdict"] == "NO-GO"
+
+
+def test_gate_nogo_when_gating_task_underpowered():
+    # A clean flip on a SINGLE trial must not earn a GO (below MIN_GATING_TRIALS).
+    one = [_rec("yoyo", "footgun", _arm(0.04, 4, 1000, True), _arm(0.05, 6, 1500, False))]
+    gate = analyze.evaluate_gate(analyze.aggregate(one, tasks=GATING))
+    assert gate["verdict"] == "NO-GO"
+    assert gate["gating_flip"] is True  # the flip is there...
+    assert any("insufficient data" in r for r in gate["reasons"])  # ...but n is too small
+
+
+def test_gate_no_gating_task_present():
+    recs = [_rec("u", "footgun", _arm(0.04, 4, 1000, True), _arm(0.05, 6, 1500, False))
+            for _ in range(3)]
+    gate = analyze.evaluate_gate(analyze.aggregate(recs, tasks={"u": {"kind": "footgun", "gating": False}}))
+    assert gate["verdict"] == "NO-GO"
+    assert any("no gating footgun task present" in r for r in gate["reasons"])
+
+
 # --- R7 presence diagnostics (pure) ----------------------------------------
 
 def test_neutralizing_fact_present_matches_all_marker_terms():

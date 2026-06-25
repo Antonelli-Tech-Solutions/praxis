@@ -88,6 +88,26 @@ def test_empty_distill_contributes_nothing_and_dedups():
     assert [i.raw_text for i in insights] == ["Same fact."]  # deduped to one
 
 
+def test_one_failing_unit_is_skipped_not_fatal():
+    # The "one bad unit shouldn't sink the backfill" contract: a fetch that raises
+    # for PR 2 is skipped with a warning; PR 1 still contributes.
+    ingestor = FakeIngestor({"git/pr:1": [Insight(raw_text="F1", source="git/pr:1")]})
+
+    def fetch(argv):
+        if argv[:3] == ["gh", "pr", "list"]:
+            return json.dumps([{"number": 2, "state": "MERGED"}, {"number": 1, "state": "MERGED"}])
+        if argv[:4] == ["gh", "pr", "view", "2"]:
+            raise RuntimeError("boom: PR 2 fetch failed")
+        if argv[:3] == ["gh", "pr", "view"]:
+            return json.dumps({"title": "t", "body": "b", "reviews": []})
+        if argv[:3] == ["gh", "pr", "diff"]:
+            return "diff --git a/f.py b/f.py\n+x"
+        raise AssertionError(argv)
+
+    insights = backfill(ingestor=ingestor, fetch=fetch, pr_limit=30)
+    assert [i.raw_text for i in insights] == ["F1"]  # PR 2 skipped, PR 1 survived
+
+
 def test_serialization_is_byte_identical_for_same_inputs():
     # Determinism: same insights -> byte-identical artifacts (stable ordering, no clock).
     insights = [
