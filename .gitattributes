@@ -3,3 +3,5 @@
 *.yml  text eol=lf
 *.yaml text eol=lf
 *.sh   text eol=lf
+# Go requires LF: gofmt emits LF, so a CRLF .go file fails the go-lint gate.
+*.go   text eol=lf
