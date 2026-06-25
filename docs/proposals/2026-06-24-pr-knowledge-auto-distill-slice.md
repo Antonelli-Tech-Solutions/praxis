@@ -42,9 +42,9 @@ This slice tests both at once, against the dogfood experiment's baseline. It is 
 point at which the parent proposal's **retrieval gap** (semantic-only retrieval, no file/scope
 awareness) can actually bite — and observing it bite is part of the point.
 
-## Now built (v1) — what this slice reuses and what v1 found
+## Now built (v1 → v2) — what this slice reuses and what the experiments found
 
-The dogfood experiment has been implemented and run. Concrete, reusable artifacts now exist under
+The dogfood experiment has been implemented and run twice. Concrete, reusable artifacts now exist under
 [`knowledge/evals/cases/dom/pr_knowledge_dogfood/`](../../knowledge/evals/cases/dom/pr_knowledge_dogfood/):
 
 - **Curated-fact format + provenance** (`facts.md`): ~13 facts, each one or two sentences, traced to a
@@ -54,14 +54,18 @@ The dogfood experiment has been implemented and run. Concrete, reusable artifact
   facts via `seeded_insight.direct_to_graph` (written `active`); the control is empty. **Controls use a
   positive-assertion shape** (assert the footgun is *present*) rather than `xfail` — an `xfail` control
   silently XPASSes when agent nondeterminism dodges the footgun, reading as a false win. Reuse this shape.
-- **Trial + aggregation + go-gate tooling** (`analyze.py`, with offline fixture-backed tests). Runs N
-  trials/arm in-process through the real `ClaudeCodeRunner` (not the CLI — that clobbers
-  `results/baseline.jsonl`), aggregates tokens/turns + footgun flips, and emits the R8 verdict. Adding
+- **Cost-to-correct trial/aggregation/go-gate tooling** (`analyze.py`, with offline fixture-backed
+  tests). Runs each task's treatment + control + a rework turn (control's wrong output re-prompted with
+  the fact as review feedback) in-process through the real `ClaudeCodeRunner` (not the CLI — that
+  clobbers `results/baseline.jsonl`), and gates on `cost_usd` cost-to-correct + footgun-flips. Adding
   this slice's **third arm** (auto-distilled + retrieved) is a natural extension of this code, not new
   scaffolding.
-- **A proven, validity-gated footgun template** (`umap_neighbors`, from `d892e88`): a mounted fixture
-  whose blind default trips a documented gotcha, graded by a whitespace-tolerant regex on the agent's
-  written file. This is the template a credible seeded footgun should follow.
+- **A validated footgun template** (`yoyo_lazy_import`, from `1fdb8be`): a create-task whose blind
+  default — a top-level `from knowledge...` import in a yoyo migration — reliably trips a documented
+  gotcha (yoyo execs with the repo root off `sys.path`), graded by a column-0-import regex. v2 showed
+  its control exhibits the footgun 3/3; this is the template a credible seeded footgun should follow.
+  (`umap_neighbors` is also a footgun but proved variance-prone — control-exhibit 2/3 in v1, 0/3 in v2
+  — so it is demoted to a non-gating cost signal.)
 
 **v1's verdict was a strict NO-GO — but apparatus-attributed, not "knowledge doesn't help"** (full
 diagnosis in the suite's `RESULTS.md`):
@@ -77,17 +81,26 @@ diagnosis in the suite's `RESULTS.md`):
   control, which pays an unmeasured rework tail to fix wrong output. Prefer `cost_usd`, `num_turns`,
   footgun-flips, and a **cost-to-correct** comparison (control first-pass + rework vs. treatment).
 
-**Implication for this slice:** the dual-signal win exists but the bet is not yet *cleanly* proven, so
-the gate still holds. The cheapest path is to iterate v1's apparatus (a second validity-gated footgun,
-a repo-mounted task, cost-to-correct metric) *before or as part of* standing up this slice's
-auto-distilled arm — reusing everything above rather than rebuilding it.
+**v2 ran the iteration** (replaced the invalid footgun with `yoyo_lazy_import`, added a repo-mounted
+task, re-gated on cost-to-correct). Result: still a strict NO-GO, but the bet is **better-supported** —
+a *valid* footgun (`yoyo`) flipped cleanly **and** cost-to-correct favored knowledge on 3/4 tasks. The
+two remaining gaps are apparatus, not knowledge value: `umap`'s footgun is too variance-prone to gate
+on, and the single-file repo-mounted task didn't surface the exploration-savings lever.
+
+**Implication for this slice:** the cost-to-correct metric and the curated-fact value are now
+validated; what's missing for a clean GO is footgun-construct *robustness* (≥2 reliably-blind-tempting
+footguns, not one) and a heavier repo-mounted task. Add those to the dogfood suite first; once the gate
+is clean-green, this slice's only new variable is auto-distillation + retrieval — everything else is
+reused.
 
 ## Key Decisions
 
-- **Gated on an iterated v1 re-run.** v1 is built and has run, but its strict R8 gate is still NO-GO
-  (apparatus-attributed — see *Now built*). Do not stand up the auto-distilled arm until an iterated
-  dogfood re-run (a second validity-gated footgun + cost-to-correct metric) shows the dual signal on a
-  *valid* footgun. If curated+pushed facts can't clear that bar, auto-distilled+retrieved facts won't.
+- **Gated on a clean-green dogfood gate.** v2 ran the iteration and got partway: a valid footgun
+  (`yoyo`) flipped and cost-to-correct favored knowledge on 3/4 tasks, but the strict gate is still
+  NO-GO (one valid footgun + a null repo task). Do not stand up the auto-distilled arm until the dogfood
+  suite gate is clean-green (≥2 reliably-blind-tempting footguns + a repo-mounted task that shows the
+  exploration-savings lever). If curated+pushed facts can't clear that bar, auto-distilled+retrieved
+  facts won't.
 - **One LLM call per PR.** A cheap, single-pass distiller — not a tuned multi-step write pipeline.
   Extraction quality is being *measured*, not perfected.
 - **Load as `active`, consume via MCP pull.** Facts go straight to `active` (no human gate, acceptable
