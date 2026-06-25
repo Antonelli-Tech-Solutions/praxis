@@ -81,6 +81,22 @@ CREATE TABLE IF NOT EXISTS org_members (
     FOREIGN KEY (org_id) REFERENCES orgs (org_id) ON DELETE CASCADE
 );
 
+-- Mounted snapshots: a per-viewer read-only overlay set. Each row says "when
+-- (org_id, user_id) does a retrieval read, also expose snapshot
+-- 'snapshot:<snapshot_name>' owned by source_user_id". Mounts only affect the
+-- read path (see overlay_graph.py): writes/ingest and saving a snapshot operate
+-- on the live `facts` table alone, so a mounted overlay is never merged in and
+-- never carried over on a save. source_user_id may be the viewer (your own
+-- snapshot) or any other org member (read within the org trust boundary).
+CREATE TABLE IF NOT EXISTS mounted_snapshots (
+    org_id         text NOT NULL,
+    user_id        text NOT NULL,
+    source_user_id text NOT NULL,
+    snapshot_name  text NOT NULL,
+    created_at     timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (org_id, user_id, source_user_id, snapshot_name)
+);
+
 -- Scoped API keys: a long-lived, org-scoped service token an automated agent
 -- uses instead of the Cognito SRP + per-request token mint. Only the sha256 hex
 -- of the raw key (`pxk_<random>`) is stored; the raw key is shown once at mint.

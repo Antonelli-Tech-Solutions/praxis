@@ -370,6 +370,104 @@ class PostgresVectorGraph(SearchableGraph):
             for r in rows
         ]
 
+    def overlay_search(
+        self,
+        query: str,
+        mounts: list[tuple[str, str]],
+        *,
+        top_k: int = 10,
+    ) -> list[SearchHit]:
+        """Vector-search the live graph unioned with mounted snapshots, in one query.
+
+        Backs the mounted read-only overlay (see ``overlay_graph.py``). ``mounts``
+        is a list of ``(source_user_id, cache_key)`` pairs naming saved snapshots
+        to also expose. The query is embedded **once** and a single ``UNION ALL``
+        ranks the live ``facts`` branch and the ``cached_facts`` branch together —
+        no per-mount round trip, no re-embedding. Both tables have an HNSW
+        embedding index, so each branch is a sub-linear indexed search.
+
+        The live branch keeps the normal tenant predicate
+        (``org_id AND (shared OR user_id)``); the mounted branch is org-scoped but
+        cross-user (``org_id AND (user_id, cache_key) ∈ mounts``) — the same
+        within-org trust boundary :class:`OrgSourceReader` relies on, with org
+        membership validated by the mount route. Mounted hits carry
+        ``fact.meta["mountedFrom"]`` so callers can tell them from live facts.
+        Results are deduped by id (a live fact wins over a same-id snapshot copy),
+        ranked by score, and truncated to ``top_k``.
+        """
+        qvec = _fit(self._embed(query))
+        cols = (
+            "id, text, source, confidence, scope, category, observation_count, state"
+        )
+        live = (
+            f"SELECT {cols}, NULL::text AS mount_user, NULL::text AS mount_key, "
+            "1 - (embedding <=> %s) AS score FROM facts "
+            "WHERE org_id = %s AND (shared OR user_id = %s) "
+            "AND state = 'active' AND embedding IS NOT NULL "
+            "ORDER BY embedding <=> %s LIMIT %s"
+        )
+        params: list[object] = [qvec, self.org_id, self.user_id, qvec, top_k]
+        sql = f"SELECT * FROM ({live}) AS live"
+        if mounts:
+            ors = " OR ".join(["(user_id = %s AND cache_key = %s)"] * len(mounts))
+            mounted = (
+                f"SELECT {cols}, user_id AS mount_user, cache_key AS mount_key, "
+                "1 - (embedding <=> %s) AS score FROM cached_facts "
+                f"WHERE org_id = %s AND ({ors}) "
+                "AND state = 'active' AND embedding IS NOT NULL "
+                "ORDER BY embedding <=> %s LIMIT %s"
+            )
+            sql += f" UNION ALL SELECT * FROM ({mounted}) AS mounted"
+            params += [qvec, self.org_id]
+            for source_user_id, cache_key in mounts:
+                params += [source_user_id, cache_key]
+            params += [qvec, top_k]
+        rows = self._conn.execute(sql, params).fetchall()
+
+        # Each branch is capped at top_k, so this is at most ~2*top_k rows. Dedupe
+        # by id preferring the live copy (mount_user IS NULL), then rank + cap.
+        best: dict[str, SearchHit] = {}
+        for r in rows:
+            mount_user, mount_key, score = r[8], r[9], float(r[10])
+            hit = SearchHit(
+                fact=Fact(
+                    id=r[0], text=r[1], source=r[2],
+                    confidence=r[3] if r[3] is not None else 1.0,
+                    scope=r[4], category=r[5], observation_count=r[6], state=r[7],
+                ),
+                score=score,
+            )
+            if mount_user is not None:
+                hit.fact.meta["mountedFrom"] = {
+                    "userId": mount_user,
+                    "snapshot": mount_key.split("snapshot:", 1)[-1],
+                }
+            existing = best.get(hit.fact.id)
+            if existing is None:
+                best[hit.fact.id] = hit
+                continue
+            # Prefer a live hit over a same-id snapshot copy; else higher score.
+            existing_mounted = bool(existing.fact.meta.get("mountedFrom"))
+            this_mounted = mount_user is not None
+            if existing_mounted and not this_mounted:
+                best[hit.fact.id] = hit
+            elif existing_mounted == this_mounted and hit.score > existing.score:
+                best[hit.fact.id] = hit
+        ranked = sorted(best.values(), key=lambda h: h.score, reverse=True)
+        return ranked[:top_k]
+
+    def recent_cache(
+        self, *, source_user_id: str, cache_key: str, limit: int
+    ) -> list[Fact]:
+        """Newest active facts of a snapshot — the no-query overlay read path."""
+        rows = self._conn.execute(
+            "SELECT id, text, source, confidence, scope, category, observation_count, state "
+            "FROM cached_facts WHERE org_id = %s AND user_id = %s AND cache_key = %s "
+            "AND state = 'active' ORDER BY created_at DESC LIMIT %s",
+            (self.org_id, source_user_id, cache_key, limit),
+        ).fetchall()
+        return [self._row_to_fact(r) for r in rows]
+
     # --- dashboard snapshot (the graph the dashboard renders) --------------
     def active_facts(self) -> list[Fact]:
         """Every ``active`` fact for this tenant — the graph ``search`` reads.
