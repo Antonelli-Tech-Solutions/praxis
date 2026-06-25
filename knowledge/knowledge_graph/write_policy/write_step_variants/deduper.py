@@ -102,6 +102,12 @@ class Deduper(WriteStep):
         # 2. Semantic merge: judge each candidate. Skipped entirely without a judge.
         if self.judge is None:
             return
+        # A derived write (non-empty derived_from) declares a NEW fact built on a source;
+        # it must stay its own distinct node carrying the derivation edge, so never fold
+        # it into a recalled fact via the same-lesson merge (the Augmenter is likewise
+        # exempted). Keyed on derived_from presence, not category.
+        if decision.derived:
+            return
         for hit in candidates:
             if hit.fact.id in guarded:
                 continue  # slot-guard ruled this a distinct fact / contradiction

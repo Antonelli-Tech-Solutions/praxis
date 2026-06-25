@@ -371,6 +371,10 @@ class PostgresVectorGraph(SearchableGraph):
         decision = WriteDecision(text=content, state="active" if state == "active" else "proposed")
         if tabular:
             decision.flags.append(TABULAR_FLAG)
+        # A write carrying derived_from declares a NEW fact built on a source; flag it so
+        # the merge steps (Deduper same-lesson / Augmenter additive) keep it distinct, then
+        # record_derivation below stamps the edge. Keyed on derived_from presence.
+        decision.derived = bool(derived_from)
         # Stash the persistence attributes on the decision so _add/_overwrite
         # (which read them off the decision via getattr) write them through.
         decision.source = source
