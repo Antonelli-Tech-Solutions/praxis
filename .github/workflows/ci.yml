@@ -1,0 +1,161 @@
+# Lint + test gate for PRAXIS.
+#
+# Mirrors the lint/test jobs in .gitlab-ci.yml (kept as a dormant fallback) so the
+# same checks run on the active GitHub host. Each job is change-gated via
+# dorny/paths-filter (same approach as deploy.yml) so only the stack a change
+# actually touches is checked.
+#
+# Triggers: pull requests (the merge gate) and direct pushes to main (a lint-only
+# safety net for anything that lands without a PR). The python-test job runs on
+# PRs only — it is the heavyweight job and main is already green via the PR gate,
+# so there is nothing to re-verify post-merge.
+#
+# Runs fully keyless: the embedder/LLM-dependent integration tests skip cleanly
+# without OPENROUTER_API_KEY, and the cassette-backed tests replay offline. No
+# third-party API key is exposed to CI.
+
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# Cancel superseded runs on the same PR; never cancel a main run mid-flight.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  # Resolve which stacks changed so each job below can no-op when untouched.
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      python: ${{ steps.filter.outputs.python }}
+      frontend: ${{ steps.filter.outputs.frontend }}
+      infra: ${{ steps.filter.outputs.infra }}
+      go: ${{ steps.filter.outputs.go }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            python:
+              - '**/*.py'
+              - 'pyproject.toml'
+              - 'uv.lock'
+              - '.github/workflows/ci.yml'
+            frontend:
+              - 'frontend-react/**'
+              - '.github/workflows/ci.yml'
+            infra:
+              - 'infra/**'
+              - '.github/workflows/ci.yml'
+            go:
+              - 'session-capture/**'
+              - '.github/workflows/ci.yml'
+
+  # Python: ruff (pyflakes F + pycodestyle E4/E7/E9), config in pyproject.toml.
+  python-lint:
+    needs: changes
+    if: ${{ needs.changes.outputs.python == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uvx ruff@0.15.20 check .
+
+  # Frontend (React/Vite): the repo's `lint` script is `tsc -b --noEmit`.
+  frontend-typecheck:
+    needs: changes
+    if: ${{ needs.changes.outputs.frontend == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend-react/package-lock.json
+      - working-directory: frontend-react
+        run: |
+          npm ci
+          npm run lint
+
+  # Infra (AWS CDK, TypeScript): `tsc` via the `build` script is the type-check gate.
+  infra-typecheck:
+    needs: changes
+    if: ${{ needs.changes.outputs.infra == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: infra/package-lock.json
+      - working-directory: infra
+        run: |
+          npm ci
+          npm run build
+
+  # Go (session-capture wrapper): gofmt (formatting) + go vet (static analysis).
+  go-lint:
+    needs: changes
+    if: ${{ needs.changes.outputs.go == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          cache-dependency-path: session-capture/wrapper/go.sum
+      - working-directory: session-capture/wrapper
+        run: |
+          test -z "$(gofmt -l .)" || { echo 'gofmt: the following files need formatting:'; gofmt -l .; exit 1; }
+          go vet ./...
+
+  # Python suite against an ephemeral pgvector service (yoyo migrations are the
+  # schema source of truth, applied via `knowledge.serve.db`). PRs only — the
+  # heavyweight job, and main is already green via the PR gate. Keyless: see header.
+  python-test:
+    needs: changes
+    if: ${{ needs.changes.outputs.python == 'true' && github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: praxis
+          POSTGRES_PASSWORD: praxis
+          POSTGRES_DB: praxis_kg
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U praxis -d praxis_kg"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PRAXIS_DB_URL: "postgresql://praxis:praxis@localhost:5432/praxis_kg"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: Sync deps and apply migrations
+        run: |
+          uv sync --frozen
+          # Service health-gates job start, but wait defensively before migrating.
+          until uv run --no-sync python -c "import os, psycopg; psycopg.connect(os.environ['PRAXIS_DB_URL']).close()" 2>/dev/null; do
+            echo "waiting for postgres..."; sleep 1
+          done
+          uv run --no-sync python -m knowledge.serve.db
+      - name: Run tests
+        run: uv run --no-sync pytest -q
