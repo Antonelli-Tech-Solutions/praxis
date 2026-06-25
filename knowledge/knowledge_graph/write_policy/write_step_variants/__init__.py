@@ -4,6 +4,12 @@ from knowledge.knowledge_graph.write_policy.write_step_variants.aspect_tagger im
     AspectJudge,
     AspectTagger,
 )
+from knowledge.knowledge_graph.write_policy.write_step_variants.augment_judge import (
+    AugmentJudge,
+)
+from knowledge.knowledge_graph.write_policy.write_step_variants.augmenter import (
+    Augmenter,
+)
 from knowledge.knowledge_graph.write_policy.write_step_variants.claim_extractor import (
     ClaimExtractionJudge,
     ClaimExtractor,
@@ -18,11 +24,20 @@ from knowledge.knowledge_graph.write_policy.write_step_variants.conflict_overwri
 from knowledge.knowledge_graph.write_policy.write_step_variants.deduper import Deduper
 from knowledge.knowledge_graph.write_policy.write_step_variants.merge_judge import MergeJudge
 from knowledge.knowledge_graph.write_policy.write_step_variants.redactor import Redactor
+from knowledge.knowledge_graph.write_policy.write_step_variants.semantic_conflict_detector import (
+    SemanticConflictDetector,
+    SemanticConflictJudge,
+)
+from knowledge.knowledge_graph.write_policy.write_step_variants.temporal_supersession_detector import (
+    TemporalSupersessionDetector,
+)
 
 __all__ = [
     "Redactor",
     "Deduper",
     "MergeJudge",
+    "Augmenter",
+    "AugmentJudge",
     "ConflictOverwriter",
     "AspectTagger",
     "AspectJudge",
@@ -30,4 +45,7 @@ __all__ = [
     "ClaimExtractionJudge",
     "ClaimConflictDetector",
     "ClaimValueJudge",
+    "SemanticConflictDetector",
+    "SemanticConflictJudge",
+    "TemporalSupersessionDetector",
 ]

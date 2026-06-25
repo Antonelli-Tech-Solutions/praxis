@@ -32,6 +32,9 @@ from knowledge.knowledge_graph.write_policy.write_step_variants import (
     ClaimValueJudge,
     Deduper,
     Redactor,
+    SemanticConflictDetector,
+    SemanticConflictJudge,
+    TemporalSupersessionDetector,
 )
 from knowledge.llm.embedder_variants.fake_embedder import FakeEmbedder
 from knowledge.llm.llm_variants.openrouter_llm import OpenRouterLlm
@@ -61,6 +64,11 @@ def default_write_policy(llm: Llm | None = None) -> list[WriteStep]:
         Deduper(),
         ClaimExtractor(judge=ClaimExtractionJudge(llm=base)),
         ClaimConflictDetector(judge=ClaimValueJudge(llm=base)),
+        # Second-pass semantic fallback (Graphiti two-stage): catches paraphrase
+        # contradictions among cosine-recalled neighbours that share no slot.
+        SemanticConflictDetector(judge=SemanticConflictJudge(llm=base)),
+        # Reinterpret dated same-slot value changes as supersession, not contradiction.
+        TemporalSupersessionDetector(),
     ]
 
 
@@ -74,6 +82,8 @@ class VectorGraph(SearchableGraph):
         *,
         recall_floor: float = 0.45,
         recall_k: int = 5,
+        semantic_recall_floor: float = 0.30,
+        semantic_recall_k: int = 10,
         tag_recall_k: int = 5,
     ) -> None:
         # Deterministic offline default; inject OpenRouterEmbedder for real runs.
@@ -83,6 +93,9 @@ class VectorGraph(SearchableGraph):
         # per-write candidate pass keeps facts scoring >= recall_floor (top recall_k).
         self.recall_floor = recall_floor
         self.recall_k = recall_k
+        # Wider, lower-floor recall reserved for the semantic contradiction pass.
+        self.semantic_recall_floor = semantic_recall_floor
+        self.semantic_recall_k = semantic_recall_k
         # Tier-B (gated): bound on the same-tag candidates added for the conflict path.
         self.tag_recall_k = tag_recall_k
         self._facts: list[Fact] = []
@@ -108,9 +121,13 @@ class VectorGraph(SearchableGraph):
             return
         decision = WriteDecision(text=content, state="active" if state == "active" else "proposed")
         claim_recalled = False
+        semantic_recalled = False
         for step in self.policy:
             if step.consumes_candidates and decision.embedding is None:
                 self._recall(decision)  # embed once + one shared candidate pass
+            if step.consumes_semantic_candidates and not semantic_recalled:
+                self._recall_semantic(decision)  # wider recall for the semantic pass
+                semantic_recalled = True
             if step.consumes_claim_candidates and not claim_recalled:
                 self._recall_claims(decision)  # slot recall, after ClaimExtractor ran
                 claim_recalled = True
@@ -127,10 +144,31 @@ class VectorGraph(SearchableGraph):
         if decision.action == "update" and decision.update_target_id:
             self._merge(decision)
             return
+        if decision.action == "augment" and decision.update_target_id:
+            self._augment(decision)
+            return
         if decision.action == "overwrite" and decision.update_target_id:
             self._overwrite(decision)
             return
         self._add(decision)
+        self._apply_supersessions(decision)
+
+    def _apply_supersessions(self, decision: WriteDecision) -> None:
+        """Enact temporal supersession flags (Graphiti invalidate-and-keep).
+
+        ``supersede:<loser>`` retires the older fact; ``supersede_self:<winner>``
+        retires the just-added incoming (a backfilled historical fact). Retirement
+        is ``state='rejected'`` (the in-memory analogue of closing the bi-temporal
+        window) so the loser leaves retrieval and the contradiction surface.
+        """
+        by_id = {f.id: f for f in self._facts}
+        for flag in decision.flags:
+            if flag.startswith("supersede:"):
+                loser = by_id.get(flag.split(":", 1)[1])
+                if loser is not None:
+                    loser.state = "rejected"
+            elif flag.startswith("supersede_self:"):
+                self._facts[-1].state = "rejected"  # the fact _add just appended
 
     # --- SearchableGraph contract ------------------------------------------
     def search(
@@ -209,6 +247,28 @@ class VectorGraph(SearchableGraph):
                 if h.fact.id not in chosen and tagset.intersection(h.fact.tags)
             ][: self.tag_recall_k]
 
+    def _recall_semantic(self, decision: WriteDecision) -> None:
+        """Fill ``decision.semantic_candidates`` via a wider, lower-floor recall.
+
+        Reuses ``decision.embedding`` (one embedding per write). Returns existing
+        facts scoring >= ``semantic_recall_floor`` (below the dedup/conflict floor),
+        capped at ``semantic_recall_k``, so the semantic LLM judge can see paraphrase
+        contradictions the narrow pass drops. Searches all states, like ``_recall``.
+        """
+        if decision.embedding is None:
+            decision.embedding = self.embedder.embed_one(decision.text)
+        if not self._facts:
+            return
+        hits = [
+            SearchHit(fact=f, score=_cosine(decision.embedding, f.embedding))
+            for f in self._facts
+            if f.embedding is not None
+        ]
+        hits.sort(key=lambda h: h.score, reverse=True)
+        decision.semantic_candidates = [
+            h for h in hits if h.score >= self.semantic_recall_floor
+        ][: self.semantic_recall_k]
+
     def _recall_claims(self, decision: WriteDecision) -> None:
         """Fill ``decision.claim_candidates`` with facts sharing a functional slot.
 
@@ -259,6 +319,23 @@ class VectorGraph(SearchableGraph):
                 fact.observation_count += 1
                 fact.confidence = min(1.0, fact.confidence + 0.05)
                 fact.flags.extend(decision.flags)
+                return
+
+    def _augment(self, decision: WriteDecision) -> None:
+        """Mem0 UPDATE/merge: rewrite the target fact's text to the merged survivor.
+
+        Keeps a single fact: the existing fact identified by ``update_target_id``
+        absorbs the new note's content (``augment_text``), re-embeds so retrieval
+        tracks the merged text, bumps observation_count, and nudges confidence.
+        The incoming note is *not* added as a separate fact.
+        """
+        merged = (decision.augment_text or decision.text).strip()
+        for fact in self._facts:
+            if fact.id == decision.update_target_id:
+                fact.text = merged
+                fact.embedding = self.embedder.embed_one(merged)
+                fact.observation_count += 1
+                fact.confidence = min(1.0, fact.confidence + 0.05)
                 return
 
     def _overwrite(self, decision: WriteDecision) -> None:

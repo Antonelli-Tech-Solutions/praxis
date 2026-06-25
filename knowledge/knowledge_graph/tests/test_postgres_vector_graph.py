@@ -246,6 +246,55 @@ def test_active_facts_is_the_retrieval_graph(unique_org):
     assert graph.active_edges() == []
 
 
+def test_hybrid_search_lifts_exact_keyword_fact_above_pure_cosine(unique_org):
+    """Hybrid (vector + BM25 via RRF) ranks an exact-identifier fact strictly higher
+    than pure cosine does.
+
+    Seeds one fact carrying a rare runbook code (RBK-7782) among several "on-call
+    engineer" distractors. The query names that code. With the deterministic
+    FakeEmbedder the cosine branch buries the terse code fact near the bottom; the
+    BM25 IDF keyword branch ranks it #1 (the code's lexemes have df=1), so fusing the
+    two lifts the code fact's rank. We assert the *improvement* (robust regardless of
+    embedder): hybrid rank < pure-cosine rank. ``hybrid=False`` proves the legacy
+    pure-cosine path is still reachable and unchanged."""
+    from knowledge.knowledge_graph.knowledge_graph_variants.postgres_vector_graph import (
+        PostgresVectorGraph,
+    )
+    from knowledge.knowledge_graph.write_policy.write_step_variants import Deduper, Redactor
+    from knowledge.llm.embedder_variants.fake_embedder import FakeEmbedder
+
+    conn = db.connect()
+    conn.execute("DELETE FROM facts WHERE org_id = %s AND user_id = %s", (unique_org, "u1"))
+    graph = PostgresVectorGraph(
+        conn, unique_org, "u1", embedder=FakeEmbedder(),
+        policy=[Redactor(), Deduper()],
+    )
+    keyword_fact = "Runbook entry RBK-7782: restart the queue consumer and clear the dead-letter table."
+    for text in [
+        keyword_fact,
+        "The on-call engineer should investigate failed jobs and restart affected workers.",
+        "Our deployments occasionally fail and need to be retried by an on-call engineer.",
+        "When a service is unhealthy, the on-call engineer checks dashboards and error logs.",
+        "On-call engineers triage production incidents and escalate when they cannot resolve them.",
+        "The on-call rotation handbook explains how engineers respond to alerts and failures.",
+    ]:
+        graph.write(text, state="active")
+
+    query = "What should the on-call engineer do for RBK-7782?"
+
+    def rank_of(hits) -> int:
+        return next(i for i, h in enumerate(hits) if h.fact.text == keyword_fact)
+
+    cosine_hits = graph.search(query, top_k=6, hybrid=False)  # default path (pure cosine)
+    hybrid_hits = graph.search(query, top_k=6, hybrid=True)  # opt-in keyword fusion
+    assert all(h.score is not None for h in cosine_hits)
+    # The keyword branch ranks the code fact #1; fusion must improve its position.
+    assert rank_of(hybrid_hits) < rank_of(cosine_hits), (
+        [h.fact.text for h in hybrid_hits],
+        [h.fact.text for h in cosine_hits],
+    )
+
+
 @pytest.fixture
 def unique_org(request):
     # Unique per test node so reruns and parallel tenants never collide.

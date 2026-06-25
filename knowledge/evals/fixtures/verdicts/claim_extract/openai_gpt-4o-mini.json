@@ -75,6 +75,13 @@
 "pole": ""
 }
 },
+"2646fb7f5100c227eee3ba2cd6a21d627eb25ccf87b5311cf85cbd0873d5624c": {
+"claims": [],
+"stance": {
+"axis": "none",
+"pole": ""
+}
+},
 "295b4ff20c9927ee963daa965ad981e187b7698e5e3c0e73f1c70d807ff44b77": {
 "claims": [
 {
@@ -316,6 +323,20 @@
 "pole": "tabs"
 }
 },
+"9710910be22216754fa4d3edfe6eb21dd66f99e1dbc7b0c4541585ebfd98e090": {
+"claims": [
+{
+"attribute": "favorite food",
+"functional": true,
+"subject": "user",
+"value": "chicken pizza"
+}
+],
+"stance": {
+"axis": "none",
+"pole": ""
+}
+},
 "9b65f093a36fd0f4da204321249d765d5e21f09463d4e848c4740ed4d746477b": {
 "claims": [
 {
@@ -348,6 +369,20 @@
 "stance": {
 "axis": "axis:abstraction-vs-directness",
 "pole": "abstraction"
+}
+},
+"a3934e6f6a418541d507a419d6f1f0e905aeb1a39bb253e9cd2bc2b6f5e9ecab": {
+"claims": [
+{
+"attribute": "type",
+"functional": true,
+"subject": "pizza",
+"value": "cheese"
+}
+],
+"stance": {
+"axis": "none",
+"pole": ""
 }
 },
 "ab73b7aad82e52c942e0dec0a9ccb62e0db140db1a86b931190c9c45527038c9": {
@@ -385,6 +420,26 @@
 "functional": true,
 "subject": "timestamps",
 "value": "America/New_York"
+}
+],
+"stance": {
+"axis": "none",
+"pole": ""
+}
+},
+"c021c05470a45466c3322cddc8688165545a7ba5aeed596043f3391b9ac74ccf": {
+"claims": [
+{
+"attribute": "location",
+"functional": true,
+"subject": "company headquarters",
+"value": "Austin"
+},
+{
+"attribute": "year",
+"functional": true,
+"subject": "company headquarters",
+"value": "2024"
 }
 ],
 "stance": {
@@ -434,6 +489,13 @@
 "pole": "explicit"
 }
 },
+"da225f7493360bc9b3eef1db67a10e8b78b9d8d717cede44964174273267d620": {
+"claims": [],
+"stance": {
+"axis": "none",
+"pole": ""
+}
+},
 "e0ec4511d38a7bdea79dbd691a78a19e3f11ac6ba00298b2d7e1b1d68f6d3718": {
 "claims": [
 {
@@ -446,6 +508,26 @@
 "stance": {
 "axis": "axis:error-fail-fast-vs-fail-safe",
 "pole": "fail-safe"
+}
+},
+"e4b911413031b6db93f129daf1a991a7d53bee6d3448d585f811b70c0b5a572e": {
+"claims": [
+{
+"attribute": "location",
+"functional": true,
+"subject": "company headquarters",
+"value": "Denver"
+},
+{
+"attribute": "year",
+"functional": true,
+"subject": "company headquarters",
+"value": "2019"
+}
+],
+"stance": {
+"axis": "none",
+"pole": ""
 }
 },
 "e7c5dbcd7eb86ca80684eaa02957d3e0cc4b0a7165d8636aabd65baa047d39f2": {
