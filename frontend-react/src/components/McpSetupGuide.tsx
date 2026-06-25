@@ -65,11 +65,15 @@ export function McpSetupGuide() {
           <strong>work with snapshots</strong> — save/load/list/delete the whole
           graph (<code>praxis_save_snapshot</code>, <code>praxis_load_snapshot</code>,{" "}
           <code>praxis_list_snapshots</code>, <code>praxis_delete_snapshot</code>),
-          clear it (<code>praxis_clear_graph</code>), and browse and fold in another
+          clear it (<code>praxis_clear_graph</code>), browse and fold in another
           member&apos;s snapshots (<code>praxis_list_org_sources</code>,{" "}
-          <code>praxis_browse_snapshot</code>, <code>praxis_fold_in</code>) — plus the
-          login/org tools. This is full parity with the dashboard&apos;s graph and
-          Snapshots actions. Your tenant <code>(org_id, user_id)</code> is resolved
+          <code>praxis_browse_snapshot</code>, <code>praxis_fold_in</code>), and{" "}
+          <strong>mount snapshots as read-only overlays</strong> that are recalled at
+          read time without being merged in or carried over on save
+          (<code>praxis_mount_snapshot</code>, <code>praxis_unmount_snapshot</code>,{" "}
+          <code>praxis_list_mounts</code>) — plus the login/org tools. This is full
+          parity with the dashboard&apos;s graph and Snapshots actions. Your tenant{" "}
+          <code>(org_id, user_id)</code> is resolved
           from a cached Cognito login, so the local process never holds database
           credentials.
         </p>
@@ -354,6 +358,26 @@ export function McpSetupGuide() {
               <td>
                 Copy chosen facts from a member&apos;s snapshot into your graph — deduped,
                 with value conflicts flagged (never silently overwritten).
+              </td>
+            </tr>
+            <tr>
+              <td>
+                <code>praxis_mount_snapshot(snapshot, source_user?)</code>
+              </td>
+              <td>
+                Mount a snapshot (yours or a member&apos;s) as a <strong>read-only
+                overlay</strong>: its facts are recalled by <code>praxis_get_context</code>{" "}
+                but are not merged into your live graph and are not carried over when you
+                save a snapshot.
+              </td>
+            </tr>
+            <tr>
+              <td>
+                <code>praxis_unmount_snapshot(snapshot, source_user?)</code> /{" "}
+                <code>praxis_list_mounts()</code>
+              </td>
+              <td>
+                Remove a mounted overlay, or list what you currently have mounted.
               </td>
             </tr>
           </tbody>

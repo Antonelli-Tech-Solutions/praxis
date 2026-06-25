@@ -9,6 +9,7 @@ import {
   foldIn,
   getSnapshotFacts,
   listOrgSources,
+  mountSnapshot,
 } from "../api/apiClient";
 import {
   defaultSelection,
@@ -199,6 +200,31 @@ export function SourceFoldIn({
     }
   }
 
+  const [mountMsg, setMountMsg] = useState<string | null>(null);
+
+  async function handleMount() {
+    if (!current) return;
+    setBusy(true);
+    setError(null);
+    setMountMsg(null);
+    try {
+      await mountSnapshot(
+        apiBaseUrl,
+        current.snapshot,
+        current.isSelf ? undefined : current.userId,
+        auth,
+      );
+      setMountMsg(
+        `Mounted "${current.snapshot}" for reads — its facts are now recalled, ` +
+          "without being merged into your graph or carried over on save.",
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const selectedCount = facts ? selectedFactIds(facts.groups, selected).length : 0;
 
   return (
@@ -245,7 +271,19 @@ export function SourceFoldIn({
                 )}
               </select>
             </label>
+            {current ? (
+              <button
+                type="button"
+                className="btn secondary"
+                onClick={() => void handleMount()}
+                disabled={busy}
+                title="Mount this snapshot as a read-only overlay: its facts are included in retrieval reads without being merged into your graph or carried over on save."
+              >
+                Mount for reads
+              </button>
+            ) : null}
           </div>
+          {mountMsg ? <p className="eval-runner__loaded">{mountMsg}</p> : null}
 
           {facts && facts.groups.length > 0 ? (
             <div className="eval-runner__browser">

@@ -1,10 +1,14 @@
 import { useCallback, useEffect, useState } from "react";
 import {
   type ApiDataProviderAuth,
+  type Mount,
   deleteSnapshot,
+  listMounts,
   listSnapshots,
   loadSnapshot,
+  mountSnapshot,
   saveSnapshot,
+  unmountSnapshot,
 } from "../api/apiClient";
 import type { Snapshot } from "../api/dataProvider";
 
@@ -20,6 +24,7 @@ interface SnapshotManagerProps {
 /** Save the live graph as a named snapshot, or restore one (destructive). */
 export function SnapshotManager({ apiBaseUrl, auth, onLoaded, embedded }: SnapshotManagerProps) {
   const [snapshots, setSnapshots] = useState<Snapshot[]>([]);
+  const [mounts, setMounts] = useState<Mount[]>([]);
   const [selected, setSelected] = useState<string>("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -28,8 +33,12 @@ export function SnapshotManager({ apiBaseUrl, auth, onLoaded, embedded }: Snapsh
 
   const refresh = useCallback(async () => {
     try {
-      const data = await listSnapshots(apiBaseUrl, auth);
+      const [data, mountData] = await Promise.all([
+        listSnapshots(apiBaseUrl, auth),
+        listMounts(apiBaseUrl, auth).catch(() => [] as Mount[]),
+      ]);
       setSnapshots(data);
+      setMounts(mountData);
       setSelected((prev) =>
         prev && data.some((s) => s.name === prev) ? prev : (data[0]?.name ?? ""),
       );
@@ -37,6 +46,31 @@ export function SnapshotManager({ apiBaseUrl, auth, onLoaded, embedded }: Snapsh
       setError(err instanceof Error ? err.message : String(err));
     }
   }, [apiBaseUrl, auth]);
+
+  // A mount the caller owns (own snapshot) toggled from this panel.
+  const selectedMounted = mounts.some((m) => m.isSelf && m.snapshot === selected);
+
+  function handleToggleMount() {
+    if (!selected) return;
+    void run(async () => {
+      if (selectedMounted) {
+        await unmountSnapshot(apiBaseUrl, selected, undefined, auth);
+        await refresh();
+        return `Unmounted "${selected}" — it will no longer be read.`;
+      }
+      await mountSnapshot(apiBaseUrl, selected, undefined, auth);
+      await refresh();
+      return `Mounted "${selected}" — its facts are now included in reads (not in saves).`;
+    });
+  }
+
+  function handleUnmount(m: Mount) {
+    void run(async () => {
+      await unmountSnapshot(apiBaseUrl, m.snapshot, m.isSelf ? undefined : m.sourceUser, auth);
+      await refresh();
+      return `Unmounted "${m.snapshot}".`;
+    });
+  }
 
   useEffect(() => {
     void refresh();
@@ -202,6 +236,16 @@ export function SnapshotManager({ apiBaseUrl, auth, onLoaded, embedded }: Snapsh
               <button
                 type="button"
                 className="btn secondary"
+                onClick={handleToggleMount}
+                disabled={busy || !selected}
+                title="Mount this snapshot as a read-only overlay: its facts are included in retrieval reads, but it is NOT merged into the live graph and is NOT carried over when you save a snapshot."
+                aria-pressed={selectedMounted}
+              >
+                {selectedMounted ? "Unmount" : "Mount for reads"}
+              </button>
+              <button
+                type="button"
+                className="btn secondary"
                 onClick={handleDelete}
                 disabled={busy || !selected}
                 title="Delete the selected snapshot"
@@ -210,6 +254,36 @@ export function SnapshotManager({ apiBaseUrl, auth, onLoaded, embedded }: Snapsh
               </button>
             </div>
           </div>
+          {mounts.length > 0 ? (
+            <div className="eval-runner__row">
+              <div className="eval-runner__field">
+                <span>
+                  Mounted for reads{" "}
+                  <span className="eval-runner__hint">
+                    (extra recall only — not merged in, not saved)
+                  </span>
+                </span>
+                <ul className="snapshot-mounts">
+                  {mounts.map((m) => (
+                    <li key={`${m.sourceUser}:${m.snapshot}`} className="snapshot-mounts__item">
+                      <span>
+                        {m.snapshot} {m.isSelf ? "" : `(from ${m.sourceUser}) `}({m.count} nodes)
+                      </span>
+                      <button
+                        type="button"
+                        className="btn secondary"
+                        onClick={() => handleUnmount(m)}
+                        disabled={busy}
+                        title="Stop including this snapshot in reads"
+                      >
+                        Unmount
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+          ) : null}
           {error ? <p className="eval-runner__error">{error}</p> : null}
           {message ? <p className="eval-runner__loaded">{message}</p> : null}
         </>

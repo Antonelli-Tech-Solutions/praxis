@@ -542,6 +542,84 @@ def test_fold_in_requires_fact_ids(monkeypatch):
     assert "fact_ids" in out
 
 
+def test_list_mounts_formats(monkeypatch):
+    _patch_identity(monkeypatch)
+    monkeypatch.setattr(
+        server.httpx,
+        "get",
+        lambda url, headers: _Resp(
+            {"mounts": [{"sourceUser": "u1", "snapshot": "wip", "isSelf": False, "count": 4}]}
+        ),
+    )
+    out = server.praxis_list_mounts()
+    assert "wip" in out and "from u1" in out and "4 node" in out
+
+
+def test_list_mounts_empty(monkeypatch):
+    _patch_identity(monkeypatch)
+    monkeypatch.setattr(server.httpx, "get", lambda url, headers: _Resp({"mounts": []}))
+    assert "No snapshots are mounted" in server.praxis_list_mounts()
+
+
+def test_mount_snapshot_posts_self_by_default(monkeypatch):
+    _patch_identity(monkeypatch)
+    captured = {}
+    monkeypatch.setattr(
+        server.httpx,
+        "post",
+        lambda url, json, headers: captured.update(url=url, json=json)
+        or _Resp({"sourceUser": "dev", "snapshot": "wip", "mounted": True}),
+    )
+    out = server.praxis_mount_snapshot("wip")
+    assert captured["url"] == "http://api.test/mounts"
+    assert captured["json"] == {"snapshot": "wip"}  # no sourceUser => defaults to self
+    assert "Mounted" in out and "wip" in out
+
+
+def test_mount_snapshot_posts_source_user(monkeypatch):
+    _patch_identity(monkeypatch)
+    captured = {}
+    monkeypatch.setattr(
+        server.httpx,
+        "post",
+        lambda url, json, headers: captured.update(json=json)
+        or _Resp({"sourceUser": "u1", "snapshot": "wip", "mounted": True}),
+    )
+    server.praxis_mount_snapshot("wip", source_user="u1")
+    assert captured["json"] == {"snapshot": "wip", "sourceUser": "u1"}
+
+
+def test_mount_snapshot_unknown_is_friendly(monkeypatch):
+    _patch_identity(monkeypatch)
+    monkeypatch.setattr(
+        server.httpx, "post", lambda url, json, headers: _Resp({}, status_code=404)
+    )
+    out = server.praxis_mount_snapshot("nope")
+    assert "Unknown member or snapshot" in out
+
+
+def test_unmount_snapshot_sends_delete_with_body(monkeypatch):
+    _patch_identity(monkeypatch)
+    captured = {}
+
+    def fake_request(method, url, json, headers):
+        captured.update(method=method, url=url, json=json)
+        return _Resp({"sourceUser": "dev", "snapshot": "wip", "mounted": False})
+
+    monkeypatch.setattr(server.httpx, "request", fake_request)
+    out = server.praxis_unmount_snapshot("wip")
+    assert captured["method"] == "DELETE"
+    assert captured["url"] == "http://api.test/mounts"
+    assert captured["json"] == {"snapshot": "wip"}
+    assert "Unmounted" in out
+
+
+def test_mount_requires_name(monkeypatch):
+    _patch_identity(monkeypatch)
+    assert "snapshot name" in server.praxis_mount_snapshot("  ")
+    assert "snapshot name" in server.praxis_unmount_snapshot("  ")
+
+
 def test_data_tool_when_not_logged_in_guides_to_login(monkeypatch):
     monkeypatch.setattr(identity, "is_logged_in", lambda: False)
     out = server.praxis_get_context("anything")
