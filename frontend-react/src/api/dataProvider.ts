@@ -9,6 +9,20 @@ export interface Snapshot {
   createdAt: string;
 }
 
+/**
+ * One conflicting-slot cluster as the backend computes it (GET /contradictions):
+ * the authoritative, slot-aware grouping. Only ids are needed here — the UI
+ * hydrates members/pairs from its already-loaded candidate list. A 2-fact
+ * conflict is a cluster of two; a fact competing on two slots appears in two
+ * clusters.
+ */
+export interface ContradictionClusterWire {
+  id: string;
+  slot: { subject: string; attribute: string } | null;
+  members: { id: string }[];
+  pairs: { id: string; a: { id: string }; b: { id: string } }[];
+}
+
 export interface DataProvider {
   listCandidates(state?: string): Promise<Candidate[]>;
   getCandidate(id: string): Promise<Candidate | null>;
@@ -31,6 +45,13 @@ export interface DataProvider {
     contradictionId: string,
     customText: string,
   ): Promise<Candidate>;
+  /**
+   * The authoritative, slot-aware contradiction clustering (GET /contradictions).
+   * Optional: offline fixture providers have no backend/claims and fall back to
+   * client-side clustering. When present, this is the source of truth — the
+   * frontend renders these clusters rather than re-deriving them.
+   */
+  getContradictions?(): Promise<ContradictionClusterWire[]>;
   /**
    * The live graph. ``state`` selects which facts to include: ``"active"``
    * (default, what retrieval reads), ``"all"`` (every lifecycle state), or a

@@ -5,8 +5,8 @@ This replaces the deleted candidate stores (``store.py`` /
 dashboard "candidate" surface is now a projection of the tenant's facts graph
 (:class:`PostgresVectorGraph`). The ``facts.state`` column carries the
 proposed/active/rejected lifecycle, ``facts.meta`` carries dashboard-only fields
-(``title``, ``auditTrail``, ``supersedes``), and contradiction links live in
-the ``fact_edges`` table.
+(``title``, ``auditTrail``), and the relationship links (``contradiction`` /
+``contradicted_by`` / ``supersedes``) live in the ``fact_edges`` table.
 
 Tenancy is bound at construction (one facade per ``(org_id, user_id)``), so the
 methods here — unlike the old explicitly-tenanted stores — take no org/user
@@ -283,15 +283,19 @@ class FactsCandidates:
         self.graph.delete_fact(cid)
 
     # --- contradictions ----------------------------------------------------
-    def _slot_info(self, fact_ids: list[str]) -> dict[str, tuple[tuple[str, str], str]]:
-        """Map each fact id to its functional claim's ((subject, attribute), value).
+    def _slot_info_multi(
+        self, fact_ids: list[str]
+    ) -> dict[str, list[tuple[tuple[str, str], str]]]:
+        """Map each fact id to *all* its functional claims' ((subject, attribute), value).
 
         Reads slots from the claims table (PostgresVectorGraph.claims_for) when
-        available, otherwise from in-memory ``Fact.claims`` (VectorGraph). Facts
-        with no functional claim are omitted, so clustering degrades gracefully to
-        per-pair clusters when no claims exist.
+        available, otherwise from in-memory ``Fact.claims`` (VectorGraph). A fact
+        can compete on more than one slot (a compound rule), so every functional
+        claim is kept — each contradiction edge is later attributed to the slot its
+        two facts share. Facts with no functional claim are omitted, so clustering
+        degrades gracefully to per-pair clusters when no claims exist.
         """
-        out: dict[str, tuple[tuple[str, str], str]] = {}
+        out: dict[str, list[tuple[tuple[str, str], str]]] = {}
         claims_for = getattr(self.graph, "claims_for", None)
         for fid in fact_ids:
             claims = None
@@ -303,10 +307,13 @@ class FactsCandidates:
             if claims is None:
                 fact = self.graph.get_fact(fid)
                 claims = getattr(fact, "claims", None) if fact is not None else None
-            for claim in claims or []:
-                if getattr(claim, "functional", False):
-                    out[fid] = (claim.slot, claim.value)
-                    break
+            slots = [
+                (claim.slot, claim.value)
+                for claim in (claims or [])
+                if getattr(claim, "functional", False)
+            ]
+            if slots:
+                out[fid] = slots
         return out
 
     def contradictions(self) -> list[Candidate]:
@@ -323,7 +330,7 @@ class FactsCandidates:
         member_ids = sorted(
             {side["id"] for p in pairs for side in (p["a"], p["b"])}
         )
-        slot_info = self._slot_info(member_ids)
+        slot_info = self._slot_info_multi(member_ids)
         return serialize_clusters(candidates, slot_info, status_filter="pending")
 
     def resolve(self, pair_id: str, keep_id: str) -> Candidate:
@@ -357,49 +364,60 @@ class FactsCandidates:
         )
         return candidate
 
-    def resolve_custom(self, pair_id: str, custom_text: str) -> Candidate:
-        """Reject both sides, then create a fresh active fact that supersedes them.
+    def resolve_custom(self, cluster_id: str, custom_text: str) -> Candidate:
+        """Settle a contradiction cluster by rejecting its members and adding a new,
+        user-authored fact that *supersedes* them.
 
-        The pending a<->b contradiction is resolved by a third (custom) fact: both
-        original sides are rejected (text preserved) and the new winner is linked to
-        each with a ``contradicted_by`` edge — an auditable resolved relationship
-        (FR-004), not a silently dropped link.
+        ``cluster_id`` is the slot-cluster's id — the disputed fact ids joined by
+        ``"__"`` (a plain pair ``"a__b"`` is the 2-member case). The button means
+        two separable things: (1) reject the disputed facts — the actual human
+        decision — and (2) add a fresh fact. The new fact is deliberately **not**
+        asserted to contradict the rejected ones (it may be a looser/orthogonal
+        rule that doesn't conflict at all); it is linked to each by a directional
+        ``supersedes`` edge — a discoverable, reversible replacement relationship
+        (FR-004), not a fabricated contradiction. Whether the new fact contradicts
+        any *surviving* active fact is decided by the write policy's detector,
+        exactly as for any other add.
         """
         text = (custom_text or "").strip()
         if not text:
             raise ValueError("custom_text is required")
-        a, _, b = pair_id.partition("__")
-        fact_a = self.graph.get_fact(a)
-        fact_b = self.graph.get_fact(b)
-        if fact_a is None and fact_b is None:
-            raise KeyError(pair_id)
-        # The pending pair is superseded by the new fact; drop the pending edge and
-        # reject both sides (their text is left untouched).
-        self.graph.remove_edge(a, b, "contradiction")
-        for loser_id, fact in ((a, fact_a), (b, fact_b)):
-            if fact is None:
-                continue
-            self.graph.set_state(loser_id, "rejected")
+        member_ids = [fid for fid in cluster_id.split("__") if fid]
+        present = {
+            fid: fact
+            for fid in member_ids
+            if (fact := self.graph.get_fact(fid)) is not None
+        }
+        if not present:
+            raise KeyError(cluster_id)
+        ids = list(present)
+        # The dispute is settled by supersession, not by one side winning: drop the
+        # pending contradiction edges among the members and reject each (text intact).
+        for i, x in enumerate(ids):
+            for y in ids[i + 1 :]:
+                self.graph.remove_edge(x, y, "contradiction")
+        for fid, fact in present.items():
+            self.graph.set_state(fid, "rejected")
             self._append_audit(fact, "superseded", note="resolved by custom resolution")
         provenance = f"human-gate/custom-resolution:{_now()}"
         meta: dict[str, Any] = {
             "title": _short_title(text),
-            "supersedes": [cid for cid in (a, b) if cid],
             "auditTrail": [
                 _audit_entry(
-                    provenance, "created", note=f"custom resolution superseding {a}, {b}"
+                    provenance,
+                    "created",
+                    note=f"custom resolution superseding {', '.join(ids)}",
                 )
             ],
         }
+        # A normal active add: the policy extracts the new fact's own claims and
+        # detects any genuine contradiction with surviving facts.
         new_id = self.graph.write(text, state="active", source=provenance, meta=meta)
         if new_id is None:
             raise ValueError("failed to create custom resolution candidate")
-        # Link the new winner to each rejected loser (resolved relationship, FR-004).
-        for loser_id, fact in ((a, fact_a), (b, fact_b)):
-            if fact is None:
-                continue
-            src, dst = sorted((new_id, loser_id))
-            self.graph.add_edge(src, dst, "contradicted_by")
+        # Link the new fact to each superseded fact (directional: new supersedes old).
+        for fid in present:
+            self.graph.add_edge(new_id, fid, "supersedes")
         candidate = self.get(new_id)
         assert candidate is not None
         return candidate
