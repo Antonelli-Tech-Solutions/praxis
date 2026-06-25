@@ -16,22 +16,24 @@ behaviors we kept hand-iterating on:
 
 Architecture note (current ``ingest_dump``)
 -------------------------------------------
-``ingest_dump`` no longer does free-text "do these contradict?" judgment — that
-repeatedly flagged different rows of one table as mutually contradictory. It now
-(a) distills self-contained facts + internal duplicates, (b) writes each through
-the CALLER'S write policy (which owns conflict detection via the structural
-claim-slot path), and (c) collapses semantic duplicates in one batched call. Its
-summary is ``{"facts", "merged"}``; rejection/conflict, if any, is a side effect
-of the write policy's contradiction edges — NOT of ``ingest_dump``.
+``ingest_dump`` owns dedup AND conflict resolution itself, via slot-granular
+claims: it distills each fact with a granular ``(subject, attribute, value)``
+claim whose SUBJECT carries the row's discriminating key (income range, filing
+status, line/box number), collapses semantic duplicates, and resolves genuine
+same-slot value clashes (loser retired + a ``contradicted_by`` edge). The write
+policy ``/ingest`` ships is dedup-only (``[Redactor(), Deduper()]``) — conflict
+detection is deliberately NOT delegated to it, so the coarse-slot claim extractor
+(intentionally coarse for the structural-contradiction feature) can never
+false-flag tax-table rows. Summary: ``{"facts", "merged", "conflicts", "rejected"}``.
 
-So behaviors 2 and 4 are tested against the WRITE POLICY:
-  - behavior 2 uses the dedup-only policy (what ``/ingest`` ships) AND the full
-    structural claim policy (production default) — both must leave the tax tables
-    intact (no fact retired, no contradiction edge among rows).
-  - behavior 4 drives a genuine value correction and asserts the IDEAL outcome
-    (the change is detected + the stale value resolved). The current pipeline does
-    NOT yet achieve this for distilled prose, so it is an ``xfail`` red spec — an
-    honest, executable statement of the target, per the eval's intent.
+  - behavior 2 (no false positives) is tested on the real dedup-only ``/ingest``
+    path: once over the full rule set, and once on a focused adversarial bracket
+    subset — no fact retired, no contradiction edge among rows. (The raw claim
+    policy's deliberate coarsening is covered by the ``multiway_two_slots``
+    component eval, not re-litigated here.)
+  - behavior 4 (real conflict) drives a genuine value correction (MFJ deduction
+    $31,500 -> $32,200) on that same path and asserts it is detected and resolved
+    (stale value retired, ``contradicted_by`` edge). It passes today.
 
 Determinism / safety design
 ----------------------------
