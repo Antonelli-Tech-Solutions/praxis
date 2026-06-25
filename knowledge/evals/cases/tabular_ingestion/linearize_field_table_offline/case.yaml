@@ -1,0 +1,43 @@
+# Component eval: ingestion only (no agent, no models, no embedder) — the OFFLINE
+# arm of the tabular-ingestion-integrity feature (loss point A: distillation
+# under-emits / mangles tabular input). One markdown table (a PRD-style
+# field -> required spec table) is fed through Ingestor.ingest, which offline runs
+# the no-LLM `segment_passthrough`. Today that path keeps every row verbatim WITH
+# its table syntax (header row, `| --- |` separator, pipes) — 5 noisy lines from 3
+# data rows. After the TableLinearizer lands, the offline path detects the table and
+# emits one CLEAN atomic fact per data row (identity folded into the text), so no
+# pipe/separator survives and every row is still present.
+#
+# RED on current code (pipes + separator present); GREEN once loss point A merges.
+# Deliberately phrasing-independent: it asserts on the row KEYS that must survive
+# and on the ABSENCE of table artifacts, never on the linearizer's exact wording.
+id: linearize_field_table_offline
+component: ingestion
+
+seeded_insight:
+  via_ingestor:
+    - |
+      | Field | Required |
+      | --- | --- |
+      | daily_prompt | yes |
+      | habit_checklist | no |
+      | personal_check_in | yes |
+
+deterministic_checks:
+  # No raw table syntax should survive into stored facts.
+  - name: no_table_pipes
+    ref: "knowledge.evals.deterministic_checks.text:regex_absent"
+    params:
+      pattern: '\|'
+  - name: no_separator_row
+    ref: "knowledge.evals.deterministic_checks.text:regex_absent"
+    params:
+      pattern: '-{3,}'
+  # Every data row must survive as its own fact — no row silently dropped/collapsed.
+  - name: all_rows_present
+    ref: "knowledge.evals.deterministic_checks.text:requires_all_substrings"
+    params:
+      texts:
+        - "daily_prompt"
+        - "habit_checklist"
+        - "personal_check_in"
