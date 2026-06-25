@@ -1,0 +1,35 @@
+# Outcome / trust feedback on facts — RED SPEC, second domain.
+#
+# Same gap as failed_advice_outranks_proven_db, different topic, to show it is
+# systemic and not a single-scenario artifact:
+#   * FAILED: "add a longer sleep before the assertion" — repeatedly tried, still
+#     flaky; echoes the query wording (more cosine-similar).
+#   * PROVEN: "poll the readiness condition instead of sleeping" — what fixed it.
+#
+# failed confidence 0.1, proven 1.0. Assert proven outranks failed. RED today
+# because retrieval ignores confidence/outcome and the failed (more similar) advice
+# wins; GREEN with outcome/trust weighting.
+#
+# Needs a Postgres DSN (`just db-up`); xfail until the capability exists.
+id: failed_advice_outranks_proven_test
+component: knowledge_graph
+substrate: vector
+embedder: cached
+xfail: "outcome/trust-aware retrieval not built — search ranks by similarity only; confidence/outcome never weights ranking"
+
+seeded_insight:
+  via_ingestor: []
+  direct_to_graph:
+    - "To make the flaky integration test reliable, add a longer sleep before the assertion."
+    - "Replace timing waits with explicit polling on the readiness condition; await the signal instead of sleeping."
+
+deterministic_checks:
+  - name: proven_outranks_failed
+    ref: "knowledge.evals.deterministic_checks.graph:retrieval_prefers_proven_over_failed"
+    params:
+      query: "How do I make the flaky integration test reliable?"
+      failed_text: "To make the flaky integration test reliable, add a longer sleep before the assertion."
+      proven_text: "Replace timing waits with explicit polling on the readiness condition; await the signal instead of sleeping."
+      failed_confidence: 0.1
+      proven_confidence: 1.0
+      top_k: 2

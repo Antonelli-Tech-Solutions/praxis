@@ -206,6 +206,93 @@ def retrieves_fact_for_query(
         conn.execute("DELETE FROM facts WHERE org_id = %s AND user_id = %s", (org, user))
 
 
+def retrieval_prefers_proven_over_failed(
+    ctx: EvalContext,
+    *,
+    query: str,
+    proven_text: str,
+    failed_text: str,
+    proven_confidence: float = 1.0,
+    failed_confidence: float = 0.1,
+    top_k: int = 2,
+) -> CheckResult:
+    """Outcome/trust-feedback red spec: a fact whose advice demonstrably FAILED
+    must not outrank a PROVEN fact for the same query.
+
+    Seeds two competing, both-``active`` facts answering the same question into a
+    fresh isolated tenant:
+
+      * ``failed_text`` — an approach that was tried and repeatedly failed. It is
+        written to be *more lexically/semantically similar to the query* (it echoes
+        the query's wording), so pure-similarity retrieval ranks it first.
+      * ``proven_text`` — the approach that actually worked, phrased differently.
+
+    The outcome history is expressed the only way Praxis lets us today: the failed
+    fact is set to low ``confidence`` and the proven fact to high ``confidence``.
+    The check then runs the real ``search`` and asserts the proven fact ranks ABOVE
+    the failed one.
+
+    This FAILS on the current store: ``search`` ranks purely by cosine (+ optional
+    BM25) and **never consults ``confidence`` / any outcome signal** — so the failed
+    approach, being more query-similar, wins. It demonstrates that outcome/trust-aware
+    ranking is missing: there is no channel (existing ``confidence`` included) by which
+    a demonstrably-bad fact loses to a proven one. It would PASS once retrieval is
+    outcome/trust-weighted.
+
+    Requires a reachable Postgres DSN (``embedder: cached`` / ``substrate: vector``);
+    without one the harness SKIPs the case.
+    """
+    from knowledge.evals.run import _eval_embedder
+    from knowledge.knowledge_graph.knowledge_graph_variants.postgres_vector_graph import (
+        PostgresVectorGraph,
+    )
+    from knowledge.knowledge_graph.write_policy.write_step_variants import Deduper, Redactor
+    from knowledge.serve import db
+
+    class _CachedAxis:
+        embedder = "cached"
+
+    embedder = _eval_embedder(_CachedAxis())
+
+    conn = db.connect()
+    db.bootstrap()
+    org = "eval_outcome_" + uuid.uuid4().hex[:12]
+    user = "u1"
+    graph = PostgresVectorGraph(
+        conn, org, user, embedder=embedder, policy=[Redactor(), Deduper()]
+    )
+    try:
+        graph.write(proven_text, state="active")
+        graph.write(failed_text, state="active")
+        # Express the outcome history with the only trust-like field that exists.
+        for text, conf in ((proven_text, proven_confidence), (failed_text, failed_confidence)):
+            conn.execute(
+                "UPDATE facts SET confidence = %s WHERE org_id = %s AND user_id = %s AND text = %s",
+                (conf, org, user, text),
+            )
+        hits = graph.search(query, top_k=top_k)
+        ranked = [h.fact.text for h in hits]
+        proven_rank = ranked.index(proven_text) if proven_text in ranked else 1_000
+        failed_rank = ranked.index(failed_text) if failed_text in ranked else 1_000
+        ok = proven_rank < failed_rank
+        return CheckResult(
+            name="retrieval_prefers_proven_over_failed",
+            passed=ok,
+            evidence=(
+                f"proven fact (conf {proven_confidence}) ranks #{proven_rank} vs "
+                f"failed fact (conf {failed_confidence}) #{failed_rank} for {query!r}"
+                + (
+                    ""
+                    if ok
+                    else " — retrieval ignored outcome/confidence and surfaced the "
+                    "demonstrably-failed advice first (no outcome/trust signal in ranking)"
+                )
+            ),
+        )
+    finally:
+        conn.execute("DELETE FROM facts WHERE org_id = %s AND user_id = %s", (org, user))
+
+
 def min_non_seed_facts(
     ctx: EvalContext, *, minimum: int = 1, seed_texts: list[str] | None = None
 ) -> CheckResult:
