@@ -98,6 +98,19 @@ def test_reject_rejects(client):
     assert res.json()["state"] == "rejected"
 
 
+def test_record_outcome_accepts_boolean(client):
+    fid = _create(client)["id"]  # candidate id IS the fact id
+    res = client.post(f"/facts/{fid}/outcome", json={"success": False})
+    assert res.status_code == 200
+    assert res.json() == {"id": fid, "success": False}
+
+
+def test_record_outcome_requires_boolean_success(client):
+    fid = _create(client)["id"]
+    res = client.post(f"/facts/{fid}/outcome", json={})
+    assert res.status_code == 400
+
+
 def test_patch_updates_candidate(client):
     cid = _create(client, title="New lesson")["id"]
     res = client.patch(f"/candidates/{cid}", json={"title": "New lesson (edited)"})

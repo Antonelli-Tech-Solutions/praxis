@@ -211,13 +211,34 @@ class VectorGraph(SearchableGraph):
         if not candidates:
             return []
         qvec = self.embedder.embed_one(query)
+        # Outcome/trust weighting: scale cosine similarity by each fact's utility
+        # multiplier (neutral 1.0 until outcomes are recorded — no change for
+        # un-scored facts; decays toward 0 as a fact's action keeps failing), mirror
+        # of PostgresVectorGraph._search_vec. Lets a proven fact beat a more similar
+        # but demonstrably-failed one.
         hits = [
-            SearchHit(fact=f, score=_cosine(qvec, f.embedding))
+            SearchHit(fact=f, score=_cosine(qvec, f.embedding) * f.utility)
             for f in candidates
             if f.embedding is not None
         ]
         hits.sort(key=lambda h: h.score, reverse=True)
         return hits[:top_k]
+
+    def record_outcome(self, fact_id: str, *, success: bool) -> None:
+        """Feed a downstream verification result back into a fact's trust.
+
+        Increments the fact's ``success_count`` or ``failure_count``; ``search``
+        folds them into a utility multiplier so a fact whose suggested action
+        repeatedly fails sinks in ranking and a proven one holds. No-op if the id is
+        unknown. Mirrors ``PostgresVectorGraph.record_outcome``.
+        """
+        for f in self._facts:
+            if f.id == fact_id:
+                if success:
+                    f.success_count += 1
+                else:
+                    f.failure_count += 1
+                return
 
     # --- contradiction review surface --------------------------------------
     def contradictions(self) -> list[Contradiction]:

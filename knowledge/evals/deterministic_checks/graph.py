@@ -206,6 +206,90 @@ def retrieves_fact_for_query(
         conn.execute("DELETE FROM facts WHERE org_id = %s AND user_id = %s", (org, user))
 
 
+def retrieval_prefers_proven_over_failed(
+    ctx: EvalContext,
+    *,
+    query: str,
+    proven_text: str,
+    failed_text: str,
+    proven_successes: int = 5,
+    failed_failures: int = 5,
+    top_k: int = 2,
+) -> CheckResult:
+    """Outcome/trust-feedback spec: a fact whose advice demonstrably FAILED must not
+    outrank a PROVEN fact for the same query.
+
+    Seeds two competing, both-``active`` facts answering the same question into a
+    fresh isolated tenant:
+
+      * ``failed_text`` — an approach that was tried and repeatedly failed. It is
+        written to be *more lexically/semantically similar to the query* (it echoes
+        the query's wording), so pure-similarity retrieval ranks it first.
+      * ``proven_text`` — the approach that actually worked, phrased differently.
+
+    The outcome history is fed back the way the factory loop would: ``record_outcome``
+    logs ``failed_failures`` failures on the failed fact and ``proven_successes``
+    successes on the proven one. The check then runs the real ``search`` and asserts
+    the proven fact ranks ABOVE the failed one.
+
+    Without outcome/trust weighting this FAILS: ``search`` ranks purely by cosine
+    (+ optional BM25), so the failed approach — being more query-similar — wins, and
+    no recorded outcome can change that. With the utility multiplier folded into
+    ranking, the repeatedly-failed fact decays below the proven one and this PASSES.
+
+    Requires a reachable Postgres DSN (``embedder: cached`` / ``substrate: vector``);
+    without one the harness SKIPs the case.
+    """
+    from knowledge.evals.run import _eval_embedder
+    from knowledge.knowledge_graph.knowledge_graph_variants.postgres_vector_graph import (
+        PostgresVectorGraph,
+    )
+    from knowledge.knowledge_graph.write_policy.write_step_variants import Deduper, Redactor
+    from knowledge.serve import db
+
+    class _CachedAxis:
+        embedder = "cached"
+
+    embedder = _eval_embedder(_CachedAxis())
+
+    conn = db.connect()
+    db.bootstrap()
+    org = "eval_outcome_" + uuid.uuid4().hex[:12]
+    user = "u1"
+    graph = PostgresVectorGraph(
+        conn, org, user, embedder=embedder, policy=[Redactor(), Deduper()]
+    )
+    try:
+        proven_id = graph.write(proven_text, state="active")
+        failed_id = graph.write(failed_text, state="active")
+        # Feed verification outcomes back the way the factory loop would.
+        for _ in range(proven_successes):
+            graph.record_outcome(proven_id, success=True)
+        for _ in range(failed_failures):
+            graph.record_outcome(failed_id, success=False)
+        hits = graph.search(query, top_k=top_k)
+        ranked = [h.fact.text for h in hits]
+        proven_rank = ranked.index(proven_text) if proven_text in ranked else 1_000
+        failed_rank = ranked.index(failed_text) if failed_text in ranked else 1_000
+        ok = proven_rank < failed_rank
+        return CheckResult(
+            name="retrieval_prefers_proven_over_failed",
+            passed=ok,
+            evidence=(
+                f"proven fact ({proven_successes} successes) ranks #{proven_rank} vs "
+                f"failed fact ({failed_failures} failures) #{failed_rank} for {query!r}"
+                + (
+                    ""
+                    if ok
+                    else " — retrieval surfaced the demonstrably-failed advice first "
+                    "(outcome/trust not weighted in ranking)"
+                )
+            ),
+        )
+    finally:
+        conn.execute("DELETE FROM facts WHERE org_id = %s AND user_id = %s", (org, user))
+
+
 def min_non_seed_facts(
     ctx: EvalContext, *, minimum: int = 1, seed_texts: list[str] | None = None
 ) -> CheckResult:

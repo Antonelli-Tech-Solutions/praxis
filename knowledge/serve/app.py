@@ -321,6 +321,28 @@ def create_app(conn: Any | None = None) -> FastAPI:
         except KeyError:
             raise HTTPException(status_code=404, detail=f"unknown candidate {cid}")
 
+    @app.post("/facts/{fact_id}/outcome")
+    def record_fact_outcome(
+        fact_id: str,
+        body: dict[str, Any] = Body(default={}),
+        principal: Principal = Depends(current_user),
+        org: str = Depends(active_org),
+    ) -> dict[str, Any]:
+        """Feed a downstream verification result back into a fact's trust.
+
+        Body: ``{"success": bool}``. Increments the fact's success/failure count so
+        retrieval's utility weighting demotes a repeatedly-failed fact and keeps a
+        proven one — the outcome/trust feedback that makes the memory compound on
+        what demonstrably worked rather than grow by volume alone.
+        """
+        success = body.get("success")
+        if not isinstance(success, bool):
+            raise HTTPException(
+                status_code=400, detail="body must include a boolean 'success'"
+            )
+        live_graph(org, principal.sub).record_outcome(fact_id, success=success)
+        return {"id": fact_id, "success": success}
+
     @app.post("/candidates")
     def create_candidate(
         body: dict[str, Any] = Body(default={}),
