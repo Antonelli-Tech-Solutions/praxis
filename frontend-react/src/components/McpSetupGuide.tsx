@@ -56,12 +56,22 @@ export function McpSetupGuide() {
           <strong>read</strong> (<code>praxis_get_context</code>,{" "}
           <code>praxis_list_graph</code>), <strong>write</strong>{" "}
           (<code>praxis_add_insight</code> through the ingestion pipeline,{" "}
-          <code>praxis_insert_fact</code> raw, <code>praxis_edit_fact</code>), and{" "}
-          <strong>resolve contradictions</strong>{" "}
+          <code>praxis_insert_fact</code> raw, <code>praxis_edit_fact</code>),{" "}
+          <strong>manage fact lifecycle</strong>{" "}
+          (<code>praxis_promote_fact</code>, <code>praxis_reject_fact</code>,{" "}
+          <code>praxis_delete_fact</code>), <strong>resolve contradictions</strong>{" "}
           (<code>praxis_get_contradictions</code>,{" "}
-          <code>praxis_resolve_contradiction</code>) — plus the login/org tools. Your
-          tenant <code>(org_id, user_id)</code> is resolved from a cached Cognito login,
-          so the local process never holds database credentials.
+          <code>praxis_resolve_contradiction</code>), and{" "}
+          <strong>work with snapshots</strong> — save/load/list/delete the whole
+          graph (<code>praxis_save_snapshot</code>, <code>praxis_load_snapshot</code>,{" "}
+          <code>praxis_list_snapshots</code>, <code>praxis_delete_snapshot</code>),
+          clear it (<code>praxis_clear_graph</code>), and browse and fold in another
+          member&apos;s snapshots (<code>praxis_list_org_sources</code>,{" "}
+          <code>praxis_browse_snapshot</code>, <code>praxis_fold_in</code>) — plus the
+          login/org tools. This is full parity with the dashboard&apos;s graph and
+          Snapshots actions. Your tenant <code>(org_id, user_id)</code> is resolved
+          from a cached Cognito login, so the local process never holds database
+          credentials.
         </p>
       </header>
 
@@ -254,6 +264,96 @@ export function McpSetupGuide() {
               <td>
                 Settle a pair — keep one side (<code>keep_id</code>) or replace both with a
                 single reconciled fact (<code>custom_text</code>).
+              </td>
+            </tr>
+            <tr>
+              <td>
+                <code>praxis_promote_fact(cid, target_state?)</code>
+              </td>
+              <td>
+                Promote a fact through its lifecycle (e.g. <code>proposed</code> →{" "}
+                <code>active</code>); omit <code>target_state</code> to advance one step.
+              </td>
+            </tr>
+            <tr>
+              <td>
+                <code>praxis_reject_fact(cid, reason?)</code>
+              </td>
+              <td>
+                Reject a fact so retrieval stops reading it (the row is kept in a rejected
+                state); optional <code>reason</code> for the audit trail.
+              </td>
+            </tr>
+            <tr>
+              <td>
+                <code>praxis_delete_fact(cid)</code>
+              </td>
+              <td>
+                Permanently remove a fact from the graph (unlike reject, the row is gone).
+              </td>
+            </tr>
+            <tr>
+              <td>
+                <code>praxis_save_snapshot(name)</code>
+              </td>
+              <td>
+                Dump the current live graph to a snapshot named <code>name</code> (creates
+                or overwrites).
+              </td>
+            </tr>
+            <tr>
+              <td>
+                <code>praxis_load_snapshot(name, mode="replace"|"add")</code>
+              </td>
+              <td>
+                Load a snapshot into the live graph. <code>replace</code> (default)
+                truncates first; <code>add</code> merges, replacing only shared ids.
+              </td>
+            </tr>
+            <tr>
+              <td>
+                <code>praxis_list_snapshots()</code>
+              </td>
+              <td>List your saved snapshots with node counts and creation times.</td>
+            </tr>
+            <tr>
+              <td>
+                <code>praxis_delete_snapshot(name)</code>
+              </td>
+              <td>Delete a saved snapshot (the live graph is unaffected).</td>
+            </tr>
+            <tr>
+              <td>
+                <code>praxis_clear_graph()</code>
+              </td>
+              <td>
+                Truncate your entire live graph (destructive — save a snapshot first).
+              </td>
+            </tr>
+            <tr>
+              <td>
+                <code>praxis_list_org_sources()</code>
+              </td>
+              <td>
+                List org members and their snapshots you can browse and fold in.
+              </td>
+            </tr>
+            <tr>
+              <td>
+                <code>praxis_browse_snapshot(user_id, name)</code>
+              </td>
+              <td>
+                Inspect a member&apos;s snapshot facts (grouped by folder) before folding
+                them in.
+              </td>
+            </tr>
+            <tr>
+              <td>
+                <code>praxis_fold_in(source_user, snapshot, fact_ids, mode="add")</code>
+              </td>
+              <td>
+                Copy chosen facts from a member&apos;s snapshot into your graph — deduped,
+                with value conflicts flagged (never silently overwritten).
               </td>
             </tr>
           </tbody>
