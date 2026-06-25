@@ -48,6 +48,26 @@ not just the policy prose** — especially for soft constraints an agent can ign
 It also validates the curated-ceiling design (it cleanly split "knowledge has no value" from
 "auto-distillation lost the value curation keeps").
 
+### 2×2 confirmation — it is phrasing, not dilution (6-trial probe)
+
+EXTRACTION-QUALITY conflates two variables — *phrasing* (policy prose vs actionable guard) and
+*dilution* (1 injected fact vs 8). The auto (weak+diluted) and curated (ideal+isolated) cells only
+sit on the diagonal, so a 2×2 with both off-diagonal cells decomposes it:
+
+| (guard rate /3) | weak phrasing (distilled) | ideal phrasing (curated) |
+|-----------------|---------------------------|--------------------------|
+| **isolated** (1 fact, whole-file) | **0/3** (Arm C) | 2/3 (curated) |
+| **diluted** (8 retrieved) | 0/3 (auto) | **3/3** (Arm D) |
+
+- **Phrasing effect: decisive.** Ideal phrasing flips (2/3, 3/3); weak phrasing never does (0/3, 0/3).
+- **Dilution effect: ~none.** Ideal phrasing survives 7 distractors *fine* (diluted 3/3 ≥ isolated
+  2/3 — the gap is n=3 noise); weak fails whether alone or diluted.
+
+So the bottleneck is unambiguously the **distilled phrasing**, not injection/ranking. (This is a
+*different* bottleneck than `umap`, whose fact retrieves and avoids fine but is a retrieval *cost*
+problem from ranking — so the distiller lever and the scope-ranking lever address different axes and
+do not compete.) Arms `delete_active_guard_{weak_isolated,ideal_diluted}` carry this probe.
+
 ## Cost: knowledge pays only when the blind agent flails
 
 Auto was cheaper on **only** `yoyo` (−233 tokens) — the one footgun where the blind control flails

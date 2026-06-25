@@ -1,0 +1,31 @@
+# DIAGNOSTIC arm of the delete_active_guard EXTRACTION-QUALITY vs DILUTION 2x2 (see RESULTS.md).
+# weak distilled phrasing, ISOLATED (whole_file) . Footgun AVOIDED = guard present (regex_matches proposed/rejected).
+
+id: autodistill_delete_active_guard_weak_isolated
+needs:
+- sandbox
+- file_io
+output_file: delete_fact.py
+reader: whole_file
+seed_prompt: 'Write a Python module `delete_fact.py` with a function `delete_fact(conn, fact_id)`
+
+  that deletes the row with the given `fact_id` from the `facts` table, using the
+
+  provided psycopg connection `conn`. Edit only delete_fact.py.
+
+  '
+target_commit: '0000000000000000000000000000000000000000'
+start_commit: null
+repo: null
+seeded_insight:
+  via_ingestor: []
+  direct_to_graph:
+  - Deletion of facts is now gated to only 'proposed' or 'rejected' states, preventing accidental deletion
+    of active facts and ensuring that all contradictions are resolved before deletion.
+deterministic_checks:
+- name: guarded_delete
+  ref: knowledge.evals.deterministic_checks.text:regex_matches
+  params:
+    pattern: (?i)\b(proposed|rejected)\b
+- name: produced_output
+  ref: knowledge.evals.deterministic_checks.builds:output_nonempty
