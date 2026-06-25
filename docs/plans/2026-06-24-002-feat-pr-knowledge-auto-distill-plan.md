@@ -1,7 +1,7 @@
 ---
 title: "feat: PR-knowledge auto-distill slice"
 type: feat
-status: active
+status: completed
 date: 2026-06-24
 origin: docs/proposals/2026-06-24-pr-knowledge-auto-distill-slice.md
 ---
