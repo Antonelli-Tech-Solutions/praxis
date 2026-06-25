@@ -111,15 +111,22 @@ class VectorGraph(SearchableGraph):
         """
         return "\n\n".join(f.text for f in self._facts if f.state == "active")
 
-    def write(self, content: str, *, state: str = "proposed") -> None:
+    def write(self, content: str, *, state: str = "proposed") -> WriteDecision | None:
         """Run the write-policy pipeline over ``content``, then persist.
 
         ``state`` ("active" for a direct user approval, "proposed" for a passive
         system add) is the lifecycle state a freshly-added fact lands in.
+
+        Returns the enacted ``WriteDecision`` so callers can observe the per-write
+        outcome (``action`` add/update/overwrite, ``dropped``, ``update_target_id``)
+        without diffing ``facts`` before/after — an additive change; existing
+        callers that ignore the return value are unaffected. Returns ``None`` only
+        when nothing was written (empty content), so a ``None`` return is itself a
+        "no fact produced" signal. Empty/whitespace input is dropped, not stored.
         """
         content = content.strip()
         if not content:
-            return
+            return None
         decision = WriteDecision(text=content, state="active" if state == "active" else "proposed")
         claim_recalled = False
         semantic_recalled = False
@@ -134,7 +141,7 @@ class VectorGraph(SearchableGraph):
                 claim_recalled = True
             step.apply(decision)
         if decision.dropped:
-            return
+            return decision
         if decision.embedding is None:
             # No candidate-consuming step ran (e.g. a redact-only policy); still
             # embed once for persistence.
@@ -144,14 +151,15 @@ class VectorGraph(SearchableGraph):
         demote_active_contradiction(decision)
         if decision.action == "update" and decision.update_target_id:
             self._merge(decision)
-            return
+            return decision
         if decision.action == "augment" and decision.update_target_id:
             self._augment(decision)
-            return
+            return decision
         if decision.action == "overwrite" and decision.update_target_id:
             self._overwrite(decision)
-            return
+            return decision
         self._add(decision)
+        return decision
 
     # --- SearchableGraph contract ------------------------------------------
     def search(
@@ -284,9 +292,11 @@ class VectorGraph(SearchableGraph):
 
     # --- internals ----------------------------------------------------------
     def _add(self, decision: WriteDecision) -> None:
+        fact_id = uuid.uuid4().hex
+        decision.added_fact_id = fact_id  # let callers map this write to its row
         self._facts.append(
             Fact(
-                id=uuid.uuid4().hex,
+                id=fact_id,
                 text=decision.text,
                 state=decision.state,
                 embedding=decision.embedding,  # reuse the vector embedded in _recall

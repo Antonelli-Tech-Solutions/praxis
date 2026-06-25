@@ -18,7 +18,11 @@ from knowledge.evals.run import (
 from knowledge.injestion.injestion_def import Insight
 from knowledge.knowledge_graph.knowledge_graph_variants.vector_graph import VectorGraph
 from knowledge.knowledge_graph.write_policy.write_step_variants import Deduper, Redactor
-from knowledge.serve.pipeline_adapter import candidates_from_graph, ingest_insights
+from knowledge.serve.pipeline_adapter import (
+    IngestReport,
+    candidates_from_graph,
+    ingest_insights,
+)
 
 DEFAULT_PRESET = "offline-fake"
 # Fixed presets plus the dynamic ``graph:<relative-dir>`` family (see
@@ -221,6 +225,9 @@ class RegenerationResult:
     insights: list[Insight]
     candidates: list[dict[str, Any]]
     eval_results: list[dict[str, Any]]
+    # Inline rows-in vs facts-out reconciliation for the ingest (§3a). ``None`` on
+    # paths that don't run ``ingest_insights`` (e.g. the verbatim case-seed path).
+    completeness_report: IngestReport | None = None
 
 
 def regenerate_candidates(config: PipelineConfig) -> RegenerationResult:
@@ -246,7 +253,7 @@ def regenerate_candidates(config: PipelineConfig) -> RegenerationResult:
 
     insights = _insights_from_cases(runnable)
     graph = VectorGraph(policy=[Redactor(), Deduper()])
-    ingest_insights(graph, insights)
+    completeness_report = ingest_insights(graph, insights)
     candidates = candidates_from_graph(graph)
 
     return RegenerationResult(
@@ -257,6 +264,7 @@ def regenerate_candidates(config: PipelineConfig) -> RegenerationResult:
         insights=insights,
         candidates=candidates,
         eval_results=eval_results,
+        completeness_report=completeness_report,
     )
 
 
