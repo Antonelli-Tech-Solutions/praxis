@@ -45,9 +45,14 @@ _DISTILL_PROMPT = (
     "- subject: the specific thing the fact is about, including EVERY qualifier "
     "that distinguishes it from related facts — filing status, income range, form "
     "line or box number, tax year, etc. Two facts must share a subject ONLY if "
-    "they are about the exact same specific thing. (Good: \"TY2025 Married filing "
-    "jointly ordinary-income tax bracket for income $23,850-$96,950\". Bad: "
-    "\"tax bracket\".)\n"
+    "they are about the exact same specific thing. CRITICAL: when a fact is ONE ROW "
+    "of a table or schedule (e.g. a single tax-bracket row, a per-filing-status "
+    "amount), the subject MUST embed that row's distinguishing key — the exact "
+    "income range for a bracket, the filing status for a deduction — or different "
+    "rows will be wrongly treated as the same thing. Every bracket row therefore "
+    "gets a DIFFERENT subject. (Good: \"TY2025 Head of household ordinary-income tax "
+    "bracket for income $250,500-$626,350\". Bad: \"Head of household tax bracket\" "
+    "or \"tax bracket\" — these collapse distinct rows.)\n"
     "- attribute: the property being asserted about the subject (e.g. \"rate\", "
     "\"amount\", \"contents\", \"line number\").\n"
     "- value: the value of that attribute (e.g. \"12%\", \"$15,750\")."
@@ -151,8 +156,13 @@ _SUBJECT_OVERLAP_MIN = 0.2
 
 
 def _same_value(v1: str, v2: str) -> bool:
-    """Equal value? Numbers compare numerically; otherwise normalized text."""
-    n1, n2 = _NUM.findall(v1 or ""), _NUM.findall(v2 or "")
+    """Equal value? Numbers compare numerically; otherwise normalized text.
+
+    Generic identifiers (the form number 1040, the year 2025) are stripped first,
+    so "Form 1040 line 12" and "line 12" compare on 12, not on 1040 vs 12.
+    """
+    n1 = [n for n in _NUM.findall(v1 or "") if n.replace(",", "") not in _GENERIC_IDS]
+    n2 = [n for n in _NUM.findall(v2 or "") if n.replace(",", "") not in _GENERIC_IDS]
     if n1 and n2:
         try:
             return abs(float(n1[0].replace(",", "")) - float(n2[0].replace(",", ""))) < 1e-9
