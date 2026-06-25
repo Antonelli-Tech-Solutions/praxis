@@ -74,7 +74,7 @@ def test_only_canonical_captioned_per_cluster(tmp_path):
     # near-duplicate cluster: one image + a resize of it
     base = tmp_path / "big.png"
     Image.new("RGB", (40, 40), (255, 255, 255)).save(base)
-    with Image.open(base) as im:
+    with Image.open(base):
         # draw structure so pHash is stable, then resize a copy
         pass
     from PIL import ImageDraw

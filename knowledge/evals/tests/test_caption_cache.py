@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 
-import pytest
 
 from knowledge.evals import caption_cache, run
 from knowledge.evals.eval_def import DeterministicCheckRef, EvalCase, SeededInsight

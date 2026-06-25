@@ -19,7 +19,6 @@ the cassette is refreshed with a key, never pass on a stale fixture.
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 from knowledge.llm.llm_def import ChatMessage

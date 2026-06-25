@@ -17,13 +17,16 @@
 #       AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_DEFAULT_REGION (us-east-1)
 
 stages:
+  - lint
   - backend
   - frontend
 
-# Only ever run for the main branch (i.e. when an MR is merged). No MR or feature-
-# branch pipelines.
+# Lint runs on merge requests AND on main (post-merge safety net); the deploy jobs
+# below stay main-only via their own `rules`. A feature-branch push with no open MR
+# matches neither rule, so there are no duplicate branch+MR pipelines.
 workflow:
   rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
     - if: '$CI_COMMIT_BRANCH == "main"'
     - when: never
 
@@ -32,6 +35,64 @@ workflow:
   VITE_COGNITO_USER_POOL_ID: us-east-1_4nAMe6bPK
   VITE_COGNITO_CLIENT_ID: 3ij653bq912pi4f17l5hn9iqqn
   VITE_COGNITO_REGION: us-east-1
+
+# ---- Lint / static checks ----------------------------------------------------
+# Each job invokes the repo's existing tool for that language and is gated by
+# `rules:changes` so only the stacks a change actually touches are checked.
+
+# Python: ruff (pyflakes + pycodestyle E4/E7/E9), config in pyproject.toml [tool.ruff].
+python-lint:
+  stage: lint
+  image: ghcr.io/astral-sh/uv:python3.12-bookworm-slim
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes: ["**/*.py", pyproject.toml, .gitlab-ci.yml]
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      changes: ["**/*.py", pyproject.toml, .gitlab-ci.yml]
+  script:
+    - uvx ruff@0.15.20 check .
+
+# Frontend (React/Vite): the repo's `lint` script is `tsc -b --noEmit` (type-check).
+frontend-typecheck:
+  stage: lint
+  image: node:20-alpine
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes: ["frontend-react/**/*", .gitlab-ci.yml]
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      changes: ["frontend-react/**/*", .gitlab-ci.yml]
+  script:
+    - cd frontend-react
+    - npm ci
+    - npm run lint
+
+# Infra (AWS CDK, TypeScript): `tsc` via the `build` script is the type-check gate.
+infra-typecheck:
+  stage: lint
+  image: node:20-alpine
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes: ["infra/**/*", .gitlab-ci.yml]
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      changes: ["infra/**/*", .gitlab-ci.yml]
+  script:
+    - cd infra
+    - npm ci
+    - npm run build
+
+# Go (session-capture wrapper): gofmt (formatting) + go vet (static analysis).
+go-lint:
+  stage: lint
+  image: golang:1.25-alpine
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes: ["session-capture/**/*", .gitlab-ci.yml]
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      changes: ["session-capture/**/*", .gitlab-ci.yml]
+  script:
+    - cd session-capture/wrapper
+    - test -z "$(gofmt -l .)" || { echo 'gofmt: the following files need formatting:'; gofmt -l .; exit 1; }
+    - go vet ./...
 
 deploy-backend:
   stage: backend

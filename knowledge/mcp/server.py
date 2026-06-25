@@ -1032,7 +1032,7 @@ def praxis_browse_snapshot(user_id: str, name: str) -> str:
         resp.raise_for_status()
     except httpx.HTTPStatusError as exc:
         if exc.response.status_code == 404:
-            return f"Unknown member/snapshot — check praxis_list_org_sources."
+            return "Unknown member/snapshot — check praxis_list_org_sources."
         return _friendly(exc)
     payload = resp.json()
     groups = payload.get("groups", [])
@@ -1080,7 +1080,7 @@ def praxis_fold_in(
         resp.raise_for_status()
     except httpx.HTTPStatusError as exc:
         if exc.response.status_code == 404:
-            return f"No matching member/snapshot/facts — check praxis_browse_snapshot."
+            return "No matching member/snapshot/facts — check praxis_browse_snapshot."
         return _friendly(exc)
     payload = resp.json()
     conflicts = payload.get("conflicts", [])

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
 
 from knowledge.evals import run
 from knowledge.evals.eval_def import DeterministicCheckRef, EvalCase, SeededInsight

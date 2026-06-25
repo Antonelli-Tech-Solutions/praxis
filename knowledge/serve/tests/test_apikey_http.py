@@ -12,7 +12,6 @@ actually exercised rather than short-circuited to the dev principal.
 
 from __future__ import annotations
 
-import os
 
 import pytest
 from dotenv import load_dotenv

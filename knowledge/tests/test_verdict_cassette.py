@@ -15,7 +15,9 @@ def test_replays_committed_verdict_without_computing(tmp_path):
     rec.verdict("A||B", lambda: {"same_lesson": True})
     # A fresh replay-only cassette returns it without calling compute.
     cas = VerdictCassette(path, model_id="m", allow_compute=False)
-    boom = lambda: (_ for _ in ()).throw(AssertionError("compute must not run on a hit"))
+    def boom():
+        raise AssertionError("compute must not run on a hit")
+
     assert cas.verdict("A||B", boom) == {"same_lesson": True}
 
 
