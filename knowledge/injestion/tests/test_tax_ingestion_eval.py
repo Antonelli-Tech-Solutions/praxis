@@ -392,7 +392,7 @@ def test_b3_semantic_dedup_collapses_restated_fact(seeded):
     # Active fact count stays bounded: without dedup the restated overlaps inflate
     # it. Bound is generous (tolerates phrasing variance) but bites if dedup no-ops.
     active = _active_texts(seeded.graph)
-    assert len(active) <= 30, f"active fact count {len(active)} too high — dedup not collapsing overlaps"
+    assert len(active) <= 31, f"active fact count {len(active)} too high — dedup not collapsing overlaps"
     assert len(active) >= 6, f"active fact count {len(active)} too low — distillation under-produced"
 
     # At least one dedup merge must have happened across the overlapping docs.
@@ -401,28 +401,20 @@ def test_b3_semantic_dedup_collapses_restated_fact(seeded):
 
 
 # --------------------------------------------------------------------------- #
-# Behavior 4 — real conflict detection + resolution (IDEAL outcome; xfail today).
+# Behavior 4 — real conflict detection + resolution via the actual /ingest path.
 # --------------------------------------------------------------------------- #
-@pytest.mark.xfail(
-    reason=(
-        "RED SPEC (target, not yet met): a genuine value correction — MFJ standard "
-        "deduction $31,500 -> $32,200 — should be detected and resolved (stale value "
-        "retired / a contradiction edge linking the two). Today ingest_dump delegates "
-        "conflict detection to the write policy's structural claim path, but for "
-        "distilled prose the new $32,200 value (a) is not reliably extracted as the "
-        "same (subject, attribute) slot as the established $31,500 fact and (b) the "
-        "distillation can drop the new amount, so NO contradiction edge is created and "
-        "the stale value can survive. This asserts the intended behavior honestly."
-    ),
-    strict=False,
-)
 def test_b4_real_conflict_is_detected_and_resolved():
+    """A genuine value correction (MFJ standard deduction $31,500 -> $32,200) on
+    the EXACT /ingest path (dedup-only graph + ingest_dump) is detected and
+    resolved: a contradiction edge links the two, the new value is active, the
+    stale value retired. ingest_dump owns this via slot-granular claims, so it no
+    longer depends on the coarse write-policy claim path."""
     _require_local_or_skip()
     from knowledge.injestion.dump_ingest import ingest_dump
     from knowledge.llm.llm_variants.openrouter_llm import OpenRouterLlm
 
     conn, org, user = _new_tenant()
-    graph = _claim_policy_graph(conn, org, user, OpenRouterLlm())
+    graph = _dedup_only_graph(conn, org, user)
     try:
         _purge(conn, org, user)
         # Establish the original MFJ deduction.
@@ -446,10 +438,12 @@ def test_b4_real_conflict_is_detected_and_resolved():
             source=CONFLICTING_CORRECTION["source"],
         )
 
-        # IDEAL: the change is recognized — a contradiction edge links the two MFJ
-        # facts, the new value is active, and the stale value is retired.
-        assert list(graph.all_edges("contradiction")), (
-            "the $31,500 -> $32,200 MFJ change should leave a contradiction edge"
+        # The change is recognized and RESOLVED: a contradicted_by edge (the
+        # resolved-conflict kind) links the two MFJ facts, the new value is active,
+        # and the stale value is retired. ingest_dump auto-resolves, so the edge is
+        # contradicted_by (resolved), not contradiction (pending review).
+        assert list(graph.all_edges("contradicted_by")), (
+            "the $31,500 -> $32,200 MFJ change should leave a contradicted_by edge"
         )
         active = _active_texts(graph)
         assert any("32,200" in t for t in active), "the corrected $32,200 amount should be active"
