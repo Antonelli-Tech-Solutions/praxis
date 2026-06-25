@@ -75,6 +75,17 @@ TASKS: dict[str, dict] = {
         "marker_terms": ["sys.path", "import"],
         "has_curated": True,
     },
+    "autodistill_delete_active_guard": {
+        "kind": "footgun",
+        "gating": True,  # validated 3/3 blind (unguarded DELETE); see RESULTS.md
+        # Footgun AVOIDED = deletion guarded to proposed/rejected (note: regex_MATCHES,
+        # opposite polarity to yoyo's regex_absent — the footgun here is an OMITTED guard).
+        "correct_check": ("knowledge.evals.deterministic_checks.text:regex_matches",
+                          {"pattern": r"(?i)\b(proposed|rejected)\b"}),
+        "output_file": "delete_fact.py",
+        "marker_terms": ["delet", "rejected"],  # "Deletion ... 'rejected' states"
+        "has_curated": True,
+    },
     "autodistill_umap_neighbors": {
         "kind": "footgun",
         "gating": False,  # demoted to a non-gating cost signal (dogfood control 2/3 -> 0/3)
