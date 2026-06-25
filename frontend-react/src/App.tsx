@@ -123,7 +123,6 @@ export default function App() {
     null | "snapshots" | "foldin" | "eval" | "apikeys"
   >(null);
   const [actionError, setActionError] = useState<string | null>(null);
-  const [deferMessage, setDeferMessage] = useState<string | null>(null);
   const [reviewNotice, setReviewNotice] = useState<string | null>(null);
   const [infoMessage, setInfoMessage] = useState<string | null>(null);
   const [refreshingCandidateId, setRefreshingCandidateId] = useState<string | null>(
@@ -398,11 +397,6 @@ export default function App() {
     }
   }
 
-  function handleDefer(primaryTitle: string, rivalTitle: string) {
-    setDeferMessage(`Deferred contradiction between ${primaryTitle} and ${rivalTitle}.`);
-    window.setTimeout(() => setDeferMessage(null), 5000);
-  }
-
   async function handleResolve(
     contradictionId: string,
     resolution: "keep_primary" | "keep_rival",
@@ -585,7 +579,6 @@ export default function App() {
       ) : null}
 
       {lastAction ? <div className="success-banner">{lastAction}</div> : null}
-      {deferMessage ? <div className="info-banner">{deferMessage}</div> : null}
       {reviewNotice ? (
         <div className="info-banner" role="status">
           {reviewNotice}
@@ -641,7 +634,6 @@ export default function App() {
           clusters={contradictionClusterList}
           onResolve={handleResolve}
           onResolveCustom={handleResolveCustom}
-          onDefer={handleDefer}
         />
       ) : (
         <ContentSplit

@@ -42,7 +42,7 @@ Point at candidate list — note provenance on every row (`logs/...jsonl:line`).
 1. Select **experimental_options Before Config Load** (cand_9).
 2. Show side-by-side rival **Experimental Flags in config.nu**.
 3. Click **Keep this** on the choice you want to preserve — the resolved contradiction leaves the active review queue.
-4. (Optional) Show **Defer — decide later** — the pair moves to the deferred section without making a decision.
+4. If neither side is sufficient, use **Your own resolution** and click **Resolve with my answer**.
 
 > "Contradictions surface as pairs, not silent conflicts in memory."
 
