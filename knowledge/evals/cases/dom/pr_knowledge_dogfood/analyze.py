@@ -22,7 +22,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import statistics
 import sys
 import tempfile
 from pathlib import Path
@@ -41,7 +40,15 @@ def _ensure_repo_on_path() -> None:
 
 _ensure_repo_on_path()
 
-from knowledge.evals.claude_code import _claude_usage  # noqa: E402
+from knowledge.evals.analyze_utils import (  # noqa: E402
+    EXHIBIT_BAR,
+    check_passes,
+    cost,
+    fmt,
+    mean_sd,
+    measure,
+    rate,
+)
 
 # Each task: its kind, the check that PASSES on a CORRECT artifact (footgun-absent /
 # convention-present; None for a pure quantitative task), the late "review feedback"
@@ -90,12 +97,6 @@ def control_id(task: str) -> str:
     return f"{task}_before"
 
 
-# A footgun "flips" only if the control reliably EXHIBITS it. The README's validity
-# discipline sets that bar at ~2/3 (a control that dodges the footgun blind proves
-# nothing). At n=3 this equals "majority"; the constant keeps it honest at n>=4.
-_EXHIBIT_BAR = 2 / 3
-
-
 def _should_rework(correct_check, control_correct) -> bool:
     """Charge a rework turn iff the task has a correctness notion AND the control got it wrong.
 
@@ -112,17 +113,6 @@ def _should_rework(correct_check, control_correct) -> bool:
 #   treat:   {cost, turns, tokens, correct|None},
 #   control: {cost, turns, tokens, correct|None},
 #   rework:  {cost} | None}      # present only when the control was wrong (=> charged)
-
-
-def _mean_sd(values: list[float]) -> tuple[float | None, float | None]:
-    if not values:
-        return None, None
-    return statistics.fmean(values), (statistics.stdev(values) if len(values) > 1 else 0.0)
-
-
-def _rate(flags: list[bool | None]) -> float | None:
-    present = [bool(f) for f in flags if f is not None]
-    return (sum(present) / len(present)) if present else None
 
 
 def aggregate(records: list[dict]) -> dict:
@@ -149,23 +139,23 @@ def aggregate(records: list[dict]) -> dict:
             errors.append(f"{task}: missing cost data in an arm")
             continue
 
-        treat_cost_mean, treat_cost_sd = _mean_sd(treat_costs)
-        ctc_cost_mean, ctc_cost_sd = _mean_sd(ctc_costs)
-        treat_turns_mean, _ = _mean_sd([float(t["treat"]["turns"]) for t in trials if t["treat"]["turns"] is not None])
-        ctrl_turns_mean, _ = _mean_sd([float(t["control"]["turns"]) for t in trials if t["control"]["turns"] is not None])
+        treat_cost_mean, treat_cost_sd = mean_sd(treat_costs)
+        ctc_cost_mean, ctc_cost_sd = mean_sd(ctc_costs)
+        treat_turns_mean, _ = mean_sd([float(t["treat"]["turns"]) for t in trials if t["treat"]["turns"] is not None])
+        ctrl_turns_mean, _ = mean_sd([float(t["control"]["turns"]) for t in trials if t["control"]["turns"] is not None])
 
         kind = cfg["kind"]
         # Footgun tasks always carry a correct_check, so these rates are defined for them;
         # only the quantitative task (no check) yields None, and it is never a footgun.
-        treat_correct_rate = _rate([t["treat"]["correct"] for t in trials])
-        control_correct_rate = _rate([t["control"]["correct"] for t in trials])
+        treat_correct_rate = rate([t["treat"]["correct"] for t in trials])
+        control_correct_rate = rate([t["control"]["correct"] for t in trials])
         # "exhibits the footgun" = the control's output is NOT correct
         control_exhibit_rate = None if control_correct_rate is None else 1.0 - control_correct_rate
 
         is_footgun = kind == "footgun"
         flip = bool(
             is_footgun and treat_correct_rate is not None and control_exhibit_rate is not None
-            and treat_correct_rate >= 0.5 and control_exhibit_rate >= _EXHIBIT_BAR
+            and treat_correct_rate >= 0.5 and control_exhibit_rate >= EXHIBIT_BAR
         )
 
         tasks[task] = {
@@ -225,39 +215,6 @@ def evaluate_gate(report: dict) -> dict:
 # --------------------------------------------------------------------------- #
 # Live orchestration (real Claude Code, in-process)
 # --------------------------------------------------------------------------- #
-def _usage(ctx) -> dict:
-    return _claude_usage(getattr(ctx, "raw_response", None) or "")
-
-
-def _cost(ctx) -> float | None:
-    return _usage(ctx).get("cost_usd")
-
-
-def _turns(ctx) -> int | None:
-    return _usage(ctx).get("num_turns")
-
-
-def _tokens(ctx) -> int | None:
-    u = _usage(ctx)
-    i, o = u.get("input_tokens"), u.get("output_tokens")
-    return None if i is None and o is None else (i or 0) + (o or 0)
-
-
-def _check_passes(ctx, correct_check) -> bool | None:
-    if correct_check is None:
-        return None
-    from knowledge.evals.eval_def import DeterministicCheckRef
-    from knowledge.evals.run import resolve_check
-    ref_str, params = correct_check
-    ref = DeterministicCheckRef(name="correct", ref=ref_str, params=params)
-    return resolve_check(ref)(ctx, **ref.params).passed
-
-
-def _measure(ctx, cfg) -> dict:
-    return {"cost": _cost(ctx), "turns": _turns(ctx), "tokens": _tokens(ctx),
-            "correct": _check_passes(ctx, cfg["correct_check"])}
-
-
 def _rework_case(task: str, cfg: dict, wrong_output: str):
     from knowledge.evals.eval_def import DeterministicCheckRef, EvalCase
     ref_str, params = cfg["correct_check"]
@@ -288,13 +245,13 @@ def run_experiment(trials: int, workers: int = 1, tasks: dict | None = None) -> 
         task, n = job
         cfg = tasks[task]
         tctx, _, tverdict = run_case_full(cases[task], runner, judge=judge)
-        treat = _measure(tctx, cfg)
+        treat = measure(tctx, cfg["correct_check"])
         cctx, _, _ = run_case_full(cases[control_id(task)], runner, judge=judge)
-        control = _measure(cctx, cfg)
+        control = measure(cctx, cfg["correct_check"])
         rework = None
         if _should_rework(cfg["correct_check"], control["correct"]):
             rctx, _, _ = run_case_full(_rework_case(task, cfg, cctx.output), runner, judge=judge)
-            rework = {"cost": _cost(rctx), "fixed": _check_passes(rctx, cfg["correct_check"])}
+            rework = {"cost": cost(rctx), "fixed": check_passes(rctx, cfg["correct_check"])}
         print(f"  {task} trial {n + 1}/{trials}: treat_ok={treat['correct']} "
               f"ctrl_ok={control['correct']} reworked={bool(rework)}", flush=True)
         return {"task": task, "kind": cfg["kind"], "treat": treat, "control": control, "rework": rework}
@@ -309,27 +266,19 @@ def run_experiment(trials: int, workers: int = 1, tasks: dict | None = None) -> 
 # --------------------------------------------------------------------------- #
 # Reporting
 # --------------------------------------------------------------------------- #
-def _f(v, money: bool = False) -> str:
-    if v is None:
-        return "n/a"
-    if isinstance(v, bool):
-        return str(v)
-    return f"${v:.4f}" if money else (f"{v:.2f}" if isinstance(v, float) else str(v))
-
-
 def format_report(report: dict, gate: dict) -> str:
     lines = ["=== PR-knowledge dogfood v2 - cost-to-correct ===", ""]
     for task, t in report["tasks"].items():
         lines.append(f"[{task}] ({t['kind']}; {t['trials']} trials, {t['reworked']} control reworks)")
         lines.append(
-            f"  cost    treat={_f(t['treat_cost_mean'], 1)}+/-{_f(t['treat_cost_sd'], 1)}  "
-            f"control_to_correct={_f(t['ctc_cost_mean'], 1)}+/-{_f(t['ctc_cost_sd'], 1)}  "
-            f"delta={_f(t['cost_delta'], 1)} ({'cheaper' if t['cost_reduced'] else 'NOT cheaper'})"
+            f"  cost    treat={fmt(t['treat_cost_mean'], 1)}+/-{fmt(t['treat_cost_sd'], 1)}  "
+            f"control_to_correct={fmt(t['ctc_cost_mean'], 1)}+/-{fmt(t['ctc_cost_sd'], 1)}  "
+            f"delta={fmt(t['cost_delta'], 1)} ({'cheaper' if t['cost_reduced'] else 'NOT cheaper'})"
         )
-        lines.append(f"  turns   treat={_f(t['treat_turns_mean'])}  control={_f(t['control_turns_mean'])}")
+        lines.append(f"  turns   treat={fmt(t['treat_turns_mean'])}  control={fmt(t['control_turns_mean'])}")
         if t["is_footgun"]:
-            lines.append(f"  footgun treat_avoid_rate={_f(t['treat_correct_rate'])}  "
-                         f"control_exhibit_rate={_f(t['control_exhibit_rate'])}  flip={t['flip']}")
+            lines.append(f"  footgun treat_avoid_rate={fmt(t['treat_correct_rate'])}  "
+                         f"control_exhibit_rate={fmt(t['control_exhibit_rate'])}  flip={t['flip']}")
         lines.append("")
     if report["errors"]:
         lines.append("ERRORS: " + "; ".join(report["errors"]) + "\n")
