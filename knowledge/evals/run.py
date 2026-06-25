@@ -586,6 +586,7 @@ def _build_trio_for(case: EvalCase, llm=None):
             Deduper,
             Redactor,
             SemanticConflictDetector,
+            TemporalSupersessionDetector,
         )
 
         policy = [Redactor()]
@@ -610,6 +611,9 @@ def _build_trio_for(case: EvalCase, llm=None):
             policy.append(
                 SemanticConflictDetector(judge=_semantic_conflict_judge_for(case))
             )
+            # Reinterpret dated same-slot value changes as supersession (deterministic,
+            # no judge): runs last, only over flags the detectors above raised.
+            policy.append(TemporalSupersessionDetector())
         graph = VectorGraph(embedder=embedder, policy=policy)
     return build_trio(
         substrate=case.substrate,

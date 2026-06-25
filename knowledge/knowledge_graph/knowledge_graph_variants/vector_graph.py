@@ -34,6 +34,7 @@ from knowledge.knowledge_graph.write_policy.write_step_variants import (
     Redactor,
     SemanticConflictDetector,
     SemanticConflictJudge,
+    TemporalSupersessionDetector,
 )
 from knowledge.llm.embedder_variants.fake_embedder import FakeEmbedder
 from knowledge.llm.llm_variants.openrouter_llm import OpenRouterLlm
@@ -66,6 +67,8 @@ def default_write_policy(llm: Llm | None = None) -> list[WriteStep]:
         # Second-pass semantic fallback (Graphiti two-stage): catches paraphrase
         # contradictions among cosine-recalled neighbours that share no slot.
         SemanticConflictDetector(judge=SemanticConflictJudge(llm=base)),
+        # Reinterpret dated same-slot value changes as supersession, not contradiction.
+        TemporalSupersessionDetector(),
     ]
 
 
@@ -148,6 +151,24 @@ class VectorGraph(SearchableGraph):
             self._overwrite(decision)
             return
         self._add(decision)
+        self._apply_supersessions(decision)
+
+    def _apply_supersessions(self, decision: WriteDecision) -> None:
+        """Enact temporal supersession flags (Graphiti invalidate-and-keep).
+
+        ``supersede:<loser>`` retires the older fact; ``supersede_self:<winner>``
+        retires the just-added incoming (a backfilled historical fact). Retirement
+        is ``state='rejected'`` (the in-memory analogue of closing the bi-temporal
+        window) so the loser leaves retrieval and the contradiction surface.
+        """
+        by_id = {f.id: f for f in self._facts}
+        for flag in decision.flags:
+            if flag.startswith("supersede:"):
+                loser = by_id.get(flag.split(":", 1)[1])
+                if loser is not None:
+                    loser.state = "rejected"
+            elif flag.startswith("supersede_self:"):
+                self._facts[-1].state = "rejected"  # the fact _add just appended
 
     # --- SearchableGraph contract ------------------------------------------
     def search(

@@ -427,6 +427,26 @@
 "pole": ""
 }
 },
+"c021c05470a45466c3322cddc8688165545a7ba5aeed596043f3391b9ac74ccf": {
+"claims": [
+{
+"attribute": "location",
+"functional": true,
+"subject": "company headquarters",
+"value": "Austin"
+},
+{
+"attribute": "year",
+"functional": true,
+"subject": "company headquarters",
+"value": "2024"
+}
+],
+"stance": {
+"axis": "none",
+"pole": ""
+}
+},
 "c033809114792b3d46dbb8c8ce505f010b88a6faf496d10e49070962d4d5cf49": {
 "claims": [
 {
@@ -488,6 +508,26 @@
 "stance": {
 "axis": "axis:error-fail-fast-vs-fail-safe",
 "pole": "fail-safe"
+}
+},
+"e4b911413031b6db93f129daf1a991a7d53bee6d3448d585f811b70c0b5a572e": {
+"claims": [
+{
+"attribute": "location",
+"functional": true,
+"subject": "company headquarters",
+"value": "Denver"
+},
+{
+"attribute": "year",
+"functional": true,
+"subject": "company headquarters",
+"value": "2019"
+}
+],
+"stance": {
+"axis": "none",
+"pole": ""
 }
 },
 "e7c5dbcd7eb86ca80684eaa02957d3e0cc4b0a7165d8636aabd65baa047d39f2": {

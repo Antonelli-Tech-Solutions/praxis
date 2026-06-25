@@ -28,6 +28,9 @@ from knowledge.knowledge_graph.write_policy.write_step_variants.semantic_conflic
     SemanticConflictDetector,
     SemanticConflictJudge,
 )
+from knowledge.knowledge_graph.write_policy.write_step_variants.temporal_supersession_detector import (
+    TemporalSupersessionDetector,
+)
 
 __all__ = [
     "Redactor",
@@ -44,4 +47,5 @@ __all__ = [
     "ClaimValueJudge",
     "SemanticConflictDetector",
     "SemanticConflictJudge",
+    "TemporalSupersessionDetector",
 ]

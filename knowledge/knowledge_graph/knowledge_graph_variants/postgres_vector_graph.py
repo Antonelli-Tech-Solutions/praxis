@@ -41,6 +41,7 @@ from knowledge.knowledge_graph.write_policy.write_step_variants import (
     Redactor,
     SemanticConflictDetector,
     SemanticConflictJudge,
+    TemporalSupersessionDetector,
 )
 from knowledge.llm.embedder_variants.openrouter_embedder import OpenRouterEmbedder
 from knowledge.llm.llm_variants.openrouter_llm import OpenRouterLlm
@@ -122,6 +123,10 @@ def default_write_policy(llm: Llm | None = None) -> list[WriteStep]:
         # Second-pass semantic fallback (Graphiti two-stage): catches paraphrase
         # contradictions among cosine-recalled neighbours that share no slot.
         SemanticConflictDetector(judge=SemanticConflictJudge(llm=base)),
+        # Last: reinterpret a dated same-slot value change (e.g. HQ in 2019 vs 2024)
+        # as supersession rather than a standing contradiction. Only touches flags
+        # the detectors above already raised, so it cannot lower their precision.
+        TemporalSupersessionDetector(),
     ]
 
 
@@ -349,11 +354,37 @@ class PostgresVectorGraph(SearchableGraph):
         persisted edge from the new fact to the conflicting one.
         """
         for flag in decision.flags:
-            if not flag.startswith("contradiction:"):
-                continue
-            conflict_id = flag.split(":", 1)[1]
-            if conflict_id and conflict_id != fact_id:
-                self.add_edge(fact_id, conflict_id, "contradiction")
+            if flag.startswith("contradiction:"):
+                conflict_id = flag.split(":", 1)[1]
+                if conflict_id and conflict_id != fact_id:
+                    self.add_edge(fact_id, conflict_id, "contradiction")
+            elif flag.startswith("supersede:"):
+                # Temporal supersession (incoming newer): retire the older fact —
+                # close its validity window + mark rejected — and record lineage.
+                loser = flag.split(":", 1)[1]
+                if loser and loser != fact_id:
+                    self._supersede(winner_id=fact_id, loser_id=loser)
+            elif flag.startswith("supersede_self:"):
+                # Incoming is a backfilled historical fact: it lands already
+                # superseded by the existing newer fact, which stays current.
+                winner = flag.split(":", 1)[1]
+                if winner and winner != fact_id:
+                    self._supersede(winner_id=winner, loser_id=fact_id)
+
+    def _supersede(self, *, winner_id: str, loser_id: str) -> None:
+        """Retire ``loser_id`` in favor of ``winner_id`` (Graphiti invalidate-and-keep).
+
+        Closes the loser's bi-temporal window (``invalidate``), marks it ``rejected``
+        so it leaves the active/contradiction surfaces, and records a ``supersedes``
+        edge winner -> loser. The row is kept for point-in-time recall.
+        """
+        self.invalidate(loser_id, winner_id=winner_id)
+        self._conn.execute(
+            f"UPDATE {self._facts_table} SET state = 'rejected' "
+            "WHERE org_id = %s AND user_id = %s AND id = %s",
+            (self.org_id, self.user_id, loser_id),
+        )
+        self.add_edge(winner_id, loser_id, "supersedes")
 
     def _persist_claims(self, fact_id: str, claims: list[Claim]) -> None:
         """Replace the stored claims for ``fact_id`` with ``claims``.
