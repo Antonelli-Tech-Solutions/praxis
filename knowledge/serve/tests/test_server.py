@@ -443,3 +443,38 @@ def test_batch_ingest_rejects_empty_documents(client):
         client.post("/ingest", json={"documents": [{"text": "  "}]}).status_code == 400
     )
 
+
+def test_batch_ingest_persists_writer_metadata(client):
+    """H12: /ingest honors per-document source/scope/category/meta and rounds them
+    back — source/scope/category on /context hits, meta on /candidates — matching
+    the /insights behavior (see test_insight_persists_writer_metadata)."""
+    body = {
+        "documents": [
+            {
+                "text": "Production database backups run nightly at 02:30 UTC.",
+                "source": "ops-runbook",
+                "scope": "ops",
+                "category": "requirement",
+                "meta": {"requirement_id": "OPS-7"},
+            }
+        ],
+        "state": "active",
+    }
+    res = client.post("/ingest", json=body)
+    assert res.status_code == 200, res.text
+
+    hit = next(
+        h
+        for h in client.get("/context", params={"query": "database backup schedule"})
+        .json()["hits"]
+        if "backup" in h["text"].lower()
+    )
+    assert hit["source"] == "ops-runbook"
+    assert hit["scope"] == "ops"
+    assert hit["category"] == "requirement"
+
+    cand = next(
+        c for c in client.get("/candidates").json() if "backup" in c["content"].lower()
+    )
+    assert cand.get("meta", {}).get("requirement_id") == "OPS-7"
+
