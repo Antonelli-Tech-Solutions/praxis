@@ -104,6 +104,15 @@ _MAX_DERIVATION_DEPTH = 25
 # may NOT use it (see `write`), and episodes are produced only via `record_episode`.
 EPISODIC_CATEGORY = "episodic"
 
+# Temporal decay (gap H3). Retrieval scales a fact's score by a recency factor
+# exp(-ln2 * age / half_life) on ``created_at`` (age = now - created_at), so a stale,
+# unconfirmed fact fades vs a fresh one. Neutral (~1.0) for fresh facts, so existing
+# behavior is unchanged for anything written recently. Applied to retrieval only —
+# NOT to write-time dedup/conflict recall (which must still find old near-dups) nor
+# to ``as_of`` point-in-time recall (decay-vs-now would be wrong there).
+_RECENCY_HALF_LIFE_DAYS = 90.0
+_LN2 = 0.6931471805599453
+
 # Columns copied verbatim between `facts` and `cached_facts` for snapshot
 # save/load (everything except the cache_key, which is stamped per copy).
 _FACT_COPY_COLS = (
@@ -615,6 +624,7 @@ class PostgresVectorGraph(SearchableGraph):
         as_of: datetime | None = None,
         hybrid: bool = False,
         exclude_categories: list[str] | None = None,
+        decay: bool = True,
     ) -> list[SearchHit]:
         """Retrieve relevant facts. Pure pgvector cosine by default; ``hybrid=True``
         additionally fuses a BM25 keyword branch.
@@ -622,6 +632,10 @@ class PostgresVectorGraph(SearchableGraph):
         ``exclude_categories`` (gap H2) omits rows whose ``category`` is in the list
         (NULL category is never excluded), applied to BOTH branches via ``_where`` —
         e.g. ``["episodic"]`` keeps decision logs out of semantic recall.
+
+        ``decay`` (gap H3, default on) scales the cosine score by a recency factor so a
+        stale fact fades vs a fresh one; it is suppressed for ``as_of`` recall (decay
+        relative to now() would distort point-in-time results).
 
         Borrows Graphiti/Zep's search stack. Two indexed branches run over the same
         tenant/state/scope/filter predicate:
@@ -653,14 +667,16 @@ class PostgresVectorGraph(SearchableGraph):
         pure-semantic — dedup/conflict want embedding recall, not keyword matching.
         """
         qvec = _fit(self._embed(query))
+        # Decay applies to retrieval ranking, but never to point-in-time (as_of) recall.
+        apply_decay = decay and as_of is None
         if not hybrid:
             return self._search_vec(
                 qvec, top_k=top_k, filters=filters, scope=scope, state=state, as_of=as_of,
-                exclude_categories=exclude_categories,
+                exclude_categories=exclude_categories, apply_decay=apply_decay,
             )
         sem = self._search_vec(
             qvec, top_k=_FUSION_BRANCH_N, filters=filters, scope=scope, state=state, as_of=as_of,
-            exclude_categories=exclude_categories,
+            exclude_categories=exclude_categories, apply_decay=apply_decay,
         )
         kw = self._search_keyword(
             query, top_k=_FUSION_BRANCH_N, filters=filters, scope=scope, state=state, as_of=as_of,
@@ -727,22 +743,28 @@ class PostgresVectorGraph(SearchableGraph):
         state: str | None = "active",
         as_of: datetime | None = None,
         exclude_categories: list[str] | None = None,
+        apply_decay: bool = False,
     ) -> list[SearchHit]:
         where, where_params = self._where(
             filters=filters, scope=scope, state=state, as_of=as_of,
             exclude_categories=exclude_categories,
         )
-        # Outcome/trust weighting: rank on cosine similarity scaled by a per-fact
-        # utility multiplier derived from recorded outcomes (mirrors Fact.utility) —
-        # neutral 1.0 until outcomes exist (no behavior change for un-scored facts),
-        # decaying toward 0 as a fact's action keeps failing. Ordering on the scaled
-        # score means we sort the matched partition rather than ride the HNSW index;
-        # fine for tenant-scoped recall, and what lets a proven fact beat a more
-        # similar but demonstrably-failed one.
+        # Outcome/trust weighting (H1): cosine similarity scaled by a per-fact utility
+        # multiplier from recorded outcomes — neutral 1.0 until outcomes exist.
+        # Temporal decay (H3, ``apply_decay``): a recency factor exp(-ln2*age/half_life)
+        # so a stale fact fades vs a fresh one — neutral (~1.0) for recently-written
+        # facts, so un-aged facts are unaffected. Ordering on the scaled score sorts the
+        # matched partition rather than riding the HNSW index (fine for tenant recall).
+        decay_sql = (
+            " * CASE WHEN created_at IS NULL THEN 1.0 ELSE "
+            f"exp(- {_LN2} * EXTRACT(EPOCH FROM (now() - created_at)) "
+            f"/ (86400.0 * {_RECENCY_HALF_LIFE_DAYS})) END"
+        ) if apply_decay else ""
         sql = (
             "SELECT id, text, source, confidence, scope, category, observation_count, state, "
             "(1 - (embedding <=> %s)) * CASE WHEN success_count + failure_count = 0 THEN 1.0 "
-            "ELSE (success_count + 0.5) / (success_count + failure_count + 1.0) END AS score "
+            "ELSE (success_count + 0.5) / (success_count + failure_count + 1.0) END"
+            f"{decay_sql} AS score "
             f"FROM {self._facts_table} {where} AND embedding IS NOT NULL "
             "ORDER BY score DESC LIMIT %s"
         )

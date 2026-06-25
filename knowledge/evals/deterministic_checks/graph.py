@@ -602,3 +602,67 @@ def stale_episode_findable_not_in_context(
     finally:
         conn.execute("DELETE FROM fact_edges WHERE org_id = %s", (org,))
         conn.execute("DELETE FROM facts WHERE org_id = %s", (org,))
+
+
+def retrieval_prefers_recent_over_stale(
+    ctx: EvalContext,
+    *,
+    query: str,
+    stale_text: str,
+    recent_text: str,
+    stale_age_days: int = 400,
+) -> CheckResult:
+    """H3 (temporal decay) red spec: a stale, unconfirmed fact must not outrank a
+    fresh one on age alone.
+
+    Seeds two facts for the same query: ``stale_text`` (written to be *more*
+    query-similar, then backdated ~``stale_age_days``) and ``recent_text`` (the
+    current truth, just written). Asserts the recent fact ranks ABOVE the stale one.
+
+    Without time decay this FAILS: ``search`` ranks by similarity*utility only, so the
+    older-but-more-similar fact wins regardless of age. With a recency-decay factor
+    folded into ranking, the stale fact's weight decays and the fresh one wins.
+
+    Requires a Postgres DSN (``embedder: cached`` / ``substrate: vector``).
+    """
+    from knowledge.evals.run import _eval_embedder
+    from knowledge.knowledge_graph.knowledge_graph_variants.postgres_vector_graph import (
+        PostgresVectorGraph,
+    )
+    from knowledge.knowledge_graph.write_policy.write_step_variants import Deduper, Redactor
+    from knowledge.serve import db
+
+    class _CachedAxis:
+        embedder = "cached"
+
+    conn = db.connect()
+    db.bootstrap()
+    org = "eval_decay_" + uuid.uuid4().hex[:12]
+    graph = PostgresVectorGraph(
+        conn, org, "u1", embedder=_eval_embedder(_CachedAxis()), policy=[Redactor(), Deduper()]
+    )
+    try:
+        stale_id = graph.write(stale_text, state="active")
+        graph.write(recent_text, state="active")
+        # Backdate the stale fact so only age (not similarity/outcomes) differs.
+        conn.execute(
+            "UPDATE facts SET created_at = now() - make_interval(days => %s), "
+            "valid_at = now() - make_interval(days => %s) "
+            "WHERE id = %s AND org_id = %s",
+            (stale_age_days, stale_age_days, stale_id, org),
+        )
+        ranked = [h.fact.text for h in graph.search(query, top_k=5)]
+        recent_rank = ranked.index(recent_text) if recent_text in ranked else 1_000
+        stale_rank = ranked.index(stale_text) if stale_text in ranked else 1_000
+        ok = recent_rank < stale_rank
+        return CheckResult(
+            name="retrieval_prefers_recent_over_stale",
+            passed=ok,
+            evidence=(
+                f"recent fact ranks #{recent_rank} vs stale ({stale_age_days}d) "
+                f"#{stale_rank} for {query!r}"
+                + ("" if ok else " — stale fact wins on similarity; no recency decay (H3 gap)")
+            ),
+        )
+    finally:
+        conn.execute("DELETE FROM facts WHERE org_id = %s", (org,))
