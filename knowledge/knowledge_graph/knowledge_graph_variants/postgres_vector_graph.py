@@ -377,6 +377,9 @@ class PostgresVectorGraph(SearchableGraph):
         decision.scope = scope
         decision.category = category
         decision.meta = meta or {}
+        # A declared derivation is a new fact built on its sources, never a duplicate;
+        # carry it onto the decision so the Augmenter exempts it from the merge (H5).
+        decision.derived_from = list(derived_from or [])
         claim_recalled = False
         semantic_recalled = False
         for step in self.policy:

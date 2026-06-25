@@ -528,6 +528,38 @@ def create_app(conn: Any | None = None) -> FastAPI:
         live_graph(org, principal.sub).record_outcome(fact_id, success=success)
         return {"id": fact_id, "success": success}
 
+    @app.post("/derivations")
+    def record_derivation(
+        body: dict[str, Any] = Body(default={}),
+        principal: Principal = Depends(current_user),
+        org: str = Depends(active_org),
+    ) -> dict[str, Any]:
+        """Attach a ``derived_from`` edge from one fact to each of its sources (H5).
+
+        Body: ``{"factId": str, "sourceIds": [str, ...]}``. Links the fact to facts
+        it was derived from so an invalidated source surfaces it as suspect via
+        ``stale_derived`` / ``dependents``. This is the only direct way to create or
+        repair a derivation edge between two *existing* facts — needed both to relink
+        edges a merge destroyed and to link facts written via ``POST /candidates``.
+        Idempotent (duplicate edges are ignored); self-edges are skipped.
+        """
+        fact_id = str(body.get("factId") or "").strip()
+        source_ids = [str(s).strip() for s in (body.get("sourceIds") or []) if str(s).strip()]
+        if not fact_id or not source_ids:
+            raise HTTPException(
+                status_code=400, detail="body must include 'factId' and non-empty 'sourceIds'"
+            )
+        g = live_graph(org, principal.sub)
+        if g.get_fact(fact_id) is None:
+            raise HTTPException(status_code=404, detail=f"unknown fact {fact_id}")
+        missing = [s for s in source_ids if g.get_fact(s) is None]
+        if missing:
+            raise HTTPException(
+                status_code=404, detail=f"unknown source fact(s): {', '.join(missing)}"
+            )
+        g.record_derivation(fact_id, source_ids)
+        return {"factId": fact_id, "sourceIds": source_ids, "kind": "derived_from"}
+
     @app.post("/candidates")
     def create_candidate(
         body: dict[str, Any] = Body(default={}),

@@ -694,3 +694,66 @@ def retrieval_prefers_recent_over_stale(
         )
     finally:
         conn.execute("DELETE FROM facts WHERE org_id = %s", (org,))
+
+
+def derived_learning_not_merged_into_source(
+    ctx: EvalContext, *, requirement_text: str, learning_text: str
+) -> CheckResult:
+    """A learning written with ``derived_from=[req]`` must NOT merge into its source.
+
+    The agent factory writes each requirement as its own fact, then writes a learning
+    *about* how that requirement was implemented, passing ``derived_from=[requirement_id]``
+    and a distinct ``category``. A derivation explicitly declares a NEW fact built on the
+    source -- it must stay a distinct node (carrying a ``derived_from`` edge), not be folded
+    back into the source. Today the Mem0-style Augmenter ignores both ``derived_from`` and
+    ``category`` and merges the learning into the requirement: ``write()`` returns the source
+    id, losing the learning's metadata and the derivation edge.
+
+    Drives the REAL production write policy (``default_write_policy`` -> includes the
+    Augmenter) in a fresh isolated tenant. Asserts the learning is its own distinct fact.
+    RED today (verified live 2026-06-25: learn_id == req_id under the full policy, while
+    ``[Redactor, Deduper]`` alone keeps them distinct -- so the Augmenter is the culprit).
+    GREEN once a ``derived_from``-carrying write is exempt from the merge.
+
+    Requires a Postgres DSN AND an OpenRouter key (the Augmenter's judge is a live LLM call);
+    the harness SKIPs without them. Marked xfail: the guard is not built yet.
+    """
+    from knowledge.evals.run import _eval_embedder
+    from knowledge.knowledge_graph.knowledge_graph_variants.postgres_vector_graph import (
+        PostgresVectorGraph,
+        default_write_policy,
+    )
+    from knowledge.serve import db
+
+    class _CachedAxis:
+        embedder = "cached"
+
+    conn = db.connect()
+    db.bootstrap()
+    org = "eval_derivmerge_" + uuid.uuid4().hex[:12]
+    user = "u1"
+    graph = PostgresVectorGraph(
+        conn, org, user, embedder=_eval_embedder(_CachedAxis()), policy=default_write_policy()
+    )
+    try:
+        req_id = graph.write(requirement_text, state="active", category="requirement")
+        learn_id = graph.write(
+            learning_text, state="active", category="learning", derived_from=[req_id]
+        )
+        n_active = len(graph.all_facts(state="active"))
+        ok = learn_id is not None and learn_id != req_id and n_active >= 2
+        return CheckResult(
+            name="derived_learning_not_merged_into_source",
+            passed=ok,
+            evidence=(
+                f"derived learning kept distinct (req={req_id}, learn={learn_id}, "
+                f"{n_active} active facts)"
+                if ok
+                else "derived learning MERGED into its source requirement: write() returned "
+                f"the source id (req={req_id} == learn={learn_id}, {n_active} active fact). "
+                "The Augmenter ignored derived_from + category."
+            ),
+        )
+    finally:
+        conn.execute("DELETE FROM fact_edges WHERE org_id = %s AND user_id = %s", (org, user))
+        conn.execute("DELETE FROM facts WHERE org_id = %s AND user_id = %s", (org, user))
