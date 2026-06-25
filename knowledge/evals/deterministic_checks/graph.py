@@ -15,6 +15,8 @@ Each takes the :class:`EvalContext` plus the case's ``params`` and returns a
 
 from __future__ import annotations
 
+import uuid
+
 from knowledge.evals.eval_def import CheckResult, EvalContext
 
 # Image/asset cards from the ImageIngestor carry the ``assets/<file>`` reference
@@ -128,6 +130,78 @@ def single_merged_fact(
     else:
         evidence = f"no single fact mentions all of {mentions!r}; blocks={fact_blocks!r}"
     return CheckResult(name="single_merged_fact", passed=ok, evidence=evidence)
+
+
+def retrieves_fact_for_query(
+    ctx: EvalContext,
+    *,
+    seed_facts: list[str],
+    query: str,
+    expect_substring: str,
+    top_k: int = 3,
+) -> CheckResult:
+    """Pass iff ``search(query, top_k)`` over ``seed_facts`` surfaces ``expect_substring``.
+
+    This is the hybrid-retrieval (vector + BM25 via RRF) regression check. It
+    drives the *real* user-facing retrieval path on the Postgres store: it seeds
+    ``seed_facts`` as active facts into a fresh, isolated ``(org_id, user_id)``
+    tenant, runs ``search`` with the cached (offline, deterministic) embedder, and
+    asserts the fact containing ``expect_substring`` lands in the top-``top_k`` hits.
+
+    The case is built so the keyword fact ranks OUT of top-k under pure pgvector
+    cosine (RED on the unmodified store) and IN once a BM25 keyword branch is fused
+    in with Reciprocal Rank Fusion (GREEN). Deterministic and offline: the cached
+    embedder replays committed real vectors (recording misses only with a key), and
+    Postgres full-text ranking is fully deterministic.
+
+    Requires a reachable Postgres DSN (the case declares ``embedder: cached`` /
+    ``substrate: vector``); without one the harness SKIPs the case before it runs.
+    """
+    from knowledge.evals.run import _eval_embedder
+    from knowledge.knowledge_graph.knowledge_graph_variants.postgres_vector_graph import (
+        PostgresVectorGraph,
+    )
+    from knowledge.knowledge_graph.write_policy.write_step_variants import Deduper, Redactor
+    from knowledge.serve import db
+
+    # Resolve the same cached embedder the harness wires for an ``embedder: cached``
+    # case (committed real vectors, deterministic offline).
+    class _CachedAxis:
+        embedder = "cached"
+
+    embedder = _eval_embedder(_CachedAxis())
+
+    conn = db.connect()
+    db.bootstrap()  # ensure the tsvector column / GIN index exist on this DB
+    org = "eval_hybrid_" + uuid.uuid4().hex[:12]
+    user = "u1"
+    graph = PostgresVectorGraph(
+        conn,
+        org,
+        user,
+        embedder=embedder,
+        # Distinct seed texts must coexist (no overwrite/merge collapse): a plain
+        # redact + exact-dedup policy keeps each fact as its own active row.
+        policy=[Redactor(), Deduper()],
+    )
+    try:
+        for text in seed_facts:
+            graph.write(text, state="active")
+        hits = graph.search(query, top_k=top_k)
+        texts = [h.fact.text for h in hits]
+        found = any(expect_substring in t for t in texts)
+        return CheckResult(
+            name="retrieves_fact_for_query",
+            passed=found,
+            evidence=(
+                f"top-{top_k} for {query!r} includes a fact with {expect_substring!r}: {texts!r}"
+                if found
+                else f"top-{top_k} for {query!r} MISSED {expect_substring!r}; got {texts!r}"
+            ),
+        )
+    finally:
+        # Drop the throwaway tenant so the live store isn't polluted across runs.
+        conn.execute("DELETE FROM facts WHERE org_id = %s AND user_id = %s", (org, user))
 
 
 def min_non_seed_facts(
