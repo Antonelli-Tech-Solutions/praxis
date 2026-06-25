@@ -20,10 +20,17 @@ class Ingestor(ABC):
         self.graph = graph
 
     @abstractmethod
-    def synthesis(self, raw_input: str) -> list[Insight]:
-        """Transform raw input into structured insights. Variant-defined."""
+    def synthesis(self, raw_input: str, *, source: str | None = None) -> list[Insight]:
+        """Transform raw input into structured insights. Variant-defined.
 
-    def ingest(self, raw_input: str, *, state: str = "proposed") -> str:
+        ``source`` is the document's origin/identifier (e.g. a citation or form
+        section). Variants that distill with an LLM may use it as context to
+        resolve in-document references; deterministic variants can ignore it.
+        """
+
+    def ingest(
+        self, raw_input: str, *, state: str = "proposed", source: str | None = None
+    ) -> str:
         """Synthesize insights from ``raw_input`` and write each to the graph.
 
         Concrete and final for the MVP — runs every time. Returns the graph
@@ -33,8 +40,17 @@ class Ingestor(ABC):
         "proposed": ingestion is a *passive* add (the system distilling raw
         input), so its output is staged, not endorsed. A caller enacting a direct
         user approval passes ``state="active"``.
+
+        ``source`` is threaded both into ``synthesis`` (as distillation context)
+        and onto each written fact's provenance.
         """
-        insights = self.synthesis(raw_input)
+        insights = self.synthesis(raw_input, source=source)
         for insight in insights:
-            self.graph.write(insight.raw_text, state=state)
+            # Only thread ``source`` through when provided: not every graph
+            # implementation (in-memory/test doubles) accepts the kwarg — only the
+            # persistent store carries fact provenance.
+            if source is not None:
+                self.graph.write(insight.raw_text, state=state, source=source)
+            else:
+                self.graph.write(insight.raw_text, state=state)
         return self.graph.read()

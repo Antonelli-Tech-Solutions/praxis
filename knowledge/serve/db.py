@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 from pathlib import Path
 
 import boto3
@@ -38,7 +39,13 @@ def resolve_dsn() -> str | None:
     if url:
         return url
 
-    # 2) Fall back to an RDS-managed secret in AWS Secrets Manager.
+    # 2) Fall back to an RDS-managed secret in AWS Secrets Manager — but ONLY
+    #    when explicitly allowed. This closes a footgun: a script that forgets to
+    #    load the repo .env (so PRAXIS_DB_URL is unset) would otherwise silently
+    #    connect to PRODUCTION RDS if AWS creds happen to be on the machine.
+    #    Prod (App Runner) and CI set PRAXIS_DB_ALLOW_REMOTE=1 on purpose.
+    if os.environ.get("PRAXIS_DB_ALLOW_REMOTE") != "1":
+        return None
     secret_name = os.environ.get("PRAXIS_DB_SECRET", DEFAULT_SECRET)
     region = os.environ.get("AWS_REGION", DEFAULT_REGION)
     try:
@@ -46,6 +53,12 @@ def resolve_dsn() -> str | None:
         raw = client.get_secret_value(SecretId=secret_name)["SecretString"]
         s = json.loads(raw)
         dbname = s.get("dbname") or DEFAULT_DBNAME
+        # Loud, unmissable: surface exactly which (remote) host we resolved to.
+        print(
+            f"[db] PRAXIS_DB_URL unset — resolving REMOTE DSN via Secrets Manager "
+            f"-> {s['host']}:{s['port']}/{dbname}",
+            file=sys.stderr,
+        )
         return (
             f"postgresql://{s['username']}:{s['password']}"
             f"@{s['host']}:{s['port']}/{dbname}"

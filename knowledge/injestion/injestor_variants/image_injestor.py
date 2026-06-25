@@ -82,7 +82,7 @@ class ImageIngestor(Ingestor):
         """Ingest the folder at ``raw_input``. Image adds are active by default."""
         return super().ingest(raw_input, state=state)
 
-    def synthesis(self, raw_input: str) -> list[Insight]:
+    def synthesis(self, raw_input: str, *, source: str | None = None) -> list[Insight]:
         folder = Path(raw_input)
 
         # Reconcile: drop assets whose exact content is already in the graph.
