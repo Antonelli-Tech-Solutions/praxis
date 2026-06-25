@@ -218,8 +218,13 @@ class VectorGraph(SearchableGraph):
         filters: dict | None = None,
         scope: str | None = None,
         state: str | None = "active",
+        hybrid: bool = False,
+        keyword_weight: float | None = None,
         exclude_categories: list[str] | None = None,
     ) -> list[SearchHit]:
+        # hybrid/keyword_weight (gap H7) are no-ops here: the in-memory store has no
+        # keyword (BM25) branch to fuse, so retrieval is always pure cosine. Accepted
+        # for signature parity with PostgresVectorGraph / the SearchableGraph contract.
         excluded = set(exclude_categories or ())
         candidates = [
             f

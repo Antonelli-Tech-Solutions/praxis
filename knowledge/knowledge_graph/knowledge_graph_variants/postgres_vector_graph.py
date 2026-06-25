@@ -104,6 +104,15 @@ _MAX_DERIVATION_DEPTH = 25
 # may NOT use it (see `write`), and episodes are produced only via `record_episode`.
 EPISODIC_CATEGORY = "episodic"
 
+# Temporal decay (gap H3). Retrieval scales a fact's score by a recency factor
+# exp(-ln2 * age / half_life) on ``created_at`` (age = now - created_at), so a stale,
+# unconfirmed fact fades vs a fresh one. Neutral (~1.0) for fresh facts, so existing
+# behavior is unchanged for anything written recently. Applied to retrieval only —
+# NOT to write-time dedup/conflict recall (which must still find old near-dups) nor
+# to ``as_of`` point-in-time recall (decay-vs-now would be wrong there).
+_RECENCY_HALF_LIFE_DAYS = 90.0
+_LN2 = 0.6931471805599453
+
 # Columns copied verbatim between `facts` and `cached_facts` for snapshot
 # save/load (everything except the cache_key, which is stamped per copy).
 _FACT_COPY_COLS = (
@@ -187,7 +196,11 @@ def _row_to_hit(r: tuple) -> SearchHit:
 
 
 def _rrf_fuse(
-    semantic: list[SearchHit], keyword: list[SearchHit], *, top_k: int
+    semantic: list[SearchHit],
+    keyword: list[SearchHit],
+    *,
+    top_k: int,
+    keyword_weight: float = _RRF_KEYWORD_WEIGHT,
 ) -> list[SearchHit]:
     """Fuse two ranked branches with Reciprocal Rank Fusion, returning top ``top_k``.
 
@@ -198,11 +211,16 @@ def _rrf_fuse(
     keep meaningful numbers — and falls back to the keyword branch's ts_rank for a
     keyword-only hit. Ties (equal fused score) break toward the semantic branch's
     order, then keyword order, giving a stable, deterministic ranking.
+
+    ``keyword_weight`` (gap H7) is the per-call fusion bias: the semantic branch is
+    fixed at ``_RRF_SEMANTIC_WEIGHT`` (1.0) and the keyword branch is scaled by this
+    relative weight. Raising it biases toward exact/symbol matches (a concept-vs-symbol
+    query knob); the default keeps the calibrated semantic-dominant behavior.
     """
     fused: dict[str, float] = {}
     hit_by_id: dict[str, SearchHit] = {}
     order: dict[str, int] = {}  # first-seen position, for stable tie-breaking
-    for branch, weight in ((semantic, _RRF_SEMANTIC_WEIGHT), (keyword, _RRF_KEYWORD_WEIGHT)):
+    for branch, weight in ((semantic, _RRF_SEMANTIC_WEIGHT), (keyword, keyword_weight)):
         for rank, hit in enumerate(branch, start=1):
             fid = hit.fact.id
             fused[fid] = fused.get(fid, 0.0) + weight / (_RRF_K + rank)
@@ -275,15 +293,22 @@ class PostgresVectorGraph(SearchableGraph):
 
     # --- KnowledgeGraph contract -------------------------------------------
     def read(
-        self, context: str | None = None, *, exclude_categories: list[str] | None = None
+        self,
+        context: str | None = None,
+        *,
+        exclude_categories: list[str] | None = None,
+        char_budget: int | None = None,
     ) -> str:
         """Retrieve tenant knowledge: top-k similar to ``context``, else recent.
 
         Score-ordered and token-bounded so the result is a usable reader prompt.
         ``exclude_categories`` (H2) omits those categories (e.g. ["episodic"]).
+        ``char_budget`` (gap H7) is the per-call context size cap; ``None`` uses the
+        default ``_READ_CHAR_BUDGET``. A smaller budget keeps the reader prompt tight.
         """
         context = (context or "").strip()
         excluded = set(exclude_categories or ())
+        budget = _READ_CHAR_BUDGET if char_budget is None else char_budget
         if context:
             hits = self.search(context, top_k=12, exclude_categories=exclude_categories)
             facts = [h.fact for h in hits]
@@ -292,7 +317,7 @@ class PostgresVectorGraph(SearchableGraph):
         parts: list[str] = []
         used = 0
         for fact in facts:
-            if used + len(fact.text) > _READ_CHAR_BUDGET and parts:
+            if used + len(fact.text) > budget and parts:
                 break
             parts.append(fact.text)
             used += len(fact.text)
@@ -614,14 +639,26 @@ class PostgresVectorGraph(SearchableGraph):
         state: str | None = "active",
         as_of: datetime | None = None,
         hybrid: bool = False,
+        keyword_weight: float | None = None,
         exclude_categories: list[str] | None = None,
+        decay: bool = True,
     ) -> list[SearchHit]:
         """Retrieve relevant facts. Pure pgvector cosine by default; ``hybrid=True``
         additionally fuses a BM25 keyword branch.
 
+        ``keyword_weight`` (gap H7) tunes the RRF fusion bias per call (only meaningful
+        with ``hybrid=True``): the semantic branch stays at weight 1.0 and the keyword
+        branch is scaled by this value. ``None`` uses the calibrated default
+        (``_RRF_KEYWORD_WEIGHT``); raise it to favor exact/symbol matches for a
+        symbol-style query, lower it to lean more semantic.
+
         ``exclude_categories`` (gap H2) omits rows whose ``category`` is in the list
         (NULL category is never excluded), applied to BOTH branches via ``_where`` —
         e.g. ``["episodic"]`` keeps decision logs out of semantic recall.
+
+        ``decay`` (gap H3, default on) scales the cosine score by a recency factor so a
+        stale fact fades vs a fresh one; it is suppressed for ``as_of`` recall (decay
+        relative to now() would distort point-in-time results).
 
         Borrows Graphiti/Zep's search stack. Two indexed branches run over the same
         tenant/state/scope/filter predicate:
@@ -653,20 +690,23 @@ class PostgresVectorGraph(SearchableGraph):
         pure-semantic — dedup/conflict want embedding recall, not keyword matching.
         """
         qvec = _fit(self._embed(query))
+        # Decay applies to retrieval ranking, but never to point-in-time (as_of) recall.
+        apply_decay = decay and as_of is None
         if not hybrid:
             return self._search_vec(
                 qvec, top_k=top_k, filters=filters, scope=scope, state=state, as_of=as_of,
-                exclude_categories=exclude_categories,
+                exclude_categories=exclude_categories, apply_decay=apply_decay,
             )
         sem = self._search_vec(
             qvec, top_k=_FUSION_BRANCH_N, filters=filters, scope=scope, state=state, as_of=as_of,
-            exclude_categories=exclude_categories,
+            exclude_categories=exclude_categories, apply_decay=apply_decay,
         )
         kw = self._search_keyword(
             query, top_k=_FUSION_BRANCH_N, filters=filters, scope=scope, state=state, as_of=as_of,
             exclude_categories=exclude_categories,
         )
-        return _rrf_fuse(sem, kw, top_k=top_k)
+        kww = _RRF_KEYWORD_WEIGHT if keyword_weight is None else keyword_weight
+        return _rrf_fuse(sem, kw, top_k=top_k, keyword_weight=kww)
 
     def _where(
         self,
@@ -727,22 +767,28 @@ class PostgresVectorGraph(SearchableGraph):
         state: str | None = "active",
         as_of: datetime | None = None,
         exclude_categories: list[str] | None = None,
+        apply_decay: bool = False,
     ) -> list[SearchHit]:
         where, where_params = self._where(
             filters=filters, scope=scope, state=state, as_of=as_of,
             exclude_categories=exclude_categories,
         )
-        # Outcome/trust weighting: rank on cosine similarity scaled by a per-fact
-        # utility multiplier derived from recorded outcomes (mirrors Fact.utility) —
-        # neutral 1.0 until outcomes exist (no behavior change for un-scored facts),
-        # decaying toward 0 as a fact's action keeps failing. Ordering on the scaled
-        # score means we sort the matched partition rather than ride the HNSW index;
-        # fine for tenant-scoped recall, and what lets a proven fact beat a more
-        # similar but demonstrably-failed one.
+        # Outcome/trust weighting (H1): cosine similarity scaled by a per-fact utility
+        # multiplier from recorded outcomes — neutral 1.0 until outcomes exist.
+        # Temporal decay (H3, ``apply_decay``): a recency factor exp(-ln2*age/half_life)
+        # so a stale fact fades vs a fresh one — neutral (~1.0) for recently-written
+        # facts, so un-aged facts are unaffected. Ordering on the scaled score sorts the
+        # matched partition rather than riding the HNSW index (fine for tenant recall).
+        decay_sql = (
+            " * CASE WHEN created_at IS NULL THEN 1.0 ELSE "
+            f"exp(- {_LN2} * EXTRACT(EPOCH FROM (now() - created_at)) "
+            f"/ (86400.0 * {_RECENCY_HALF_LIFE_DAYS})) END"
+        ) if apply_decay else ""
         sql = (
             "SELECT id, text, source, confidence, scope, category, observation_count, state, "
             "(1 - (embedding <=> %s)) * CASE WHEN success_count + failure_count = 0 THEN 1.0 "
-            "ELSE (success_count + 0.5) / (success_count + failure_count + 1.0) END AS score "
+            "ELSE (success_count + 0.5) / (success_count + failure_count + 1.0) END"
+            f"{decay_sql} AS score "
             f"FROM {self._facts_table} {where} AND embedding IS NOT NULL "
             "ORDER BY score DESC LIMIT %s"
         )
