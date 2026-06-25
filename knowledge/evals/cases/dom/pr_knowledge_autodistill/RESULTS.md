@@ -4,77 +4,83 @@
 15 real Claude Code runs · distiller `openai/gpt-4o-mini`, embeddings
 `openai/text-embedding-3-small` (replayed from the committed cache).
 
-## Verdict: **GO (provisional)**
+> **Correction (2026-06-25).** A first run reported GO (provisional). Code review found that
+> the autodistill case ids collided with the sibling dogfood suite, so `load_cases()` silently
+> shadowed the retrieving auto arm with the dogfood whole-file arm — the first run measured the
+> *wrong* case. Ids are now namespaced (`autodistill_*`, guarded by a uniqueness test) and the
+> slice was re-run on the genuinely-retrieving auto arm. The numbers and verdict below are the
+> corrected run; the headline flipped from GO to NO-GO.
 
-Auto-distilled-and-retrieved PR knowledge produced a **dual-signal win on the gating footgun**:
-the auto arm avoided the footgun every trial **and** spent ~40% fewer tokens than the no-facts
-control — with both R7 diagnostics green (the neutralizing fact was extracted into the artifact
-*and* surfaced by the retriever). It is **provisional** because the gate rests on a single
-validated footgun whose control sat right at the exhibit bar, and the upstream "does knowledge
-help at all" dogfood premise is still unestablished (see *Caveats*).
+## Verdict: **NO-GO**
+
+The gating footgun **flipped** — auto-distilled-and-retrieved knowledge let the agent avoid the
+`yoyo` footgun every trial while the blind control hit it every trial, with the fact both
+extracted *and* retrieved 3/3. But the gate also requires a token/turn reduction on a majority of
+tasks, and that failed: retrieving from the 154-fact corpus is net cheaper only when the footgun
+actually traps the blind agent. On `umap`, whose control was never trapped (0/3), the retrieved
+context was pure overhead and the auto arm cost **more**.
 
 ## Numbers
 
-| Task | Arm | tokens (mean ± sd) | turns | footgun avoided |
-|------|-----|--------------------|-------|-----------------|
-| **`yoyo_lazy_import`** (gating) | auto | **2014 ± 102** | 7.0 | 3/3 |
-| | control | 3344 | 9.0 | 1/3 (exhibited 2/3) |
+| Task | Arm | tokens (mean) | turns | footgun avoided |
+|------|-----|---------------|-------|-----------------|
+| **`yoyo_lazy_import`** (gating) | auto | **2009** | 8.0 | 3/3 |
+| | control | 2326 | 7.3 | 0/3 (exhibited **3/3**) |
 | | curated ceiling | — | — | 3/3 |
-| **`umap_neighbors`** (cost-signal) | auto | **1268 ± 39** | 4.3 | 3/3 |
-| | control | 2367 | 5.0 | 3/3 (exhibited **0/3**) |
+| **`umap_neighbors`** (cost-signal) | auto | 3211 | 5.7 | 3/3 |
+| | control | 2750 | 4.3 | 3/3 (exhibited **0/3**) |
 
-- **Gating footgun flip:** auto avoid-rate **1.00** ≥ 0.5 **and** control exhibit-rate **0.67**
-  ≥ the 2/3 validity bar → **flip = True**. The curated ceiling also flipped (`curated_flip = True`).
-- **Token/turn:** auto cheaper on **both** tasks (−1330 tokens / −2 turns on yoyo; −1100 / −0.7 on
-  umap). Low spread (sd 102 / 39) — the reduction is consistent, not a single lucky trial.
+- **Gating flip = True:** auto avoid-rate 1.00; control exhibit-rate **1.00** (≥ the 2/3 bar). The
+  curated ceiling also flipped (`curated_flip = True`).
+- **Token delta:** yoyo auto −317 (−14%, cheaper); umap auto **+461 (+17%, more expensive)**.
+  Majority-reduction criterion fails (1/2) → **NO-GO**.
 
 ## R7 attribution
 
-The auto arm **flipped the gating footgun**, so there is **no shortfall to attribute** — the
-three-way machinery (EXTRACTION / RETRIEVAL / KNOWLEDGE-VALUE) stays dormant by design. The two
-upstream signals it consumes both came back positive:
+Both R7 inputs are green for **both** tasks: the neutralizing fact was **extracted** into
+`facts.insights.json` and **surfaced by the retriever 3/3** (semantic-only, top-15 of 154). So the
+three-way shortfall machinery (EXTRACTION / RETRIEVAL / KNOWLEDGE-VALUE) stays dormant — there is
+no retrieval or extraction gap to attribute. **The NO-GO is a cost finding, not a knowledge
+finding.**
 
-- **Extraction ✓** — the neutralizing fact distilled cleanly into `facts.insights.json` for both
-  tasks (yoyo: *"Yoyo executes migration files… repository root is not on sys.path, necessitating
-  lazy imports to avoid ModuleNotFoundError"*; umap: *"…set UMAP's n_neighbors to 10 instead of
-  15…"*).
-- **Retrieval ✓** — the semantic-only reader surfaced that fact in the **top-15 of 154** seeded
-  facts for the natural task query (offline probe + the live `injected_knowledge`). **The retrieval
-  gap the parent proposal predicted did *not* bite on these tasks** — a finding in itself: the
-  immediate, on-these-tasks motivation for two-lane scope-aware retrieval is weaker than expected.
+Two distinct signals, pulling apart:
 
-The token/turn reduction is the cleanest signal and is **not** the metric-bias trap the dogfood
-lesson warned about (first-pass volume crediting the control's cheap *wrong* output as free): here
-the control spent **more** tokens **and** still hit the footgun, while the auto arm was cheaper
-**and** correct. The token figure is output-dominated (the cache-read injected-knowledge block is
-excluded from `input_tokens`), so it measures *agent work / flailing*, not knowledge payload — the
-"fewer exploration turns" lever the dogfood single-file task failed to surface, surfaced here on
-both a create-task (yoyo) and a repo-mounted task (umap).
+1. **Knowledge value — positive.** On the one footgun that genuinely traps a blind agent
+   (`yoyo`, control 3/3 exhibit), auto-distilled-and-retrieved knowledge neutralized it 3/3, *and*
+   the curated ceiling confirms the knowledge itself is the cause (curated also flipped). Extraction
+   and retrieval both work end-to-end.
+2. **Cost — mixed, and that's the honest result.** Injecting retrieved context is not free. It
+   pays for itself only when it prevents flailing. `yoyo`: blind control flailed → knowledge saved
+   net (−14%). `umap`: blind control already solved it cheaply (0/3 exhibit — not blind-tempting) →
+   knowledge added 154-fact retrieval overhead for no avoidance benefit → +17%.
 
-## Caveats (why provisional)
+This is exactly the dynamic the dogfood cost-to-correct lesson predicted: the token benefit is
+real **only on a footgun that actually bites**. `umap`'s demotion to a non-gating cost signal was
+correct, and its cost regression here is informative, not a defect.
 
-1. **Single validated footgun.** Only `yoyo_lazy_import` gates, and its control exhibit-rate landed
-   *exactly* at 2/3 — one trial's blind agent deferred the import on its own. A single control trial
-   flipping the other way drops it below the bar. The verdict is one coin-flip from NO-GO.
-2. **umap is a cost signal only.** Its control exhibited the footgun **0/3** (the blind agent kept
-   n_neighbors low on its own every time), matching the dogfood v2 variance finding — so it
-   contributes the (real, consistent) token/turn reduction but **no** footgun flip. Correctly
-   non-gating.
-3. **Upstream premise unestablished.** The dogfood "does curated knowledge help at all" gate is
-   still NO-GO; this slice does not establish it, only that auto-distillation + retrieval recovers
-   the curated arm's footgun-avoidance on the one task where the bet is validated.
-4. **n = 3.** Small sample; the token deltas are large and low-variance, but the binary flip is the
-   load-bearing signal and it is thin.
+## Caveats
+
+1. **One gating footgun.** `yoyo` is the only validated gating construct; its control exhibit-rate
+   was a clean 3/3 this run (vs the borderline 2/3 the shadowed run showed). Still thinner than the
+   ≥2 the dogfood lesson recommends.
+2. **Cost is corpus-size-sensitive.** Auto seeds the full 154-fact corpus; the retriever returns
+   top-15. A smaller or better-scoped corpus could cut the umap overhead — but tuning the corpus to
+   pass the gate would be measurement-gaming, not a finding.
+3. **n = 3.** The flip is clean (3/3 vs 3/3) but the sample is small.
 
 ## Next increment
 
-- **Add a second validated footgun** (the recommended strengthening) before treating any GO as
-  firm — no other construct is validated yet, and inventing one blind would repeat the dropped-
-  `phoenix` mistake. This is the single highest-value follow-up.
-- **Scope-aware retrieval is *not* yet motivated by evidence.** Semantic-only retrieval surfaced the
-  right fact top-15/154 here. Defer the two-lane work until a task produces a *retrieval-attributed*
-  shortfall (fact present in the artifact but unsurfaced) — which this run did not.
-- **Establish the dogfood premise** (≥2 reliably-blind-tempting footguns + a heavier repo-mounted
-  task) so a future GO here is not provisional on an unproven upstream bet.
+- **The retrieval gap the parent proposal predicted did NOT bite** — semantic retrieval surfaced
+  the right fact 3/3 for both tasks. Defer two-lane scope-aware retrieval until a task produces a
+  *retrieval-attributed* shortfall; this run gives no such evidence.
+- **The cost result motivates scope-/relevance-gated injection, not richer retrieval ranking.** The
+  umap regression is an *over-injection* cost (paying to retrieve a fact the agent didn't need),
+  which argues for injecting less when the task isn't footgun-prone — a different lever than the
+  parent's file/module routing.
+- **Add a second validated footgun** (the standing recommendation) so the knowledge-value signal
+  doesn't rest on one construct.
+- **Establish the dogfood premise** (≥2 reliably-blind-tempting footguns) before any GO here is
+  trustworthy.
 
-*Raw records, diagnostics, per-arm aggregates, and gate in `RESULTS.data.json`.*
+*Raw records, diagnostics (incl. `surfaced_trials`), per-arm aggregates, and gate in
+`RESULTS.data.json`.*
