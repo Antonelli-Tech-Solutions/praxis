@@ -26,6 +26,7 @@ from typing import Callable
 
 from knowledge.injestion.injestion_def import Insight
 from knowledge.injestion.parent_injestor import Ingestor
+from knowledge.injestion.table_linearizer import linearize_table
 from knowledge.knowledge_graph.parent_knowledge_graph import KnowledgeGraph
 
 # The one hardcoded instruction for the MVP. Only the raw input is appended by
@@ -104,6 +105,13 @@ def segment_passthrough(raw_input: str) -> list[str]:
     paragraphs into one sentence per line. Order is preserved; nothing is
     deduplicated (that is ``graph.write``'s job).
     """
+    # Table branch: a markdown/CSV/key:value block has no concept of "sentences",
+    # so the splitter below would mangle it. Linearize rows deterministically
+    # instead — one self-contained fact per row (loss point A, offline path).
+    table_facts = linearize_table(raw_input)
+    if table_facts:
+        return table_facts
+
     facts: list[str] = []
     skipping = False  # inside a trailing noise section
     for raw_line in raw_input.splitlines():
@@ -144,6 +152,14 @@ class PromptIngestor(Ingestor):
             # No model to distill with: clean obvious document noise and segment
             # into atomic sentences so we don't dump raw chunks into the graph.
             return [Insight(raw_text=fact) for fact in segment_passthrough(raw_input)]
+        # Table branch: detected tabular/templated input is linearized
+        # deterministically rather than handed to the prose SPLIT_PROMPT, which
+        # collapses rows sharing a sentence shape (loss point A). This is the
+        # primary fix, not a prompt tweak — the reference research is blunt that
+        # prompt interventions don't fix structural extraction.
+        table_facts = linearize_table(raw_input)
+        if table_facts:
+            return [Insight(raw_text=fact) for fact in table_facts]
         # The SOURCE line gives the model document context so it can resolve
         # in-document references (e.g. a bare "line 12") into self-contained facts.
         context = f"SOURCE: {source}\n\n" if source else ""
