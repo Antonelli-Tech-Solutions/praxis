@@ -450,10 +450,92 @@ def test_edit_fact_patches_only_given_fields(monkeypatch):
     assert "f1" in out
 
 
+def test_insert_fact_plumbs_category_meta_and_derived_from(monkeypatch):
+    # Fix 2: a raw insert can carry the same structured data add_insight does, so
+    # the manual-repair path no longer drops category/meta/derived_from.
+    _patch_identity(monkeypatch)
+    captured = {}
+
+    def fake_post(url, json, headers, timeout=None):
+        captured["json"] = json
+        return _Resp({"id": "new1", "state": "proposed"})
+
+    monkeypatch.setattr(server.httpx, "post", fake_post)
+
+    server.praxis_insert_fact(
+        "a title",
+        "raw content",
+        category="learning",
+        meta={"requirement_id": "R4"},
+        derived_from=["src1", "src2"],
+    )
+
+    assert captured["json"] == {
+        "title": "a title",
+        "content": "raw content",
+        "category": "learning",
+        "meta": {"requirement_id": "R4"},
+        "derivedFrom": ["src1", "src2"],
+    }
+
+
+def test_edit_fact_plumbs_category_meta_and_derived_from(monkeypatch):
+    # Fix 2: an edit can also set category/meta and attach derivation sources.
+    _patch_identity(monkeypatch)
+    captured = {}
+
+    def fake_patch(url, json, headers, timeout=None):
+        captured["json"] = json
+        return _Resp({"id": "f1", "state": "active"})
+
+    monkeypatch.setattr(server.httpx, "patch", fake_patch)
+
+    server.praxis_edit_fact(
+        "f1",
+        category="requirement",
+        meta={"slot": "auth"},
+        derived_from=["src9"],
+    )
+
+    assert captured["json"] == {
+        "category": "requirement",
+        "meta": {"slot": "auth"},
+        "derivedFrom": ["src9"],
+    }
+
+
 def test_edit_fact_requires_a_field(monkeypatch):
     _patch_identity(monkeypatch)
     out = server.praxis_edit_fact("f1")
     assert "Nothing to edit" in out
+
+
+def test_record_derivation_posts_edge(monkeypatch):
+    # Fix 3: a direct way to attach derived_from edges between existing facts.
+    _patch_identity(monkeypatch)
+    captured = {}
+
+    def fake_post(url, json, headers, timeout=None):
+        captured["url"] = url
+        captured["json"] = json
+        return _Resp({"factId": "f1", "sourceIds": ["s1", "s2"], "kind": "derived_from"})
+
+    monkeypatch.setattr(server.httpx, "post", fake_post)
+
+    out = server.praxis_record_derivation("f1", ["s1", "s2"])
+
+    assert captured["url"] == "http://api.test/derivations"
+    assert captured["json"] == {"factId": "f1", "sourceIds": ["s1", "s2"]}
+    assert "f1" in out and "s1" in out
+
+
+def test_record_derivation_requires_sources(monkeypatch):
+    _patch_identity(monkeypatch)
+    monkeypatch.setattr(
+        server.httpx, "post", lambda *a, **k: pytest.fail("must not POST without sources")
+    )
+    out = server.praxis_record_derivation("f1", [])
+    assert "non-empty" in out or "source_ids" in out
 
 
 def test_promote_fact_posts_target_state(monkeypatch):

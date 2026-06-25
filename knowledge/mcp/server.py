@@ -704,19 +704,39 @@ def praxis_list_graph(state: str | None = None) -> str:
 
 
 @mcp.tool()
-def praxis_insert_fact(title: str, content: str, provenance: str | None = None) -> str:
+def praxis_insert_fact(
+    title: str,
+    content: str,
+    provenance: str | None = None,
+    category: str | None = None,
+    meta: dict | None = None,
+    derived_from: list[str] | None = None,
+) -> str:
     """Insert a fact directly into the graph, bypassing the ingestion pipeline.
 
     This is a *raw* write — no redaction, dedup, or conflict handling — and the
     fact lands in the "proposed" state for review. For normal human-approved
     knowledge that should reconcile with existing facts, use ``praxis_add_insight``
     (which runs the full ingestion pipeline and lands active) instead.
+
+    ``category`` tags the fact's kind (e.g. ``"requirement"``/``"learning"``);
+    ``meta`` is a free-form object persisted onto the fact (structured provenance);
+    ``derived_from`` is the ids of the facts this one was derived from — the backend
+    links a ``derived_from`` edge (this fact -> each source) so an invalidated source
+    can later surface this fact as suspect (gap H5). These let a manual-repair insert
+    carry the same structured data ``praxis_add_insight`` does.
     """
     if (hint := _not_ready()) is not None:
         return hint
     body: dict[str, object] = {"title": title, "content": content}
     if provenance is not None:
         body["provenance"] = provenance
+    if category is not None:
+        body["category"] = category
+    if meta is not None:
+        body["meta"] = meta
+    if derived_from:
+        body["derivedFrom"] = derived_from
     try:
         resp = httpx.post(
             f"{identity.api_base()}/candidates",
@@ -737,12 +757,16 @@ def praxis_edit_fact(
     title: str | None = None,
     content: str | None = None,
     provenance: str | None = None,
+    category: str | None = None,
+    meta: dict | None = None,
+    derived_from: list[str] | None = None,
 ) -> str:
     """Edit an existing fact in place (find its id via ``praxis_list_graph``).
 
-    Pass only the fields to change — ``title``, ``content``, and/or
-    ``provenance``. Confirm edits with the user first; this mutates stored
-    knowledge.
+    Pass only the fields to change — ``title``, ``content``, ``provenance``,
+    ``category``, ``meta`` (merged into the fact's existing meta), and/or
+    ``derived_from`` (ids to attach as ``derived_from`` edges from this fact).
+    Confirm edits with the user first; this mutates stored knowledge.
     """
     if (hint := _not_ready()) is not None:
         return hint
@@ -753,8 +777,17 @@ def praxis_edit_fact(
         body["content"] = content
     if provenance is not None:
         body["provenance"] = provenance
+    if category is not None:
+        body["category"] = category
+    if meta is not None:
+        body["meta"] = meta
+    if derived_from:
+        body["derivedFrom"] = derived_from
     if not body:
-        return "Nothing to edit — pass title, content, and/or provenance."
+        return (
+            "Nothing to edit — pass title, content, provenance, "
+            "category, meta, and/or derived_from."
+        )
     try:
         resp = httpx.patch(
             f"{identity.api_base()}/candidates/{cid}",
@@ -767,6 +800,38 @@ def praxis_edit_fact(
         return _friendly(exc)
     c = resp.json()
     return f"Edited fact id={c.get('id')} (state={c.get('state')})."
+
+
+@mcp.tool()
+def praxis_record_derivation(fact_id: str, source_ids: list[str]) -> str:
+    """Attach a ``derived_from`` edge from a fact to each of its sources (gap H5).
+
+    Links ``fact_id`` to the facts it was derived from, so an invalidated source
+    later surfaces this fact as suspect (see ``praxis_get_stale_derivations`` /
+    ``praxis_dependents``). This is the direct way to create or repair a derivation
+    edge between two *existing* facts — use it to relink an edge a merge destroyed,
+    or to connect a fact written via ``praxis_insert_fact`` to its sources. Both the
+    fact and every source must already exist (find ids via ``praxis_list_graph``).
+    Idempotent; self-edges are skipped.
+    """
+    if (hint := _not_ready()) is not None:
+        return hint
+    if not fact_id or not source_ids:
+        return "Pass a fact_id and a non-empty list of source_ids."
+    body: dict[str, object] = {"factId": fact_id, "sourceIds": source_ids}
+    try:
+        resp = httpx.post(
+            f"{identity.api_base()}/derivations",
+            json=body,
+            headers=_headers(),
+            timeout=_WRITE_TIMEOUT,
+        )
+        resp.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        return _friendly(exc)
+    d = resp.json()
+    srcs = ", ".join(d.get("sourceIds", []))
+    return f"Recorded derived_from edge(s): {d.get('factId')} -> [{srcs}]."
 
 
 @mcp.tool()

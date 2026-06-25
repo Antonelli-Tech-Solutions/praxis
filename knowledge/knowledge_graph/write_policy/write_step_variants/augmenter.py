@@ -49,6 +49,12 @@ class Augmenter(WriteStep):
             return
         if not decision.candidates or self.judge is None:
             return
+        # A write that declares derived_from is an explicit NEW fact built on its
+        # sources (gap H5: a learning derived from a requirement), not a duplicate.
+        # Folding it into another fact would destroy the distinct node and its
+        # derived_from edge, so a declared derivation is never an augment target.
+        if decision.derived_from:
+            return
         # The Deduper's slot-guard already ruled these candidates distinct (different
         # functional slot) or conflicting (same slot, different value); never fold an
         # additive merge into them, or we'd reintroduce the silent over-merge the guard
@@ -60,6 +66,16 @@ class Augmenter(WriteStep):
             # An exact dup would have been collapsed by the Deduper already; skip it
             # defensively so the judge never merges a fact into its own twin.
             if hit.fact.text.strip() == decision.text.strip():
+                continue
+            # Never merge across distinct category values: a "learning" must not be
+            # folded into a "requirement". Only merge when categories match (or are
+            # both unset), so an additive note still merges into its same-kind peer.
+            hit_category = getattr(hit.fact, "category", None)
+            if (
+                decision.category is not None
+                and hit_category is not None
+                and decision.category != hit_category
+            ):
                 continue
             merged = self.judge.merged_text(decision.text, hit.fact.text)
             if merged and merged.strip():

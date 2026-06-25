@@ -209,7 +209,16 @@ class FactsCandidates:
         if not title or not content:
             raise ValueError("title and content are required")
         provenance = str(body.get("provenance") or f"human-gate/manual:{_now()}")
+        # Structured fields (H12): a raw insert may still carry the same structured
+        # data add_insight does — category, free-form meta, and derivation sources —
+        # so the manual-repair path doesn't drop them. User meta merges under the
+        # facade-owned keys (title/auditTrail always win).
+        category = body.get("category")
+        category = str(category).strip() if category not in (None, "") else None
+        user_meta = body.get("meta") if isinstance(body.get("meta"), dict) else {}
+        derived_from = [str(s) for s in (body.get("derivedFrom") or []) if s]
         meta: dict[str, Any] = {
+            **user_meta,
             "title": title,
             "auditTrail": [_audit_entry(provenance, "created")],
         }
@@ -217,7 +226,9 @@ class FactsCandidates:
             content,
             state="proposed",
             source=provenance,
+            category=category,
             meta=meta,
+            derived_from=derived_from or None,
         )
         if fid is None:
             raise ValueError("failed to create candidate")
@@ -314,6 +325,14 @@ class FactsCandidates:
             source = str(body["provenance"]).strip()
         if "confidence" in body:
             confidence = float(body["confidence"])
+        # Structured fields (H12): an edit may also set category, merge free-form
+        # meta, and attach derivation sources, so manual repair stays faithful.
+        category = None
+        if "category" in body and body["category"] not in (None, ""):
+            category = str(body["category"]).strip()
+        if isinstance(body.get("meta"), dict):
+            meta.update(body["meta"])
+        derived_from = [str(s) for s in (body.get("derivedFrom") or []) if s]
         if not str(title).strip() or not str(text).strip():
             raise ValueError("title and content are required")
         meta["title"] = title
@@ -323,7 +342,10 @@ class FactsCandidates:
             source=source,
             confidence=confidence,
             meta=meta,
+            category=category,
         )
+        if derived_from:
+            self.graph.record_derivation(cid, derived_from)
         # Re-read so the audit entry sees the updated source/meta.
         fact = self.graph.get_fact(cid)
         assert fact is not None
