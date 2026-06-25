@@ -200,12 +200,15 @@ class VectorGraph(SearchableGraph):
         filters: dict | None = None,
         scope: str | None = None,
         state: str | None = "active",
+        exclude_categories: list[str] | None = None,
     ) -> list[SearchHit]:
+        excluded = set(exclude_categories or ())
         candidates = [
             f
             for f in self._facts
             if (scope is None or f.scope == scope)
             and (state is None or f.state == state)
+            and (f.category not in excluded)  # H2 exclusion (NULL category never excluded)
             and all(getattr(f, k, None) == v for k, v in (filters or {}).items())
         ]
         if not candidates:
