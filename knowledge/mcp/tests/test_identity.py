@@ -12,7 +12,7 @@ from knowledge.mcp import identity
 
 
 def test_load_identity_raises_when_cache_missing(monkeypatch, tmp_path):
-    monkeypatch.setattr(identity, "CACHE_PATH", tmp_path / "mcp.json")
+    monkeypatch.setenv("PRAXIS_MCP_CACHE", str(tmp_path / "mcp.json"))
     with pytest.raises(RuntimeError, match="login"):
         identity.load_identity()
 
@@ -31,7 +31,7 @@ def test_load_identity_returns_tenant_when_present(monkeypatch, tmp_path):
         ),
         encoding="utf-8",
     )
-    monkeypatch.setattr(identity, "CACHE_PATH", cache)
+    monkeypatch.setenv("PRAXIS_MCP_CACHE", str(cache))
 
     tenant = identity.load_identity()
     assert tenant.sub == "user-1"
