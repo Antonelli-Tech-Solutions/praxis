@@ -65,6 +65,21 @@ _RRF_K = 60
 # side lets a fact that is, say, #4 in cosine but #1 in BM25 still win after RRF.
 _FUSION_BRANCH_N = 20
 
+# Semantic-dominant fusion. The keyword (BM25) branch is down-weighted in RRF so it
+# can RESCUE/nudge a fact (e.g. one carrying a rare identifier) but cannot DEMOTE a
+# strong semantic top hit below a keyword-only match on an incidental shared word.
+# The audit showed equal-weight fusion let an off-topic doc sharing one ordinary
+# token (e.g. "expense"/"team") displace the correct semantic #1 — this guards that.
+_RRF_SEMANTIC_WEIGHT = 1.0
+_RRF_KEYWORD_WEIGHT = 0.25
+
+# Discriminativeness gate for the keyword branch: a query lexeme only contributes a
+# doc's keyword score when it appears in at most this fraction of the tenant's docs.
+# A common word (high document frequency) is non-selective and is ignored, so it
+# can't pull an off-topic doc into the keyword branch; a rare token (identifier,
+# error/runbook code) stays well under the cap and still surfaces its doc.
+_KEYWORD_MAX_DF_RATIO = 0.5
+
 # Table names are interpolated directly into SQL (psycopg can't parametrize
 # identifiers), so they must NEVER be user-controlled. Only these fixed names
 # are permitted: the live-knowledge spine and the saved-state cache.
@@ -161,10 +176,10 @@ def _rrf_fuse(
     fused: dict[str, float] = {}
     hit_by_id: dict[str, SearchHit] = {}
     order: dict[str, int] = {}  # first-seen position, for stable tie-breaking
-    for branch in (semantic, keyword):
+    for branch, weight in ((semantic, _RRF_SEMANTIC_WEIGHT), (keyword, _RRF_KEYWORD_WEIGHT)):
         for rank, hit in enumerate(branch, start=1):
             fid = hit.fact.id
-            fused[fid] = fused.get(fid, 0.0) + 1.0 / (_RRF_K + rank)
+            fused[fid] = fused.get(fid, 0.0) + weight / (_RRF_K + rank)
             order.setdefault(fid, len(order))
             # Prefer the semantic hit's score (cosine similarity) when this fact
             # appeared in the semantic branch; otherwise keep the keyword score.
@@ -387,34 +402,39 @@ class PostgresVectorGraph(SearchableGraph):
         scope: str | None = None,
         state: str | None = "active",
         as_of: datetime | None = None,
-        hybrid: bool = True,
+        hybrid: bool = False,
     ) -> list[SearchHit]:
-        """Hybrid retrieval: pgvector cosine fused with a BM25 keyword branch.
+        """Retrieve relevant facts. Pure pgvector cosine by default; ``hybrid=True``
+        additionally fuses a BM25 keyword branch.
 
         Borrows Graphiti/Zep's search stack. Two indexed branches run over the same
         tenant/state/scope/filter predicate:
 
-          * **semantic** — pgvector cosine (HNSW index on ``embedding``), the prior
-            behavior.
-          * **keyword (BM25-style)** — Postgres full-text: ``websearch_to_tsquery``
-            against the generated ``text_tsv`` column (GIN index), ranked by
-            ``ts_rank``. This is what surfaces an exact term/identifier (a token,
-            name, error/runbook code) that cosine alone can rank out of top-k.
+          * **semantic** — pgvector cosine (HNSW index on ``embedding``), the default.
+          * **keyword (BM25-style)** — Postgres full-text over the generated
+            ``text_tsv`` column (GIN index), scored by the BM25 IDF component so a
+            rare exact term/identifier (token, name, error/runbook code) outranks
+            common-word matches.
 
-        The two rankings are fused with **Reciprocal Rank Fusion** (score
-        ``Σ 1/(k + rank)``, ``k=60``): each branch fetches ``_FUSION_BRANCH_N``, a
-        fact's RRF score sums the reciprocal of its rank in whichever branches it
-        appears, and the top ``top_k`` by fused score are returned. RRF needs no
-        score calibration between the (cosine) and (ts_rank) scales — it ranks on
-        position only. The returned ``SearchHit.score`` is the cosine similarity
-        when the fact appeared in the semantic branch (so existing score-based
-        callers keep meaningful numbers); keyword-only hits carry their ts_rank.
+        Fused with **Reciprocal Rank Fusion** (``Σ weight/(_RRF_K + rank)``). Two
+        guards keep keyword noise from hurting precision: a *discriminativeness gate*
+        (``_KEYWORD_MAX_DF_RATIO`` — common, low-IDF lexemes never admit a doc to the
+        keyword branch) and a *down-weighted* keyword branch (``_RRF_KEYWORD_WEIGHT``
+        < semantic) so keyword can rescue/nudge but is unlikely to demote a strong
+        semantic hit.
 
-        Backward compatible: ``hybrid=False`` falls back to the pure-cosine path
-        (``_search_vec``), and the signature is otherwise unchanged (``hybrid`` is a
-        new optional keyword). The internal candidate-recall pass (``_recall`` ->
-        ``_search_vec``) deliberately stays pure-semantic — dedup/conflict want
-        embedding recall, not keyword matching.
+        **Why hybrid is OFF by default (evidence-based).** A larger live eval on this
+        embedding stack found the cosine branch already ranks rare identifiers #1, so
+        keyword fusion yielded *no* wins, while additive fusion can still demote a
+        correct semantic answer that happens to share no query keyword (a keyword-only
+        match on an incidental shared word gets a bonus the keyword-absent winner can't
+        match). Net: on-by-default fusion was a precision regression. Hybrid remains
+        available opt-in for keyword-centric lookups (e.g. searching by an exact error
+        code). Making it safe to default-on would need a promotion-only / score-aware
+        fusion, not the additive RRF here.
+
+        The internal candidate-recall pass (``_recall`` -> ``_search_vec``) is always
+        pure-semantic — dedup/conflict want embedding recall, not keyword matching.
         """
         qvec = _fit(self._embed(query))
         if not hybrid:
@@ -535,18 +555,26 @@ class PostgresVectorGraph(SearchableGraph):
             "  FROM docs d CROSS JOIN params p"
             "), "
             "df AS (SELECT lex, count(*)::float AS df FROM matched GROUP BY lex) "
+            # Only discriminative lexemes (df <= max_df_ratio * N) count toward a
+            # doc's keyword score; common words are ignored so they can't surface an
+            # off-topic doc. CASE-gate inside the sum (not a row filter) so a doc that
+            # matched ONLY common words scores 0 and is dropped by the HAVING.
             "SELECT d.id, d.text, d.source, d.confidence, d.scope, d.category, "
             "       d.observation_count, d.state, "
-            "       COALESCE(sum(ln(ndoc.n / df.df)), 0) AS score "
+            "       COALESCE(sum(CASE WHEN df.df <= %s * ndoc.n "
+            "                         THEN ln(ndoc.n / df.df) ELSE 0 END), 0) AS score "
             "FROM docs d CROSS JOIN ndoc "
             "LEFT JOIN matched m ON m.id = d.id "
             "LEFT JOIN df ON df.lex = m.lex "
             "GROUP BY d.id, d.text, d.source, d.confidence, d.scope, d.category, "
             "         d.observation_count, d.state "
-            "HAVING COALESCE(sum(ln(ndoc.n / df.df)), 0) > 0 "
+            "HAVING COALESCE(sum(CASE WHEN df.df <= %s * ndoc.n "
+            "                        THEN ln(ndoc.n / df.df) ELSE 0 END), 0) > 0 "
             "ORDER BY score DESC LIMIT %s"
         )
-        params: list[object] = [query, *where_params, top_k]
+        params: list[object] = [
+            query, *where_params, _KEYWORD_MAX_DF_RATIO, _KEYWORD_MAX_DF_RATIO, top_k
+        ]
         rows = self._conn.execute(sql, params).fetchall()
         return [_row_to_hit(r) for r in rows]
 

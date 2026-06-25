@@ -285,8 +285,8 @@ def test_hybrid_search_lifts_exact_keyword_fact_above_pure_cosine(unique_org):
     def rank_of(hits) -> int:
         return next(i for i, h in enumerate(hits) if h.fact.text == keyword_fact)
 
-    cosine_hits = graph.search(query, top_k=6, hybrid=False)  # legacy path, unchanged
-    hybrid_hits = graph.search(query, top_k=6)  # default hybrid
+    cosine_hits = graph.search(query, top_k=6, hybrid=False)  # default path (pure cosine)
+    hybrid_hits = graph.search(query, top_k=6, hybrid=True)  # opt-in keyword fusion
     assert all(h.score is not None for h in cosine_hits)
     # The keyword branch ranks the code fact #1; fusion must improve its position.
     assert rank_of(hybrid_hits) < rank_of(cosine_hits), (

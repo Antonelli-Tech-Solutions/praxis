@@ -187,7 +187,9 @@ def retrieves_fact_for_query(
     try:
         for text in seed_facts:
             graph.write(text, state="active")
-        hits = graph.search(query, top_k=top_k)
+        # Hybrid is opt-in (default off): this check exercises the keyword-fusion
+        # path explicitly, since that is the capability under test.
+        hits = graph.search(query, top_k=top_k, hybrid=True)
         texts = [h.fact.text for h in hits]
         found = any(expect_substring in t for t in texts)
         return CheckResult(
