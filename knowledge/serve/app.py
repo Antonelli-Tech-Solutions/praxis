@@ -22,8 +22,9 @@ Run: uv run python -m knowledge.serve   (serves on http://localhost:8000)
 from __future__ import annotations
 
 import os
+import threading
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Callable
 
 from dotenv import load_dotenv
 
@@ -96,20 +97,74 @@ def _now() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
-def create_app(conn: Any | None = None) -> FastAPI:
-    """Build the app over a single shared Postgres connection.
+class _ConnProxy:
+    """A connection handle that forwards every access to *the calling thread's*
+    real connection (resolved fresh on each attribute access).
 
-    The connection is opened once per process (autocommit) and shared by the
-    orgs store and every per-request tenant graph. A resolvable DSN is required.
+    FastAPI runs sync endpoints in a thread pool, and a psycopg connection is not
+    meant for concurrent cross-thread use. The server used to share ONE connection
+    across the orgs store, auth, and every per-request graph: under a burst of
+    concurrent writes they serialized on (and could wedge) that single connection,
+    so one stuck/erroring write cascaded into 500s on all other writes *and* reads
+    until the process was restarted (H13.2) — and a wedged connection also broke
+    membership reads, so a user's orgs looked empty (H13.3, even though the rows
+    are durable in Postgres). This proxy lets the app keep one ``conn`` reference
+    while each worker thread transparently uses its own connection underneath.
+    """
+
+    __slots__ = ("_resolve",)
+
+    def __init__(self, resolve: Callable[[], Any]) -> None:
+        object.__setattr__(self, "_resolve", resolve)
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._resolve(), name)
+
+
+def create_app(conn: Any | None = None) -> FastAPI:
+    """Build the app over per-thread Postgres connections.
+
+    A passed-in ``conn`` (tests) is used directly and unshared (sequential). In
+    production (``conn is None``) each worker thread lazily opens its own
+    autocommit connection, reopened transparently if the DB dropped it (so a DB
+    restart self-heals instead of needing an app restart). A resolvable DSN is
+    required.
     """
     # Tracing is set up once at module import (see top of file); setup_tracing is
     # idempotent, so no need to call it again here.
-    conn = conn if conn is not None else db.connect()
+    if conn is not None:
+        # Explicit single connection (tests): one tenant, sequential — use as-is.
+        # Bind to a separate name so the closure doesn't capture the ``conn`` var
+        # we rebind to the proxy below (which would make resolve return the proxy).
+        _explicit_conn = conn
+        resolve_conn: Callable[[], Any] = lambda: _explicit_conn  # noqa: E731
+    else:
+        dsn = db.resolve_dsn()
+        if dsn is None:
+            raise RuntimeError(
+                "No Postgres DSN available: set PRAXIS_DB_URL, or configure "
+                "PRAXIS_DB_SECRET with AWS credentials."
+            )
+        _tls = threading.local()
+
+        def resolve_conn() -> Any:
+            c = getattr(_tls, "conn", None)
+            if c is not None and not c.closed and not getattr(c, "broken", False):
+                return c
+            # First use on this thread, or the prior connection died (e.g. the DB
+            # restarted / dropped it) — open a fresh autocommit connection.
+            c = db.connect(dsn)
+            _tls.conn = c
+            return c
+
+    conn = _ConnProxy(resolve_conn)
     orgs_store = OrgsStore(conn)
     mounted_store = MountedStore(conn)
     # Bind the auth dependency to this connection so it can also resolve API keys
     # (X-Praxis-Key) in addition to the Cognito Bearer JWT / dev seam.
     current_user = make_current_user(conn)
+    # Test seam: lets reliability tests assert per-thread isolation + reopen.
+    app_get_conn = resolve_conn
 
     def candidates_for(org: str, sub: str) -> FactsCandidates:
         """The candidate facade for one requester's tenant graph."""
@@ -120,6 +175,8 @@ def create_app(conn: Any | None = None) -> FastAPI:
         return PostgresVectorGraph(conn, org, sub)
 
     app = FastAPI(title="Praxis Candidate API", version="1")
+    # Test seam (see _ConnProxy): resolve the calling thread's live connection.
+    app.state.get_conn = app_get_conn
 
     explicit_origins = [
         origin.strip()
