@@ -42,6 +42,10 @@ class WriteDecision:
     action: Action = "add"
     # Fact to act on for action == "update" (bump) or "overwrite" (replace in place).
     update_target_id: str | None = None
+    # The id of the fact the store actually appended for action == "add"/"overwrite"
+    # (a fresh row). Filled by the store after persistence so callers can map a write
+    # back to its stored fact without diffing ``facts``; ``None`` until then.
+    added_fact_id: str | None = None
     # Extra contradicting facts to decay when action == "overwrite" (force-upsert).
     supersede_ids: list[str] = field(default_factory=list)
     flags: list[str] = field(default_factory=list)  # e.g. ["contradiction:<id>"]
