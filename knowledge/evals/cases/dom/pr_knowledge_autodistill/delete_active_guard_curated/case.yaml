@@ -1,0 +1,32 @@
+# CURATED ceiling of the delete_active_guard footgun — the hand-written ideal fact via
+# whole_file reader (force-injected). Footgun AVOIDED = guard present (regex_matches).
+
+id: autodistill_delete_active_guard_curated
+needs:
+- sandbox
+- file_io
+output_file: delete_fact.py
+reader: whole_file
+seed_prompt: 'Write a Python module `delete_fact.py` with a function `delete_fact(conn, fact_id)`
+
+  that deletes the row with the given `fact_id` from the `facts` table, using the
+
+  provided psycopg connection `conn`. Edit only delete_fact.py.
+
+  '
+target_commit: '0000000000000000000000000000000000000000'
+start_commit: null
+repo: null
+seeded_insight:
+  via_ingestor: []
+  direct_to_graph:
+  - Deleting facts must be gated to only the 'proposed' or 'rejected' states — never delete an 'active'
+    fact, which is accidental data loss. Guard the DELETE with a state restriction, e.g. `DELETE FROM
+    facts WHERE id = %s AND state IN ('proposed','rejected')`.
+deterministic_checks:
+- name: guarded_delete
+  ref: knowledge.evals.deterministic_checks.text:regex_matches
+  params:
+    pattern: (?i)\b(proposed|rejected)\b
+- name: produced_output
+  ref: knowledge.evals.deterministic_checks.builds:output_nonempty
