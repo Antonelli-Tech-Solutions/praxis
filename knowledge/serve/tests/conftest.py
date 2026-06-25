@@ -11,6 +11,14 @@ import os
 
 os.environ.setdefault("PRAXIS_AUTH_DISABLED", "1")
 
+# Never export traces from the test suite: create_app() calls setup_tracing(),
+# and a developer .env may point PHOENIX_COLLECTOR_ENDPOINT at the LIVE Phoenix —
+# tests must not pollute prod observability (nor pay the export retry latency).
+# Set empty (not popped): app.py runs load_dotenv() at import, which would
+# re-add a popped key from .env; an existing empty value is left untouched
+# (override=False) and makes setup_tracing() a no-op.
+os.environ["PHOENIX_COLLECTOR_ENDPOINT"] = ""
+
 import pytest
 
 

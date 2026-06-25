@@ -1,0 +1,36 @@
+# Local Postgres (pgvector) for local dev, DSN-backed tests, and evals without
+# touching production RDS.
+#
+# This is the database the backend actually uses for local dev: the repo .env
+# sets PRAXIS_DB_URL=postgresql://praxis:praxis@localhost:5433/praxis_kg and the
+# backend auto-loads .env (load_dotenv), so once this container is up + the
+# schema is applied, `just backend` connects here with no extra env wrangling.
+#
+#   just db-up          # start the container (waits until ready)
+#   just db-bootstrap   # apply schema.sql (first time / after db-down)
+#   just backend        # backend reads .env -> connects to this DB
+#   just db-down        # stop + delete the container & its data
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    container_name: praxis-db-kg
+    environment:
+      POSTGRES_USER: praxis
+      POSTGRES_PASSWORD: praxis
+      POSTGRES_DB: praxis_kg
+    ports:
+      # Host 5433 -> container 5432, matching PRAXIS_DB_URL in .env.
+      - "5433:5432"
+    volumes:
+      - praxis-db-kg-data:/var/lib/postgresql/data
+      # Pre-create the pgvector extension before the first app connection so the
+      # psycopg vector adapter registers (it skips silently if the type is absent).
+      - ./infra/local/initdb:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U praxis -d praxis_kg"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+volumes:
+  praxis-db-kg-data:

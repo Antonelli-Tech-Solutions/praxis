@@ -109,6 +109,8 @@ Claude Code JSONL sessions
 
 ### Runtime Surfaces
 
+> **Quickstart:** common dev tasks are defined in the [`justfile`](justfile) at the repo root. Run `just` to list recipes, then e.g. `just backend` (FastAPI on :8000) and `just frontend` (Vite/React dashboard on :5173). The entry points below are what those recipes wrap.
+
 | Surface | Entry point | Purpose |
 |---------|-------------|---------|
 | Backend API | `uv run python -m knowledge.serve` | Candidate review API, org/auth routes, API keys, graph-backed `/insights`, `/ingest`, and `/context` |

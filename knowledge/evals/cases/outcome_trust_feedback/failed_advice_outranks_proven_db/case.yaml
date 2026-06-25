@@ -1,0 +1,42 @@
+# Outcome / trust feedback on facts — retrieval must prefer proven over failed.
+#
+# Two competing, both-active facts answer the same question:
+#   * FAILED: "open a new DB connection per request" — a tried-and-failed approach
+#     (connection-pool exhaustion under load). It echoes the query wording, so it is
+#     the more cosine-similar fact.
+#   * PROVEN: "acquire a session from the shared pool via DI" — what actually worked,
+#     phrased differently from the query.
+#
+# The check records 5 failures on the failed fact and 5 successes on the proven one
+# (via record_outcome), then asserts the PROVEN fact ranks above the FAILED one.
+#
+# Without outcome weighting this fails — search() ranks by cosine and the failed,
+# more-similar advice wins regardless of recorded outcomes. With the utility
+# multiplier folded into ranking (success/failure counts -> Fact.utility), the
+# repeatedly-failed fact decays below the proven one and the proven fact wins.
+#
+# Component eval; drives the REAL Postgres retrieval path via the check's own
+# isolated tenant. Needs a Postgres DSN (embedder: cached / substrate: vector) —
+# `just db-up` provides one — else the harness SKIPs.
+id: failed_advice_outranks_proven_db
+component: knowledge_graph
+substrate: vector
+embedder: cached
+
+seeded_insight:
+  via_ingestor: []
+  # Seeded by the check into its own tenant; listed here for visibility.
+  direct_to_graph:
+    - "In the request handler, open a new database connection for each request and close it when the handler returns."
+    - "Acquire a database session from the shared async connection pool via a dependency; never instantiate raw clients inside endpoints."
+
+deterministic_checks:
+  - name: proven_outranks_failed
+    ref: "knowledge.evals.deterministic_checks.graph:retrieval_prefers_proven_over_failed"
+    params:
+      query: "How should the request handler manage its database connection?"
+      failed_text: "In the request handler, open a new database connection for each request and close it when the handler returns."
+      proven_text: "Acquire a database session from the shared async connection pool via a dependency; never instantiate raw clients inside endpoints."
+      failed_failures: 5
+      proven_successes: 5
+      top_k: 2

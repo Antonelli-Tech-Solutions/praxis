@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { contradictionPairId } from "../api/contract";
 import type { Candidate } from "../types/candidate";
 
@@ -115,7 +115,13 @@ export function contradictionClusters(candidates: Candidate[]): ContradictionClu
 }
 
 interface ContradictionsReviewProps {
-  candidates: Candidate[];
+  /**
+   * Slot-aware clusters, authored by the backend (GET /contradictions) and
+   * hydrated against the loaded candidates. The component no longer derives them
+   * — clustering is the backend's job so it stays slot-correct (contradiction is
+   * not transitive across slots).
+   */
+  clusters: ContradictionCluster[];
   onResolve: (
     contradictionId: string,
     resolution: "keep_primary" | "keep_rival",
@@ -128,7 +134,7 @@ interface ContradictionsReviewProps {
 }
 
 export function ContradictionsReview({
-  candidates,
+  clusters,
   onResolve,
   onResolveCustom,
   onDefer,
@@ -140,7 +146,6 @@ export function ContradictionsReview({
   // the Deferred section (no decision made, nothing persisted server-side) and
   // restoring moves it straight back into the review queue.
   const [deferred, setDeferred] = useState<Set<string>>(new Set());
-  const clusters = useMemo(() => contradictionClusters(candidates), [candidates]);
 
   if (clusters.length === 0) {
     return (
@@ -195,25 +200,22 @@ export function ContradictionsReview({
 
   const renderCluster = (cluster: ContradictionCluster) => {
     const busy = pending === cluster.id;
-    // Custom resolution replaces the whole cluster: collapse every pair onto a
-    // single new fact via the per-pair custom endpoint (first pair authors it;
-    // the rest just clear their edges by keeping that fact's eventual id is not
-    // possible, so we resolve the remaining pairs after). To keep behavior
-    // identical to today, custom resolution is offered on the first pair only.
+    // Custom resolution settles the whole cluster at once: the cluster id is every
+    // member id joined by "__", so the backend rejects all of them and supersedes
+    // them with the new fact (not just the first pair).
     const draft = customDrafts[cluster.id] ?? "";
     const submitCustom = () => {
       const text = draft.trim();
-      if (!text || !onResolveCustom || cluster.pairs.length === 0) return;
-      const first = cluster.pairs[0];
-      const pairId = contradictionPairId(first.primary.id, first.rival.id);
+      if (!text || !onResolveCustom || cluster.members.length === 0) return;
       setPending(cluster.id);
-      void onResolveCustom(pairId, text).finally(() => setPending(null));
+      void onResolveCustom(cluster.id, text).finally(() => setPending(null));
     };
     return (
       <div key={cluster.id} className="contradiction-pair">
         {cluster.slot?.subject && (
           <p className="muted choice-label">
             Conflict on: {cluster.slot.subject}
+            {cluster.slot.attribute ? ` · ${cluster.slot.attribute}` : ""}
           </p>
         )}
         <p className="muted">

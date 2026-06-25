@@ -60,6 +60,12 @@ class Fact(BaseModel):
     scope: str | None = None
     category: str | None = None
     observation_count: int = 1
+    # Outcome / trust feedback: how often this fact's suggested action was verified
+    # to succeed vs. fail downstream. Retrieval folds these into a utility
+    # multiplier (see ``Fact.utility``) so a demonstrably-failed fact sinks and a
+    # proven one holds. Both default 0 => neutral (utility 1.0, ranking unchanged).
+    success_count: int = 0
+    failure_count: int = 0
     state: FactState = "proposed"  # set by the write decision; see FactState
     # Topic cluster assigned by the clustering pass (embed -> reduce -> HDBSCAN).
     # None => unclustered (HDBSCAN noise). Ids are not stable across re-runs.
@@ -79,6 +85,21 @@ class Fact(BaseModel):
     # time; the structural contradiction detector reasons over these. Persisted to
     # the ``claims`` table (Postgres) or held on the fact (in-memory).
     claims: list["Claim"] = Field(default_factory=list)
+
+    @property
+    def utility(self) -> float:
+        """Retrieval trust multiplier from recorded outcomes, in (0, 1].
+
+        Neutral ``1.0`` until an outcome is recorded, so a fact with no history
+        ranks exactly as it does today (no regression). Once outcomes exist it is a
+        Laplace-smoothed success rate ``(success + 0.5) / (total + 1)`` — a fact
+        whose action keeps failing decays toward 0 and sinks in ranking; a proven
+        one stays near 1.0. Smoothing keeps a single sample from being absolute.
+        """
+        total = self.success_count + self.failure_count
+        if total == 0:
+            return 1.0
+        return (self.success_count + 0.5) / (total + 1.0)
 
 
 class SearchHit(BaseModel):

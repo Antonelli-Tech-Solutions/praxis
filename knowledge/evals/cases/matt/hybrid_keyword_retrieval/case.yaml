@@ -1,0 +1,53 @@
+# Hybrid retrieval (vector + BM25 via RRF). One fact carries a distinctive exact
+# identifier (the runbook code "RBK-7782"); the query asks for that exact code.
+#
+# Under PURE pgvector cosine the keyword fact ranks OUT of the top-3: five other
+# "on-call engineer" facts are each *semantically* closer to the question than the
+# terse runbook line, so the exact-match fact is crowded out (cosine rank ~4).
+# This is the gap the feature closes: a keyword (BM25) signal — websearch_to_tsquery
+# + ts_rank over a tsvector of the fact text — ranks the RBK-7782 fact #1 on the
+# exact token, and Reciprocal Rank Fusion (RRF, k=60) of the cosine and BM25
+# rankings lifts it into the top-3.
+#
+# RED on unmodified code (pure cosine misses RBK-7782 at top_k=3); GREEN once the
+# BM25 branch + RRF fusion land in PostgresVectorGraph.search.
+#
+# Component eval (no agent). Drives the REAL Postgres user-facing retrieval path:
+# the check seeds these facts active into a throwaway tenant and calls search().
+# Deterministic + offline — the cached embedder replays committed real vectors and
+# Postgres full-text ranking is deterministic. Needs a reachable Postgres DSN
+# (embedder: cached / substrate: vector), else the harness SKIPs it.
+id: hybrid_keyword_retrieval
+component: knowledge_graph
+substrate: vector
+embedder: cached
+
+seeded_insight:
+  via_ingestor: []
+  # Not seeded by the harness — the deterministic check below seeds these into its
+  # own isolated Postgres tenant. Listed here so the case validates and the seeds
+  # live in one place; the check's `seed_facts` param is the source of truth.
+  direct_to_graph:
+    - "Runbook entry RBK-7782: restart the queue consumer and clear the dead-letter table."
+    - "The on-call engineer should investigate failed jobs and restart affected workers."
+    - "Our deployments occasionally fail and need to be retried by an on-call engineer."
+    - "When a service is unhealthy, the on-call engineer checks dashboards and error logs."
+    - "On-call engineers triage production incidents and escalate when they cannot resolve them."
+    - "The on-call rotation handbook explains how engineers respond to alerts and failures."
+
+deterministic_checks:
+  # The exact-keyword fact must be retrieved within the top-3 for a query naming
+  # that keyword. RED under pure cosine (rank ~4); GREEN with BM25 + RRF.
+  - name: retrieves_keyword_fact
+    ref: "knowledge.evals.deterministic_checks.graph:retrieves_fact_for_query"
+    params:
+      query: "What should the on-call engineer do for RBK-7782?"
+      expect_substring: "RBK-7782"
+      top_k: 3
+      seed_facts:
+        - "Runbook entry RBK-7782: restart the queue consumer and clear the dead-letter table."
+        - "The on-call engineer should investigate failed jobs and restart affected workers."
+        - "Our deployments occasionally fail and need to be retried by an on-call engineer."
+        - "When a service is unhealthy, the on-call engineer checks dashboards and error logs."
+        - "On-call engineers triage production incidents and escalate when they cannot resolve them."
+        - "The on-call rotation handbook explains how engineers respond to alerts and failures."

@@ -26,12 +26,16 @@ from knowledge.knowledge_graph.write_policy.write_policy_def import (
     demote_active_contradiction,
 )
 from knowledge.knowledge_graph.write_policy.write_step_variants import (
+    TABULAR_FLAG,
     ClaimConflictDetector,
     ClaimExtractionJudge,
     ClaimExtractor,
     ClaimValueJudge,
     Deduper,
     Redactor,
+    SemanticConflictDetector,
+    SemanticConflictJudge,
+    TemporalSupersessionDetector,
 )
 from knowledge.llm.embedder_variants.fake_embedder import FakeEmbedder
 from knowledge.llm.llm_variants.openrouter_llm import OpenRouterLlm
@@ -54,13 +58,22 @@ def default_write_policy(llm: Llm | None = None) -> list[WriteStep]:
     same-functional-slot value clashes. ``llm`` powers extraction and the gray-zone
     value judge; both skip silently when the LLM is unavailable (offline), so this
     is safe to leave on by default.
+
+    ``ClaimExtractor`` runs **before** ``Deduper`` so the deduper's tabular slot-guard
+    can read ``decision.claims`` (the functional (subject, attribute) slots) when
+    deciding whether two sibling rows are a duplicate, a contradiction, or distinct.
     """
     base = llm or OpenRouterLlm()
     return [
         Redactor(),
-        Deduper(),
         ClaimExtractor(judge=ClaimExtractionJudge(llm=base)),
+        Deduper(),
         ClaimConflictDetector(judge=ClaimValueJudge(llm=base)),
+        # Second-pass semantic fallback (Graphiti two-stage): catches paraphrase
+        # contradictions among cosine-recalled neighbours that share no slot.
+        SemanticConflictDetector(judge=SemanticConflictJudge(llm=base)),
+        # Reinterpret dated same-slot value changes as supersession, not contradiction.
+        TemporalSupersessionDetector(),
     ]
 
 
@@ -74,6 +87,8 @@ class VectorGraph(SearchableGraph):
         *,
         recall_floor: float = 0.45,
         recall_k: int = 5,
+        semantic_recall_floor: float = 0.30,
+        semantic_recall_k: int = 10,
         tag_recall_k: int = 5,
     ) -> None:
         # Deterministic offline default; inject OpenRouterEmbedder for real runs.
@@ -83,6 +98,9 @@ class VectorGraph(SearchableGraph):
         # per-write candidate pass keeps facts scoring >= recall_floor (top recall_k).
         self.recall_floor = recall_floor
         self.recall_k = recall_k
+        # Wider, lower-floor recall reserved for the semantic contradiction pass.
+        self.semantic_recall_floor = semantic_recall_floor
+        self.semantic_recall_k = semantic_recall_k
         # Tier-B (gated): bound on the same-tag candidates added for the conflict path.
         self.tag_recall_k = tag_recall_k
         self._facts: list[Fact] = []
@@ -97,26 +115,45 @@ class VectorGraph(SearchableGraph):
         """
         return "\n\n".join(f.text for f in self._facts if f.state == "active")
 
-    def write(self, content: str, *, state: str = "proposed") -> None:
+    def write(
+        self, content: str, *, state: str = "proposed", tabular: bool = False
+    ) -> WriteDecision | None:
         """Run the write-policy pipeline over ``content``, then persist.
 
         ``state`` ("active" for a direct user approval, "proposed" for a passive
         system add) is the lifecycle state a freshly-added fact lands in.
+
+        ``tabular`` marks a write distilled from detected tabular input: it stamps
+        ``TABULAR_FLAG`` on the decision so the Deduper's slot-guard engages (sibling
+        rows must not be silently merged — loss point B).
+
+        Returns the enacted ``WriteDecision`` so callers can observe the per-write
+        outcome (``action`` add/update/overwrite, ``dropped``, ``update_target_id``)
+        without diffing ``facts`` before/after — an additive change; existing
+        callers that ignore the return value are unaffected. Returns ``None`` only
+        when nothing was written (empty content), so a ``None`` return is itself a
+        "no fact produced" signal. Empty/whitespace input is dropped, not stored.
         """
         content = content.strip()
         if not content:
-            return
+            return None
         decision = WriteDecision(text=content, state="active" if state == "active" else "proposed")
+        if tabular:
+            decision.flags.append(TABULAR_FLAG)
         claim_recalled = False
+        semantic_recalled = False
         for step in self.policy:
             if step.consumes_candidates and decision.embedding is None:
                 self._recall(decision)  # embed once + one shared candidate pass
+            if step.consumes_semantic_candidates and not semantic_recalled:
+                self._recall_semantic(decision)  # wider recall for the semantic pass
+                semantic_recalled = True
             if step.consumes_claim_candidates and not claim_recalled:
                 self._recall_claims(decision)  # slot recall, after ClaimExtractor ran
                 claim_recalled = True
             step.apply(decision)
         if decision.dropped:
-            return
+            return decision
         if decision.embedding is None:
             # No candidate-consuming step ran (e.g. a redact-only policy); still
             # embed once for persistence.
@@ -126,11 +163,33 @@ class VectorGraph(SearchableGraph):
         demote_active_contradiction(decision)
         if decision.action == "update" and decision.update_target_id:
             self._merge(decision)
-            return
+            return decision
+        if decision.action == "augment" and decision.update_target_id:
+            self._augment(decision)
+            return decision
         if decision.action == "overwrite" and decision.update_target_id:
             self._overwrite(decision)
-            return
+            return decision
         self._add(decision)
+        self._apply_supersessions(decision)
+        return decision
+
+    def _apply_supersessions(self, decision: WriteDecision) -> None:
+        """Enact temporal supersession flags (Graphiti invalidate-and-keep).
+
+        ``supersede:<loser>`` retires the older fact; ``supersede_self:<winner>``
+        retires the just-added incoming (a backfilled historical fact). Retirement
+        is ``state='rejected'`` (the in-memory analogue of closing the bi-temporal
+        window) so the loser leaves retrieval and the contradiction surface.
+        """
+        by_id = {f.id: f for f in self._facts}
+        for flag in decision.flags:
+            if flag.startswith("supersede:"):
+                loser = by_id.get(flag.split(":", 1)[1])
+                if loser is not None:
+                    loser.state = "rejected"
+            elif flag.startswith("supersede_self:"):
+                self._facts[-1].state = "rejected"  # the fact _add just appended
 
     # --- SearchableGraph contract ------------------------------------------
     def search(
@@ -152,13 +211,34 @@ class VectorGraph(SearchableGraph):
         if not candidates:
             return []
         qvec = self.embedder.embed_one(query)
+        # Outcome/trust weighting: scale cosine similarity by each fact's utility
+        # multiplier (neutral 1.0 until outcomes are recorded — no change for
+        # un-scored facts; decays toward 0 as a fact's action keeps failing), mirror
+        # of PostgresVectorGraph._search_vec. Lets a proven fact beat a more similar
+        # but demonstrably-failed one.
         hits = [
-            SearchHit(fact=f, score=_cosine(qvec, f.embedding))
+            SearchHit(fact=f, score=_cosine(qvec, f.embedding) * f.utility)
             for f in candidates
             if f.embedding is not None
         ]
         hits.sort(key=lambda h: h.score, reverse=True)
         return hits[:top_k]
+
+    def record_outcome(self, fact_id: str, *, success: bool) -> None:
+        """Feed a downstream verification result back into a fact's trust.
+
+        Increments the fact's ``success_count`` or ``failure_count``; ``search``
+        folds them into a utility multiplier so a fact whose suggested action
+        repeatedly fails sinks in ranking and a proven one holds. No-op if the id is
+        unknown. Mirrors ``PostgresVectorGraph.record_outcome``.
+        """
+        for f in self._facts:
+            if f.id == fact_id:
+                if success:
+                    f.success_count += 1
+                else:
+                    f.failure_count += 1
+                return
 
     # --- contradiction review surface --------------------------------------
     def contradictions(self) -> list[Contradiction]:
@@ -209,6 +289,28 @@ class VectorGraph(SearchableGraph):
                 if h.fact.id not in chosen and tagset.intersection(h.fact.tags)
             ][: self.tag_recall_k]
 
+    def _recall_semantic(self, decision: WriteDecision) -> None:
+        """Fill ``decision.semantic_candidates`` via a wider, lower-floor recall.
+
+        Reuses ``decision.embedding`` (one embedding per write). Returns existing
+        facts scoring >= ``semantic_recall_floor`` (below the dedup/conflict floor),
+        capped at ``semantic_recall_k``, so the semantic LLM judge can see paraphrase
+        contradictions the narrow pass drops. Searches all states, like ``_recall``.
+        """
+        if decision.embedding is None:
+            decision.embedding = self.embedder.embed_one(decision.text)
+        if not self._facts:
+            return
+        hits = [
+            SearchHit(fact=f, score=_cosine(decision.embedding, f.embedding))
+            for f in self._facts
+            if f.embedding is not None
+        ]
+        hits.sort(key=lambda h: h.score, reverse=True)
+        decision.semantic_candidates = [
+            h for h in hits if h.score >= self.semantic_recall_floor
+        ][: self.semantic_recall_k]
+
     def _recall_claims(self, decision: WriteDecision) -> None:
         """Fill ``decision.claim_candidates`` with facts sharing a functional slot.
 
@@ -241,9 +343,11 @@ class VectorGraph(SearchableGraph):
 
     # --- internals ----------------------------------------------------------
     def _add(self, decision: WriteDecision) -> None:
+        fact_id = uuid.uuid4().hex
+        decision.added_fact_id = fact_id  # let callers map this write to its row
         self._facts.append(
             Fact(
-                id=uuid.uuid4().hex,
+                id=fact_id,
                 text=decision.text,
                 state=decision.state,
                 embedding=decision.embedding,  # reuse the vector embedded in _recall
@@ -259,6 +363,23 @@ class VectorGraph(SearchableGraph):
                 fact.observation_count += 1
                 fact.confidence = min(1.0, fact.confidence + 0.05)
                 fact.flags.extend(decision.flags)
+                return
+
+    def _augment(self, decision: WriteDecision) -> None:
+        """Mem0 UPDATE/merge: rewrite the target fact's text to the merged survivor.
+
+        Keeps a single fact: the existing fact identified by ``update_target_id``
+        absorbs the new note's content (``augment_text``), re-embeds so retrieval
+        tracks the merged text, bumps observation_count, and nudges confidence.
+        The incoming note is *not* added as a separate fact.
+        """
+        merged = (decision.augment_text or decision.text).strip()
+        for fact in self._facts:
+            if fact.id == decision.update_target_id:
+                fact.text = merged
+                fact.embedding = self.embedder.embed_one(merged)
+                fact.observation_count += 1
+                fact.confidence = min(1.0, fact.confidence + 0.05)
                 return
 
     def _overwrite(self, decision: WriteDecision) -> None:

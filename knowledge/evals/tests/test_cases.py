@@ -1,6 +1,21 @@
 ﻿"""Offline harness tests for registered knowledge-injection eval cases."""
 
+from collections import Counter
+
 from knowledge.evals.run import CASES_DIR, FakeRunner, load_case, load_cases, run_case
+
+
+def test_case_ids_are_globally_unique():
+    """No two case.yaml files may share an id.
+
+    ``run_experiment`` (and any consumer) builds ``{c.id: c for c in load_cases()}``
+    over a single global, recursively-globbed case dir. A duplicate id silently
+    shadows one case with another (load order = path sort), so a suite can end up
+    running a sibling suite's arm. Keep ids namespaced per suite.
+    """
+    ids = [c.id for c in load_cases()]
+    dupes = {cid: n for cid, n in Counter(ids).items() if n > 1}
+    assert not dupes, f"duplicate case ids collide in load_cases(): {dupes}"
 
 
 def test_pathlib_preference_registered():

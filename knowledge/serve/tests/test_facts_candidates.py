@@ -149,6 +149,50 @@ def _slot_claim(subject: str, attribute: str, value: str) -> Claim:
     return Claim(subject=subject, attribute=attribute, value=value, functional=True)
 
 
+def test_auto_resolve_settles_high_confidence_numeric_clash(facade):
+    # A deterministic numeric clash on a shared functional slot is high-confidence:
+    # auto-resolution supersedes the older fact (b) in favor of the newer (a).
+    b = facade.create({"title": "B", "content": "Voltaic pile invented in 1800."})["id"]
+    a = facade.create({"title": "A", "content": "Voltaic pile invented in 1799."})["id"]
+    facade.graph._persist_claims(b, [_slot_claim("Voltaic pile", "invention year", "1800")])
+    facade.graph._persist_claims(a, [_slot_claim("Voltaic pile", "invention year", "1799")])
+    facade.graph.add_edge(a, b, "contradiction")
+
+    resolved = facade.auto_resolve_high_confidence(prefer_id=a)
+    assert resolved == [_pair(a, b)]
+    assert facade.get(a)["state"] == "active"  # newest add wins
+    assert facade.get(b)["state"] == "rejected"  # loser superseded, text intact
+    assert facade.get(b)["content"] == "Voltaic pile invented in 1800."
+    assert facade.contradictions() == []  # no longer pending
+    assert _edge_pairs(facade, "contradicted_by") == {frozenset((a, b))}
+
+
+def test_auto_resolve_leaves_gray_zone_contradiction_pending(facade):
+    # A free-text (non-numeric, non-stance) clash is gray-zone / low-confidence:
+    # auto-resolution must NOT settle it; it stays pending for manual review.
+    a = facade.create({"title": "A", "content": "Use tabs for indentation."})["id"]
+    b = facade.create({"title": "B", "content": "Use spaces for indentation."})["id"]
+    facade.graph._persist_claims(a, [_slot_claim("indentation", "style", "tabs")])
+    facade.graph._persist_claims(b, [_slot_claim("indentation", "style", "spaces")])
+    facade.graph.add_edge(a, b, "contradiction")
+
+    resolved = facade.auto_resolve_high_confidence(prefer_id=a)
+    assert resolved == []
+    assert len(facade.contradictions()) == 1  # still pending
+    assert _edge_pairs(facade, "contradiction") == {frozenset((a, b))}
+
+
+def test_auto_resolve_is_off_by_default_in_create(facade, monkeypatch):
+    # The create() hook only auto-resolves when the opt-in flag is set; default off
+    # means a wired contradiction edge stays pending.
+    monkeypatch.delenv("PRAXIS_AUTO_RESOLVE_CONTRADICTIONS", raising=False)
+    from knowledge.serve.facts_candidates import auto_resolve_enabled
+
+    assert auto_resolve_enabled() is False
+    monkeypatch.setenv("PRAXIS_AUTO_RESOLVE_CONTRADICTIONS", "1")
+    assert auto_resolve_enabled() is True
+
+
 def test_three_facts_on_one_slot_form_one_cluster(facade):
     a = facade.create({"title": "A", "content": "Voltaic pile invented in 1799."})["id"]
     b = facade.create({"title": "B", "content": "Voltaic pile invented in 1800."})["id"]
@@ -193,6 +237,35 @@ def test_two_slots_form_two_clusters(facade):
     assert {c, d} in member_sets
 
 
+def test_compound_fact_splits_into_two_slot_clusters(facade):
+    """Contradiction is not transitive across slots. B competes on two slots; A
+    clashes with B on one, C clashes with B on the other, and A and C share no
+    slot — so the chain A-B-C must split into two clusters (with B in both),
+    never collapse into one 'A, B, C all conflict' cluster."""
+    a = facade.create({"title": "A", "content": "Prod deploys need manual approval."})["id"]
+    b = facade.create({"title": "B", "content": "Prod deploys run automatically every Friday."})["id"]
+    c = facade.create({"title": "C", "content": "Prod deploys run every Tuesday."})["id"]
+    facade.graph._persist_claims(a, [_slot_claim("prod deploy", "approval", "manual")])
+    facade.graph._persist_claims(
+        b,
+        [
+            _slot_claim("prod deploy", "approval", "automatic"),
+            _slot_claim("prod deploy", "day", "friday"),
+        ],
+    )
+    facade.graph._persist_claims(c, [_slot_claim("prod deploy", "day", "tuesday")])
+    facade.graph.add_edge(a, b, "contradiction")  # approval slot
+    facade.graph.add_edge(b, c, "contradiction")  # day slot
+
+    clusters = facade.contradictions()
+    member_sets = [{m["id"] for m in cl["members"]} for cl in clusters]
+    assert len(clusters) == 2
+    assert {a, b} in member_sets
+    assert {b, c} in member_sets
+    # A and C, which never share a slot, never land in the same cluster.
+    assert not any({a, c} <= s for s in member_sets)
+
+
 def test_single_pair_is_cluster_of_two(facade):
     a = facade.create({"title": "A", "content": "Use tabs for indentation."})["id"]
     b = facade.create({"title": "B", "content": "Use spaces for indentation."})["id"]
@@ -228,11 +301,42 @@ def test_resolve_custom_rejects_both_and_creates_active(facade):
     assert facade.get(a)["content"] == "Store timestamps in UTC."  # text intact
     assert facade.get(b)["content"] == "Store timestamps in local time."  # text intact
     assert facade.contradictions() == []
-    # Resolved by a third fact: the new fact links to each loser as
-    # contradicted_by (auditable, FR-004); the old pending pair is gone.
-    assert _edge_pairs(facade, "contradicted_by") == {
+    # The new fact *supersedes* each disputed fact (directional, discoverable,
+    # reversible) — it is NOT asserted to contradict them, so no contradicted_by
+    # edges are fabricated and the old pending pair is gone.
+    assert _edge_pairs(facade, "supersedes") == {
         frozenset((new["id"], a)),
         frozenset((new["id"], b)),
+    }
+    assert _edge_pairs(facade, "contradicted_by") == set()
+    assert _edge_pairs(facade, "contradiction") == set()
+
+
+def test_resolve_custom_supersedes_every_cluster_member(facade):
+    """A 3-way clique on one slot, settled by a single user-authored fact: all
+    three members are rejected and superseded — not just the first pair (the bug
+    this fixes) — and none is marked as contradicting the new fact."""
+    a = facade.create({"title": "A", "content": "Deploy on Friday."})["id"]
+    b = facade.create({"title": "B", "content": "Deploy on Tuesday."})["id"]
+    c = facade.create({"title": "C", "content": "Deploy on Monday."})["id"]
+    for fid, day in ((a, "friday"), (b, "tuesday"), (c, "monday")):
+        facade.graph._persist_claims(fid, [_slot_claim("deploy", "day", day)])
+    facade.graph.add_edge(a, b, "contradiction")
+    facade.graph.add_edge(a, c, "contradiction")
+    facade.graph.add_edge(b, c, "contradiction")
+
+    cluster = facade.contradictions()[0]
+    assert {m["id"] for m in cluster["members"]} == {a, b, c}
+
+    new = facade.resolve_custom(cluster["id"], "Deploy on the first weekday of each sprint.")
+    assert new["state"] == "active"
+    for fid in (a, b, c):
+        assert facade.get(fid)["state"] == "rejected"
+    assert facade.contradictions() == []
+    assert _edge_pairs(facade, "supersedes") == {
+        frozenset((new["id"], a)),
+        frozenset((new["id"], b)),
+        frozenset((new["id"], c)),
     }
     assert _edge_pairs(facade, "contradiction") == set()
 

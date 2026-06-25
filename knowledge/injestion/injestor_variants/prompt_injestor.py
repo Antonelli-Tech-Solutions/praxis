@@ -26,6 +26,7 @@ from typing import Callable
 
 from knowledge.injestion.injestion_def import Insight
 from knowledge.injestion.parent_injestor import Ingestor
+from knowledge.injestion.table_linearizer import linearize_table
 from knowledge.knowledge_graph.parent_knowledge_graph import KnowledgeGraph
 
 # The one hardcoded instruction for the MVP. Only the raw input is appended by
@@ -33,9 +34,18 @@ from knowledge.knowledge_graph.parent_knowledge_graph import KnowledgeGraph
 # existing knowledge is ``graph.write``'s job, not the splitter's).
 SPLIT_PROMPT = (
     "Break the input into discrete, self-contained ideas worth remembering — one "
-    "per line. Each line must be a single atomic fact or insight that stands on "
-    "its own, preserving concrete specifics (names, numbers, projects). Do not "
-    "merge distinct ideas, deduplicate, add commentary, or number the lines."
+    "per line. Each line MUST be a complete statement that stands on its own when "
+    "read in isolation: it names its own subject and states one fact about it.\n"
+    "- Resolve references using ONLY information present in the input (including "
+    "the SOURCE line if given): replace pronouns and context-dependent phrases "
+    "(\"this\", \"it\", \"the form\", a bare line/section number) with the concrete "
+    "thing they refer to. Never invent details that are not in the input.\n"
+    "- Do NOT output procedural instructions, headers, or sentence fragments that "
+    "lack a subject (e.g. \"Enter on line 12.\"); fold such qualifiers into the "
+    "fact they describe, or drop them.\n"
+    "- Preserve concrete specifics (names, numbers, amounts, dates, form/line "
+    "references).\n"
+    "Do not merge distinct ideas, deduplicate, add commentary, or number the lines."
 )
 
 # An LLM is just a text-in/text-out callable here; keeps the dependency injectable.
@@ -95,6 +105,13 @@ def segment_passthrough(raw_input: str) -> list[str]:
     paragraphs into one sentence per line. Order is preserved; nothing is
     deduplicated (that is ``graph.write``'s job).
     """
+    # Table branch: a markdown/CSV/key:value block has no concept of "sentences",
+    # so the splitter below would mangle it. Linearize rows deterministically
+    # instead — one self-contained fact per row (loss point A, offline path).
+    table_facts = linearize_table(raw_input)
+    if table_facts:
+        return table_facts
+
     facts: list[str] = []
     skipping = False  # inside a trailing noise section
     for raw_line in raw_input.splitlines():
@@ -128,13 +145,27 @@ class PromptIngestor(Ingestor):
         super().__init__(graph)
         self.llm = llm
 
-    def synthesis(self, raw_input: str) -> list[Insight]:
+    def synthesis(self, raw_input: str, *, source: str | None = None) -> list[Insight]:
         # Split raw input into discrete ideas only — no graph read. Reconciling
         # with existing knowledge happens later in ``graph.write``.
+        #
+        # Table branch (path-independent, checked first): detected tabular/templated
+        # input is linearized deterministically rather than handed to the prose
+        # SPLIT_PROMPT / sentence splitter, which collapse or mangle rows sharing a
+        # sentence shape (loss point A). This is the primary fix, not a prompt tweak —
+        # the reference research is blunt that prompt interventions don't fix
+        # structural extraction. Each row is flagged ``tabular`` so the deduper's
+        # slot-guard engages downstream (loss point B).
+        table_facts = linearize_table(raw_input)
+        if table_facts:
+            return [Insight(raw_text=fact, tabular=True) for fact in table_facts]
         if self.llm is None:
             # No model to distill with: clean obvious document noise and segment
             # into atomic sentences so we don't dump raw chunks into the graph.
             return [Insight(raw_text=fact) for fact in segment_passthrough(raw_input)]
-        prompt = f"{SPLIT_PROMPT}\n\nINPUT:\n{raw_input}"
+        # The SOURCE line gives the model document context so it can resolve
+        # in-document references (e.g. a bare "line 12") into self-contained facts.
+        context = f"SOURCE: {source}\n\n" if source else ""
+        prompt = f"{SPLIT_PROMPT}\n\n{context}INPUT:\n{raw_input}"
         text = self.llm(prompt)
         return [Insight(raw_text=line.strip()) for line in text.splitlines() if line.strip()]

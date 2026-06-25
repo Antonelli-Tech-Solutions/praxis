@@ -32,11 +32,21 @@ from dotenv import load_dotenv
 # with an empty env: no DB, no Cognito ("invalid token"), no embedder key.
 load_dotenv()
 
+# Export LLM/embedding spans to Phoenix when PHOENIX_COLLECTOR_ENDPOINT is set
+# (no-op otherwise). Must run here, not in __main__, because uvicorn imports the
+# app by string and never executes that block.
+from knowledge.observability.tracing import setup_tracing  # noqa: E402
+
+setup_tracing()
+
 from fastapi import Body, Depends, FastAPI, Header, HTTPException  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 
 from knowledge.knowledge_graph.knowledge_graph_variants.org_source_reader import (  # noqa: E402
     OrgSourceReader,
+)
+from knowledge.knowledge_graph.knowledge_graph_variants.overlay_graph import (  # noqa: E402
+    OverlayGraph,
 )
 from knowledge.knowledge_graph.knowledge_graph_variants.postgres_vector_graph import (  # noqa: E402
     PostgresVectorGraph,
@@ -59,6 +69,7 @@ from knowledge.serve.facts_candidates import (  # noqa: E402
     FactsCandidates,
     PromotionError,
 )
+from knowledge.serve.mounted_store import MountedStore  # noqa: E402
 from knowledge.serve.orgs_store import OrgsStore  # noqa: E402
 from knowledge.serve.regenerate import (  # noqa: E402
     PipelineConfig,
@@ -90,8 +101,11 @@ def create_app(conn: Any | None = None) -> FastAPI:
     The connection is opened once per process (autocommit) and shared by the
     orgs store and every per-request tenant graph. A resolvable DSN is required.
     """
+    # Tracing is set up once at module import (see top of file); setup_tracing is
+    # idempotent, so no need to call it again here.
     conn = conn if conn is not None else db.connect()
     orgs_store = OrgsStore(conn)
+    mounted_store = MountedStore(conn)
     # Bind the auth dependency to this connection so it can also resolve API keys
     # (X-Praxis-Key) in addition to the Cognito Bearer JWT / dev seam.
     current_user = make_current_user(conn)
@@ -307,6 +321,28 @@ def create_app(conn: Any | None = None) -> FastAPI:
         except KeyError:
             raise HTTPException(status_code=404, detail=f"unknown candidate {cid}")
 
+    @app.post("/facts/{fact_id}/outcome")
+    def record_fact_outcome(
+        fact_id: str,
+        body: dict[str, Any] = Body(default={}),
+        principal: Principal = Depends(current_user),
+        org: str = Depends(active_org),
+    ) -> dict[str, Any]:
+        """Feed a downstream verification result back into a fact's trust.
+
+        Body: ``{"success": bool}``. Increments the fact's success/failure count so
+        retrieval's utility weighting demotes a repeatedly-failed fact and keeps a
+        proven one — the outcome/trust feedback that makes the memory compound on
+        what demonstrably worked rather than grow by volume alone.
+        """
+        success = body.get("success")
+        if not isinstance(success, bool):
+            raise HTTPException(
+                status_code=400, detail="body must include a boolean 'success'"
+            )
+        live_graph(org, principal.sub).record_outcome(fact_id, success=success)
+        return {"id": fact_id, "success": success}
+
     @app.post("/candidates")
     def create_candidate(
         body: dict[str, Any] = Body(default={}),
@@ -481,7 +517,73 @@ def create_app(conn: Any | None = None) -> FastAPI:
         org: str = Depends(active_org),
     ) -> dict[str, Any]:
         live_graph(org, principal.sub).delete_cache(f"snapshot:{name}")
+        # Drop any mounts the owner had of this snapshot (it no longer exists).
+        mounted_store.unmount(org, principal.sub, principal.sub, name)
         return {"deleted": name}
+
+    # --- mounted snapshots (read-only overlay selection) -------------------
+    def _validate_mount_target(org: str, source_user: str, name: str) -> None:
+        """Ensure ``source_user`` is an org member and the snapshot exists."""
+        if not orgs_store.is_member(org, source_user):
+            raise HTTPException(
+                status_code=404, detail=f"{source_user!r} is not a member of org {org!r}"
+            )
+        if live_graph(org, source_user).cache_count(f"snapshot:{name}") == 0:
+            raise HTTPException(status_code=404, detail=f"unknown snapshot {name!r}")
+
+    @app.get("/mounts")
+    def list_mounts(
+        principal: Principal = Depends(current_user),
+        org: str = Depends(active_org),
+    ) -> dict[str, Any]:
+        """List the caller's mounted snapshots (read-only retrieval overlays).
+
+        Each mount adds a snapshot's facts to what retrieval reads, without
+        merging them into the live graph and without being carried over on save.
+        """
+        mounts = mounted_store.list(org, principal.sub)
+        return {
+            "mounts": [
+                {
+                    "sourceUser": m["source_user_id"],
+                    "snapshot": m["snapshot_name"],
+                    "isSelf": m["source_user_id"] == principal.sub,
+                    "count": live_graph(org, m["source_user_id"]).cache_count(
+                        f"snapshot:{m['snapshot_name']}"
+                    ),
+                }
+                for m in mounts
+            ]
+        }
+
+    @app.post("/mounts")
+    def add_mount(
+        body: dict[str, Any] = Body(default={}),
+        principal: Principal = Depends(current_user),
+        org: str = Depends(active_org),
+    ) -> dict[str, Any]:
+        """Mount a snapshot (your own or an org member's) as a read overlay."""
+        source_user = str(body.get("sourceUser") or principal.sub).strip()
+        name = str(body.get("snapshot") or "").strip()
+        if not name:
+            raise HTTPException(status_code=400, detail="snapshot required")
+        _validate_mount_target(org, source_user, name)
+        mounted_store.mount(org, principal.sub, source_user, name)
+        return {"sourceUser": source_user, "snapshot": name, "mounted": True}
+
+    @app.delete("/mounts")
+    def remove_mount(
+        body: dict[str, Any] = Body(default={}),
+        principal: Principal = Depends(current_user),
+        org: str = Depends(active_org),
+    ) -> dict[str, Any]:
+        """Unmount a snapshot (no-op if it was not mounted)."""
+        source_user = str(body.get("sourceUser") or principal.sub).strip()
+        name = str(body.get("snapshot") or "").strip()
+        if not name:
+            raise HTTPException(status_code=400, detail="snapshot required")
+        mounted_store.unmount(org, principal.sub, source_user, name)
+        return {"sourceUser": source_user, "snapshot": name, "mounted": False}
 
     # --- skill sharing: browse another member's facts + fold them in -------
     def _fact_brief(fact: Any) -> dict[str, Any]:
@@ -856,32 +958,56 @@ def create_app(conn: Any | None = None) -> FastAPI:
     ) -> dict[str, Any]:
         """Ingest a fully-approved insight into the live ``facts`` store.
 
-        Non-destructive resolution: a contradicting add lands as a fresh ``active``
-        fact and each conflicting fact is rejected (its text preserved) and linked
-        back via a ``contradicted_by`` edge, rather than being overwritten in place.
+        ``onConflict`` selects how a detected contradiction is handled:
+
+        * ``"auto_resolve"`` (default, back-compat) — non-destructive resolution:
+          the contradicting add lands as a fresh ``active`` fact and each conflicting
+          fact is rejected (its text preserved) and linked via a ``contradicted_by``
+          edge. The newest approved truth silently wins.
+        * ``"surface"`` — retain BOTH facts and create a *pending* contradiction:
+          the conflict is flagged (a ``contradiction`` edge) rather than resolved, so
+          it shows up in ``GET /contradictions`` for a human/agent to adjudicate with
+          ``POST /contradictions/{id}/resolve``. Neither side is rejected; FR-005 only
+          demotes the newcomer to ``proposed`` so the pair is never both ``active``.
+
         The in-chat confirmation is the human gate, so the insight enters ``active``
-        at full credibility.
+        at full credibility (subject to the FR-005 demotion under ``surface``).
         """
         insight = (body.get("insight") or "").strip()
         if not insight:
             raise HTTPException(status_code=400, detail="insight required")
-        graph = PostgresVectorGraph(
-            conn,
-            org,
-            principal.sub,
-            policy=[Redactor(), Deduper(), ConflictOverwriter(llm=OpenRouterLlm())],
+        on_conflict = str(body.get("onConflict") or "auto_resolve").strip().lower()
+        if on_conflict not in ("auto_resolve", "surface"):
+            raise HTTPException(
+                status_code=400,
+                detail="onConflict must be 'auto_resolve' or 'surface'",
+            )
+        # auto_resolve: ConflictOverwriter turns a confirmed contradiction into a
+        # force-overwrite (loser rejected). surface: the structural+semantic detector
+        # pipeline only *flags* the clash, so the store persists a pending
+        # contradiction edge instead of rejecting a side.
+        policy = (
+            default_write_policy()
+            if on_conflict == "surface"
+            else [Redactor(), Deduper(), ConflictOverwriter(llm=OpenRouterLlm())]
         )
+        graph = PostgresVectorGraph(conn, org, principal.sub, policy=policy)
         _, ingestor, _ = build_trio(graph=graph, llm=None)
         before = graph.search(insight, top_k=1, state=None)
+        before_contradictions = set(graph.all_edges("contradiction"))
         ingestor.ingest(insight, state="active")  # human-gated -> live knowledge
         after = graph.search(insight, top_k=1, state=None)
+        new_contradictions = set(graph.all_edges("contradiction")) - before_contradictions
         prior = before[0].fact if before else None
         top = after[0].fact if after else None
-        # Non-destructive resolution: an approved contradiction is always a fresh
-        # add (the new fact gets a new id), so a same-id top means a dedup merge
-        # bumped the existing fact; otherwise the insight was added (possibly
-        # rejecting + linking conflicting facts).
-        if prior is not None and top is not None and prior.id == top.id:
+        # surface mode that flagged a clash: report it as a pending contradiction so
+        # the caller knows to go adjudicate it (the fact still landed, possibly
+        # demoted to proposed by FR-005).
+        if new_contradictions:
+            action = "surfaced"
+        elif prior is not None and top is not None and prior.id == top.id:
+            # Same-id top means a dedup merge bumped the existing fact; otherwise the
+            # insight was added (auto_resolve may have rejected + linked conflicts).
             action = "merged"
         else:
             action = "added"
@@ -889,6 +1015,8 @@ def create_app(conn: Any | None = None) -> FastAPI:
             "summary": f"{action} insight",
             "action": action,
             "id": top.id if top is not None else None,
+            "onConflict": on_conflict,
+            "contradictionsSurfaced": len(new_contradictions),
         }
 
     @app.post("/ingest")
@@ -900,10 +1028,15 @@ def create_app(conn: Any | None = None) -> FastAPI:
         """Batch-ingest raw documents through the tenant's distillation pipeline.
 
         Body: ``{"documents": [{"text": str, "source": str|null}],
-        "state": "active"|"proposed"}`` (state defaults to "active"). Each
+        "state": "active"|"proposed", "onConflict": "auto_resolve"|"surface"}``
+        (state defaults to "active", onConflict to "auto_resolve"). Each
         document is run through the same ingestor that distills raw text into
         facts (``build_trio`` over the tenant's live graph), at the given state —
         this is the pipeline path, NOT the no-pipeline ``/candidates`` insert.
+
+        ``onConflict`` mirrors ``POST /insights``: ``"auto_resolve"`` (default)
+        rejects the losing side of a detected clash; ``"surface"`` keeps both facts
+        and records a *pending* contradiction (visible in ``GET /contradictions``).
 
         Returns ``{"results": [{"id": str|null, "action": str}], "count": int}``;
         one result per input document. ``id`` is the top matching fact after that
@@ -915,14 +1048,28 @@ def create_app(conn: Any | None = None) -> FastAPI:
         state = str(body.get("state") or "active").strip().lower()
         if state not in ("active", "proposed"):
             raise HTTPException(status_code=400, detail="state must be 'active' or 'proposed'")
+        on_conflict = str(body.get("onConflict") or "auto_resolve").strip().lower()
+        if on_conflict not in ("auto_resolve", "surface"):
+            raise HTTPException(
+                status_code=400,
+                detail="onConflict must be 'auto_resolve' or 'surface'",
+            )
 
+        from knowledge.injestion.dump_ingest import ingest_dump
+
+        ingest_llm = OpenRouterLlm()
+        # Exact-dedup-only write policy: ingest_dump owns dedup AND conflict
+        # resolution via slot-granular claims (the distiller emits a (subject,
+        # attribute, value) per fact whose subject carries every discriminating
+        # qualifier, so different table rows are different slots and are never
+        # false-flagged). The write policy must NOT also run a conflict step or it
+        # would re-introduce the coarse-slot false positives.
         graph = PostgresVectorGraph(
             conn,
             org,
             principal.sub,
-            policy=[Redactor(), Deduper(), ConflictOverwriter(llm=OpenRouterLlm())],
+            policy=[Redactor(), Deduper()],
         )
-        _, ingestor, _ = build_trio(graph=graph, llm=None)
         results: list[dict[str, Any]] = []
         for doc in documents:
             if not isinstance(doc, dict):
@@ -930,12 +1077,27 @@ def create_app(conn: Any | None = None) -> FastAPI:
             text = (doc.get("text") or "").strip()
             if not text:
                 raise HTTPException(status_code=400, detail="each document needs non-empty text")
-            ingestor.ingest(text, state=state)
+            source = doc.get("source")
+            summary = ingest_dump(
+                graph,
+                ingest_llm,
+                text,
+                state=state,
+                source=str(source) if source else None,
+                on_conflict=on_conflict,
+            )
             # Best-effort provenance back to the caller: the top fact the just-
             # ingested text now matches (ids are per-fact, a doc distills to many).
             hits = graph.search(text, top_k=1, state=None)
             top_id = hits[0].fact.id if hits else None
-            results.append({"id": top_id, "action": "ingested"})
+            results.append({
+                "id": top_id,
+                "action": "ingested",
+                "facts": summary["facts"],
+                "merged": summary["merged"],
+                "conflicts": summary["conflicts"],
+                "surfaced": summary.get("surfaced", 0),
+            })
         return {"results": results, "count": len(results)}
 
     @app.get("/context")
@@ -945,8 +1107,15 @@ def create_app(conn: Any | None = None) -> FastAPI:
         principal: Principal = Depends(current_user),
         org: str = Depends(active_org),
     ) -> dict[str, Any]:
-        """Return active-fact context relevant to ``query`` (the eval read path)."""
-        graph = live_graph(org, principal.sub)
+        """Return active-fact context relevant to ``query`` (the eval read path).
+
+        If the caller has mounted snapshots (read-only overlays), retrieval unions
+        the live graph with those snapshots; overlay hits are flagged ``mounted``
+        with their ``owner``/``snapshot``. Mounts never affect writes or saves.
+        """
+        live = live_graph(org, principal.sub)
+        mounts = mounted_store.list(org, principal.sub)
+        graph = OverlayGraph(live, mounts) if mounts else live
         _, _, reader = build_trio(graph=graph, llm=None)
         hits = graph.search(query, top_k=top_k) if query.strip() else []
         return {
@@ -959,6 +1128,9 @@ def create_app(conn: Any | None = None) -> FastAPI:
                     "source": getattr(h.fact, "source", None),
                     "scope": getattr(h.fact, "scope", None),
                     "category": getattr(h.fact, "category", None),
+                    "mounted": bool((h.fact.meta or {}).get("mountedFrom")),
+                    "owner": (h.fact.meta or {}).get("mountedFrom", {}).get("userId"),
+                    "snapshot": (h.fact.meta or {}).get("mountedFrom", {}).get("snapshot"),
                 }
                 for h in hits
             ],

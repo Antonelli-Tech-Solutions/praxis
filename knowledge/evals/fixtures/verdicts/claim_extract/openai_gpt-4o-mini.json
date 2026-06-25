@@ -61,6 +61,40 @@
 "pole": ""
 }
 },
+"22e7ee94c80670792a9c0f851070ae9a0841644ebdbe1dba1d3e69de31718850": {
+"claims": [
+{
+"attribute": "default",
+"functional": true,
+"subject": "rate limit",
+"value": "100"
+},
+{
+"attribute": "per second",
+"functional": true,
+"subject": "requests",
+"value": "1"
+}
+],
+"stance": {
+"axis": "none",
+"pole": ""
+}
+},
+"22f0e44349dce603df72c5c4913a856b3ee4307875a55bc982a30537a517f84c": {
+"claims": [
+{
+"attribute": "default",
+"functional": true,
+"subject": "rate limit",
+"value": "500"
+}
+],
+"stance": {
+"axis": "none",
+"pole": ""
+}
+},
 "2611e65115d8b577b428c84aa731ea7c9853801d1954fc8549f9b48f48a9770c": {
 "claims": [
 {
@@ -70,6 +104,13 @@
 "value": "UTC"
 }
 ],
+"stance": {
+"axis": "none",
+"pole": ""
+}
+},
+"2646fb7f5100c227eee3ba2cd6a21d627eb25ccf87b5311cf85cbd0873d5624c": {
+"claims": [],
 "stance": {
 "axis": "none",
 "pole": ""
@@ -87,6 +128,46 @@
 "stance": {
 "axis": "axis:config-centralized-vs-colocated",
 "pole": "centralized"
+}
+},
+"35d7c03b83a9e5e61e0af3813be26c667c2b459e0df6765cb3148ab4bfaf9e43": {
+"claims": [
+{
+"attribute": "release method",
+"functional": true,
+"subject": "production deployments",
+"value": "automatically"
+},
+{
+"attribute": "deploy day",
+"functional": true,
+"subject": "production deployments",
+"value": "Friday"
+}
+],
+"stance": {
+"axis": "none",
+"pole": ""
+}
+},
+"3b94581ffbfdb4eba285173b49f592f0ec5d517a2b2654d8f82997cd5a5363ae": {
+"claims": [
+{
+"attribute": "storage type",
+"functional": true,
+"subject": "Praxis knowledge graph",
+"value": "durable knowledge"
+},
+{
+"attribute": "stores",
+"functional": true,
+"subject": "agent factory",
+"value": "Praxis knowledge graph"
+}
+],
+"stance": {
+"axis": "none",
+"pole": ""
 }
 },
 "42bb2ae2ff99f7d6fdf7664da213518e0ab0ef3b96658591d768ac1af8807b7b": {
@@ -108,6 +189,20 @@
 "stance": {
 "axis": "axis:error-fail-fast-vs-fail-safe",
 "pole": "fail-fast"
+}
+},
+"457e220ccb031585d6373c48246982b0e562f33fecef2f13fa665148317a990b": {
+"claims": [
+{
+"attribute": "deploy day",
+"functional": true,
+"subject": "production deployments",
+"value": "Tuesday"
+}
+],
+"stance": {
+"axis": "none",
+"pole": ""
 }
 },
 "4a14ec44a9d885a7cf6686c942b47facfdeb7b512bc212b2fe43ec789c0b3809": {
@@ -156,6 +251,26 @@
 "stance": {
 "axis": "axis:performance-vs-readability",
 "pole": "performance"
+}
+},
+"5fadc2a9e0c092b2095d3b4ea5386174997268341c7b0d4efe6cfd1c9ace23ae": {
+"claims": [
+{
+"attribute": "storage method",
+"functional": true,
+"subject": "source code",
+"value": "git"
+},
+{
+"attribute": "storage method",
+"functional": true,
+"subject": "knowledge graph",
+"value": "none"
+}
+],
+"stance": {
+"axis": "none",
+"pole": ""
 }
 },
 "6960a93b168c051a2b5f82ba35389d8fe010b1369ae0f6a1d30a8abb8b175954": {
@@ -234,6 +349,20 @@
 "pole": ""
 }
 },
+"87a05e9c0cc6308da6fce6b0326a8bb6533da414f40fbc0e0156403ada27aa52": {
+"claims": [
+{
+"attribute": "release method",
+"functional": true,
+"subject": "production deployments",
+"value": "manual"
+}
+],
+"stance": {
+"axis": "none",
+"pole": ""
+}
+},
 "8a656f362c07c10fcde13c73dd26339657cba7cadc73f3b2c9fa0de7936508e4": {
 "claims": [
 {
@@ -268,6 +397,20 @@
 "pole": "tabs"
 }
 },
+"9710910be22216754fa4d3edfe6eb21dd66f99e1dbc7b0c4541585ebfd98e090": {
+"claims": [
+{
+"attribute": "favorite food",
+"functional": true,
+"subject": "user",
+"value": "chicken pizza"
+}
+],
+"stance": {
+"axis": "none",
+"pole": ""
+}
+},
 "9b65f093a36fd0f4da204321249d765d5e21f09463d4e848c4740ed4d746477b": {
 "claims": [
 {
@@ -300,6 +443,20 @@
 "stance": {
 "axis": "axis:abstraction-vs-directness",
 "pole": "abstraction"
+}
+},
+"a3934e6f6a418541d507a419d6f1f0e905aeb1a39bb253e9cd2bc2b6f5e9ecab": {
+"claims": [
+{
+"attribute": "type",
+"functional": true,
+"subject": "pizza",
+"value": "cheese"
+}
+],
+"stance": {
+"axis": "none",
+"pole": ""
 }
 },
 "ab73b7aad82e52c942e0dec0a9ccb62e0db140db1a86b931190c9c45527038c9": {
@@ -337,6 +494,26 @@
 "functional": true,
 "subject": "timestamps",
 "value": "America/New_York"
+}
+],
+"stance": {
+"axis": "none",
+"pole": ""
+}
+},
+"c021c05470a45466c3322cddc8688165545a7ba5aeed596043f3391b9ac74ccf": {
+"claims": [
+{
+"attribute": "location",
+"functional": true,
+"subject": "company headquarters",
+"value": "Austin"
+},
+{
+"attribute": "year",
+"functional": true,
+"subject": "company headquarters",
+"value": "2024"
 }
 ],
 "stance": {
@@ -386,6 +563,13 @@
 "pole": "explicit"
 }
 },
+"da225f7493360bc9b3eef1db67a10e8b78b9d8d717cede44964174273267d620": {
+"claims": [],
+"stance": {
+"axis": "none",
+"pole": ""
+}
+},
 "e0ec4511d38a7bdea79dbd691a78a19e3f11ac6ba00298b2d7e1b1d68f6d3718": {
 "claims": [
 {
@@ -398,6 +582,26 @@
 "stance": {
 "axis": "axis:error-fail-fast-vs-fail-safe",
 "pole": "fail-safe"
+}
+},
+"e4b911413031b6db93f129daf1a991a7d53bee6d3448d585f811b70c0b5a572e": {
+"claims": [
+{
+"attribute": "location",
+"functional": true,
+"subject": "company headquarters",
+"value": "Denver"
+},
+{
+"attribute": "year",
+"functional": true,
+"subject": "company headquarters",
+"value": "2019"
+}
+],
+"stance": {
+"axis": "none",
+"pole": ""
 }
 },
 "e7c5dbcd7eb86ca80684eaa02957d3e0cc4b0a7165d8636aabd65baa047d39f2": {

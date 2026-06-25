@@ -26,6 +26,16 @@ from knowledge.mcp import identity
 
 mcp = FastMCP("praxis-knowledge")
 
+# httpx's default per-request timeout (5s) is too low for the write path. A write
+# whose new fact is a cosine-near-neighbor of an existing one triggers the inline
+# SemanticConflictDetector — a synchronous LLM round-trip (plus embedding) inside
+# the request — which can push total latency well past 5s. The backend still
+# commits, but the client gives up first and surfaces a spurious "timed out".
+# So: a short budget for reads (keeps /context, /health snappy) and a long one
+# for writes/ingest (the conflict-checked path). Per-call, not one global bump.
+_READ_TIMEOUT = 30.0
+_WRITE_TIMEOUT = 120.0
+
 _AUTH_HINT = (
     "authentication failed — ask me to log in again with `praxis_login`, or check "
     "you are a member of the active org."
@@ -44,6 +54,15 @@ def _friendly(exc: httpx.HTTPStatusError) -> str:
     if exc.response.status_code in (401, 403):
         return _AUTH_HINT
     raise exc
+
+
+def _timeout_note(what: str) -> str:
+    """A clearer message than a bare 'timed out' for a write that may have committed."""
+    return (
+        f"The {what} request exceeded the client timeout ({int(_WRITE_TIMEOUT)}s). "
+        "The write may still have committed on the backend — read it back with "
+        "praxis_list_graph / praxis_get_context before retrying to avoid a duplicate."
+    )
 
 
 def _not_ready() -> str | None:
@@ -90,7 +109,9 @@ def praxis_get_context(query: str, top_k: int = 8) -> str:
 
     Returns a human summary plus a structured JSON block with ``context`` and
     per-hit ``hits`` (each with ``id``/``text``/``score``/``source``/``scope``/
-    ``category``) so callers can consume provenance without regex-parsing.
+    ``category``) so callers can consume provenance without regex-parsing. If you
+    have mounted snapshots (``praxis_mount_snapshot``), their facts are included
+    too and flagged with ``mounted``/``owner``/``snapshot`` on the hit.
     """
     if (hint := _not_ready()) is not None:
         return hint
@@ -99,6 +120,7 @@ def praxis_get_context(query: str, top_k: int = 8) -> str:
             f"{identity.api_base()}/context",
             params={"query": query, "top_k": top_k},
             headers=_headers(),
+            timeout=_READ_TIMEOUT,
         )
         resp.raise_for_status()
     except httpx.HTTPStatusError as exc:
@@ -117,19 +139,27 @@ def praxis_add_insight(
     scope: str | None = None,
     category: str | None = None,
     source: str | None = None,
+    on_conflict: str = "auto_resolve",
 ) -> str:
     """Store a durable insight in the user's knowledge graph.
 
     Before calling, push the user to state a single specific, self-contained
     insight (one that stands on its own without surrounding chat context), and
     confirm the *exact* wording with them first — that confirmation is the human
-    approval gate. The insight is stored fully approved (full credibility) and
-    overwrites any conflicting fact already on record, so only state what the
-    user has explicitly approved.
+    approval gate. The insight is stored fully approved (full credibility).
+
+    ``on_conflict`` controls what happens when the insight contradicts an existing
+    fact: ``"auto_resolve"`` (default) overwrites the conflicting fact (newest wins,
+    loser rejected); ``"surface"`` keeps BOTH facts and raises a *pending*
+    contradiction for human review (see ``praxis_get_contradictions`` /
+    ``praxis_resolve_contradiction``) instead of silently deciding. Use ``"surface"``
+    when a human should adjudicate conflicts rather than the newest write winning.
     """
     if (hint := _not_ready()) is not None:
         return hint
-    body: dict[str, object] = {"insight": insight}
+    if on_conflict not in ("auto_resolve", "surface"):
+        return "on_conflict must be 'auto_resolve' or 'surface'."
+    body: dict[str, object] = {"insight": insight, "onConflict": on_conflict}
     if scope is not None:
         body["scope"] = scope
     if category is not None:
@@ -141,17 +171,29 @@ def praxis_add_insight(
             f"{identity.api_base()}/insights",
             json=body,
             headers=_headers(),
+            timeout=_WRITE_TIMEOUT,
         )
         resp.raise_for_status()
+    except httpx.TimeoutException:
+        return _timeout_note("add_insight")
     except httpx.HTTPStatusError as exc:
         return _friendly(exc)
     payload = resp.json()
+    summary = payload.get("summary", "") or "insight stored"
+    surfaced = payload.get("contradictionsSurfaced") or 0
+    if surfaced:
+        summary = (
+            f"{summary} — {surfaced} pending contradiction(s) raised; "
+            "review with praxis_get_contradictions"
+        )
     return _structured(
-        payload.get("summary", "") or "insight stored",
+        summary,
         {
             "summary": payload.get("summary", ""),
             "action": payload.get("action"),
             "id": payload.get("id"),
+            "onConflict": payload.get("onConflict"),
+            "contradictionsSurfaced": surfaced,
         },
     )
 
@@ -161,28 +203,39 @@ def praxis_ingest(
     text: str,
     source: str | None = None,
     state: str = "active",
+    on_conflict: str = "auto_resolve",
 ) -> str:
     """Ingest a raw document through Praxis's distillation pipeline.
 
     Unlike ``praxis_add_insight`` (one already-distilled fact), this hands a raw
     document (a note, a transcript, a file's contents) to the backend, which
     distills it into atomic facts, dedupes, and reconciles conflicts. ``state``
-    is "active" (live knowledge) or "proposed" (staged for review). Returns a
-    structured JSON block with per-document results (``id``/``action``).
+    is "active" (live knowledge) or "proposed" (staged for review).
+
+    ``on_conflict`` mirrors ``praxis_add_insight``: ``"auto_resolve"`` (default)
+    rejects the losing side of a detected clash; ``"surface"`` keeps both facts and
+    raises a *pending* contradiction for human review. Returns a structured JSON
+    block with per-document results (``id``/``action``/``surfaced``).
     """
     if (hint := _not_ready()) is not None:
         return hint
+    if on_conflict not in ("auto_resolve", "surface"):
+        return "on_conflict must be 'auto_resolve' or 'surface'."
     body: dict[str, object] = {
         "documents": [{"text": text, "source": source}],
         "state": state,
+        "onConflict": on_conflict,
     }
     try:
         resp = httpx.post(
             f"{identity.api_base()}/ingest",
             json=body,
             headers=_headers(),
+            timeout=_WRITE_TIMEOUT,
         )
         resp.raise_for_status()
+    except httpx.TimeoutException:
+        return _timeout_note("ingest")
     except httpx.HTTPStatusError as exc:
         return _friendly(exc)
     payload = resp.json()
@@ -210,7 +263,11 @@ def praxis_get_contradictions() -> str:
     if (hint := _not_ready()) is not None:
         return hint
     try:
-        resp = httpx.get(f"{identity.api_base()}/contradictions", headers=_headers())
+        resp = httpx.get(
+            f"{identity.api_base()}/contradictions",
+            headers=_headers(),
+            timeout=_READ_TIMEOUT,
+        )
         resp.raise_for_status()
     except httpx.HTTPStatusError as exc:
         return _friendly(exc)
@@ -263,6 +320,7 @@ def praxis_resolve_contradiction(
             f"{identity.api_base()}/contradictions/{pair_id}/resolve",
             json=body,
             headers=_headers(),
+            timeout=_WRITE_TIMEOUT,
         )
         resp.raise_for_status()
     except httpx.HTTPStatusError as exc:
@@ -284,7 +342,10 @@ def praxis_list_graph(state: str | None = None) -> str:
     params = {"state": state} if state else {}
     try:
         resp = httpx.get(
-            f"{identity.api_base()}/candidates", params=params, headers=_headers()
+            f"{identity.api_base()}/candidates",
+            params=params,
+            headers=_headers(),
+            timeout=_READ_TIMEOUT,
         )
         resp.raise_for_status()
     except httpx.HTTPStatusError as exc:
@@ -317,7 +378,10 @@ def praxis_insert_fact(title: str, content: str, provenance: str | None = None) 
         body["provenance"] = provenance
     try:
         resp = httpx.post(
-            f"{identity.api_base()}/candidates", json=body, headers=_headers()
+            f"{identity.api_base()}/candidates",
+            json=body,
+            headers=_headers(),
+            timeout=_WRITE_TIMEOUT,
         )
         resp.raise_for_status()
     except httpx.HTTPStatusError as exc:
@@ -352,13 +416,430 @@ def praxis_edit_fact(
         return "Nothing to edit — pass title, content, and/or provenance."
     try:
         resp = httpx.patch(
-            f"{identity.api_base()}/candidates/{cid}", json=body, headers=_headers()
+            f"{identity.api_base()}/candidates/{cid}",
+            json=body,
+            headers=_headers(),
+            timeout=_WRITE_TIMEOUT,
         )
         resp.raise_for_status()
     except httpx.HTTPStatusError as exc:
         return _friendly(exc)
     c = resp.json()
     return f"Edited fact id={c.get('id')} (state={c.get('state')})."
+
+
+@mcp.tool()
+def praxis_promote_fact(cid: str, target_state: str | None = None) -> str:
+    """Promote a fact through its lifecycle (the dashboard "promote" action).
+
+    Moves a fact forward one step (e.g. ``proposed`` -> ``active``); pass
+    ``target_state`` to force a specific destination, or omit it to let the
+    backend advance to the next state. Find the id via ``praxis_list_graph``.
+    Confirm with the user first — this changes what retrieval reads.
+    """
+    if (hint := _not_ready()) is not None:
+        return hint
+    body: dict[str, object] = {}
+    if target_state is not None:
+        body["targetState"] = target_state
+    try:
+        resp = httpx.post(
+            f"{identity.api_base()}/candidates/{cid}/promote",
+            json=body,
+            headers=_headers(),
+            timeout=_WRITE_TIMEOUT,
+        )
+        resp.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        return _friendly(exc)
+    c = resp.json()
+    return f"Promoted fact id={c.get('id')} (state={c.get('state')})."
+
+
+@mcp.tool()
+def praxis_reject_fact(cid: str, reason: str | None = None) -> str:
+    """Reject a fact (the dashboard "reject" action).
+
+    Marks a proposed/active fact as rejected so retrieval stops reading it;
+    pass an optional ``reason`` for the audit trail. Find the id via
+    ``praxis_list_graph``. Confirm with the user first.
+    """
+    if (hint := _not_ready()) is not None:
+        return hint
+    body: dict[str, object] = {}
+    if reason is not None:
+        body["reason"] = reason
+    try:
+        resp = httpx.post(
+            f"{identity.api_base()}/candidates/{cid}/reject",
+            json=body,
+            headers=_headers(),
+            timeout=_WRITE_TIMEOUT,
+        )
+        resp.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        return _friendly(exc)
+    c = resp.json()
+    return f"Rejected fact id={c.get('id')} (state={c.get('state')})."
+
+
+@mcp.tool()
+def praxis_delete_fact(cid: str) -> str:
+    """Permanently delete a fact from the graph (the dashboard "delete" action).
+
+    Unlike reject (which keeps the row in a rejected state), this removes the
+    fact entirely. Find the id via ``praxis_list_graph``. Confirm with the user
+    first — this is irreversible. Returns a 409 hint if the fact can't be
+    deleted (e.g. it is referenced elsewhere).
+    """
+    if (hint := _not_ready()) is not None:
+        return hint
+    try:
+        resp = httpx.delete(
+            f"{identity.api_base()}/candidates/{cid}",
+            headers=_headers(),
+            timeout=_WRITE_TIMEOUT,
+        )
+        resp.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code == 409:
+            return f"Cannot delete fact {cid}: {exc.response.text}"
+        return _friendly(exc)
+    return f"Deleted fact id={cid}."
+
+
+@mcp.tool()
+def praxis_clear_graph() -> str:
+    """Truncate the caller's entire live graph (the dashboard "clear graph" action).
+
+    Deletes every fact and edge you own in the active org; other members' rows
+    are untouched. This is destructive — consider ``praxis_save_snapshot`` first
+    so you can restore. Confirm with the user before calling.
+    """
+    if (hint := _not_ready()) is not None:
+        return hint
+    try:
+        resp = httpx.post(
+            f"{identity.api_base()}/graph/clear",
+            headers=_headers(),
+            timeout=_WRITE_TIMEOUT,
+        )
+        resp.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        return _friendly(exc)
+    return f"Cleared {resp.json().get('cleared', 0)} fact(s) from the live graph."
+
+
+@mcp.tool()
+def praxis_list_snapshots() -> str:
+    """List the caller's saved graph snapshots (the dashboard Snapshots panel).
+
+    Each snapshot is a saved copy of the live graph you can restore later via
+    ``praxis_load_snapshot``. Returns name, node count, and creation time.
+    """
+    if (hint := _not_ready()) is not None:
+        return hint
+    try:
+        resp = httpx.get(
+            f"{identity.api_base()}/snapshots",
+            headers=_headers(),
+            timeout=_READ_TIMEOUT,
+        )
+        resp.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        return _friendly(exc)
+    snaps = resp.json().get("snapshots", [])
+    if not snaps:
+        return "No snapshots saved."
+    lines = [f"{len(snaps)} snapshot(s):"]
+    for s in snaps:
+        lines.append(
+            f"  {s.get('name')} — {s.get('count')} node(s)"
+            f"{f' (saved {s.get('createdAt')})' if s.get('createdAt') else ''}"
+        )
+    return "\n".join(lines)
+
+
+@mcp.tool()
+def praxis_save_snapshot(name: str) -> str:
+    """Save the current live graph as a snapshot (the dashboard "save snapshot").
+
+    Creates or overwrites the snapshot named ``name`` with the current graph
+    state, so you can restore it later with ``praxis_load_snapshot``.
+    """
+    if (hint := _not_ready()) is not None:
+        return hint
+    if not name.strip():
+        return "Pass a non-empty snapshot name."
+    try:
+        resp = httpx.post(
+            f"{identity.api_base()}/snapshots",
+            json={"name": name.strip()},
+            headers=_headers(),
+            timeout=_WRITE_TIMEOUT,
+        )
+        resp.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        return _friendly(exc)
+    s = resp.json()
+    return f"Saved snapshot {s.get('name')!r} with {s.get('count', 0)} node(s)."
+
+
+@mcp.tool()
+def praxis_load_snapshot(name: str, mode: str = "replace") -> str:
+    """Restore a snapshot into the live graph (the dashboard "load snapshot").
+
+    ``mode="replace"`` (default) truncates the live graph then loads the
+    snapshot; ``mode="add"`` merges the snapshot into the current graph,
+    replacing only nodes it shares by id. Confirm with the user first —
+    ``replace`` discards the current graph (save it first if unsure).
+    """
+    if (hint := _not_ready()) is not None:
+        return hint
+    mode = mode.strip().lower()
+    if mode not in ("add", "replace"):
+        return "mode must be 'add' or 'replace'."
+    try:
+        resp = httpx.post(
+            f"{identity.api_base()}/snapshots/{name}/load",
+            json={"mode": mode},
+            headers=_headers(),
+            timeout=_WRITE_TIMEOUT,
+        )
+        resp.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code == 404:
+            return f"Unknown snapshot {name!r} — list them with praxis_list_snapshots."
+        return _friendly(exc)
+    return f"Loaded {resp.json().get('loaded', 0)} node(s) from snapshot {name!r} ({mode})."
+
+
+@mcp.tool()
+def praxis_delete_snapshot(name: str) -> str:
+    """Delete a saved snapshot (the dashboard "delete snapshot" action).
+
+    Removes the snapshot named ``name``; the live graph is unaffected. Confirm
+    with the user first.
+    """
+    if (hint := _not_ready()) is not None:
+        return hint
+    try:
+        resp = httpx.delete(
+            f"{identity.api_base()}/snapshots/{name}",
+            headers=_headers(),
+            timeout=_WRITE_TIMEOUT,
+        )
+        resp.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        return _friendly(exc)
+    return f"Deleted snapshot {resp.json().get('deleted', name)!r}."
+
+
+@mcp.tool()
+def praxis_list_org_sources() -> str:
+    """List org members and their snapshots you can fold in (the Sources panel).
+
+    Within the active org any member may browse and copy another member's saved
+    snapshots. Returns each member (user id, role, whether it's you) and their
+    snapshot names + node counts. Use ``praxis_browse_snapshot`` to inspect a
+    snapshot's facts, then ``praxis_fold_in`` to copy chosen facts into your graph.
+    """
+    if (hint := _not_ready()) is not None:
+        return hint
+    try:
+        resp = httpx.get(
+            f"{identity.api_base()}/org/sources",
+            headers=_headers(),
+            timeout=_READ_TIMEOUT,
+        )
+        resp.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        return _friendly(exc)
+    sources = resp.json().get("sources", [])
+    if not sources:
+        return "No org sources found."
+    lines = [f"{len(sources)} source(s):"]
+    for s in sources:
+        who = s.get("username") or s.get("userId")
+        tag = " (you)" if s.get("isSelf") else ""
+        lines.append(f"\n[{s.get('userId')}] {who}{tag} — role {s.get('role')}")
+        snaps = s.get("snapshots") or []
+        if not snaps:
+            lines.append("    (no snapshots)")
+        for sn in snaps:
+            lines.append(f"    {sn.get('name')} — {sn.get('count')} node(s)")
+    return "\n".join(lines)
+
+
+@mcp.tool()
+def praxis_browse_snapshot(user_id: str, name: str) -> str:
+    """Browse a member's snapshot facts before folding them in (the browse view).
+
+    Lists the facts in member ``user_id``'s snapshot ``name``, grouped into
+    folders by scope, with each fact's id and text. Get ``user_id``/``name``
+    from ``praxis_list_org_sources``; pass the fact ids you want to
+    ``praxis_fold_in``. Returns a structured JSON block with the grouped facts.
+    """
+    if (hint := _not_ready()) is not None:
+        return hint
+    try:
+        resp = httpx.get(
+            f"{identity.api_base()}/org/sources/{user_id}/snapshots/{name}/facts",
+            headers=_headers(),
+            timeout=_READ_TIMEOUT,
+        )
+        resp.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code == 404:
+            return f"Unknown member/snapshot — check praxis_list_org_sources."
+        return _friendly(exc)
+    payload = resp.json()
+    groups = payload.get("groups", [])
+    total = sum(len(g.get("facts", [])) for g in groups)
+    return _structured(
+        f"{total} fact(s) in snapshot {name!r} from {user_id} across {len(groups)} folder(s).",
+        payload,
+    )
+
+
+@mcp.tool()
+def praxis_fold_in(
+    source_user: str,
+    snapshot: str,
+    fact_ids: list[str],
+    mode: str = "add",
+) -> str:
+    """Copy selected snapshot facts from a member into your graph (the "fold in").
+
+    Folds the facts ``fact_ids`` from ``source_user``'s ``snapshot`` into your
+    live graph: they are deduped against your facts and value conflicts are
+    flagged (never silently overwritten). ``mode="add"`` (default) merges into
+    your existing graph; ``mode="replace"`` truncates your graph first. Get the
+    ids from ``praxis_browse_snapshot``. Confirm with the user first.
+    """
+    if (hint := _not_ready()) is not None:
+        return hint
+    mode = mode.strip().lower()
+    if mode not in ("add", "replace"):
+        return "mode must be 'add' or 'replace'."
+    if not fact_ids:
+        return "Pass a non-empty list of fact_ids (see praxis_browse_snapshot)."
+    try:
+        resp = httpx.post(
+            f"{identity.api_base()}/fold-in",
+            json={
+                "sourceUser": source_user,
+                "snapshot": snapshot,
+                "factIds": fact_ids,
+                "mode": mode,
+            },
+            headers=_headers(),
+            timeout=_WRITE_TIMEOUT,
+        )
+        resp.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code == 404:
+            return f"No matching member/snapshot/facts — check praxis_browse_snapshot."
+        return _friendly(exc)
+    payload = resp.json()
+    conflicts = payload.get("conflicts", [])
+    return _structured(
+        f"Folded {payload.get('folded', 0)} new fact(s), deduped "
+        f"{payload.get('deduped', 0)}, flagged {len(conflicts)} conflict(s) ({mode}).",
+        payload,
+    )
+
+
+@mcp.tool()
+def praxis_list_mounts() -> str:
+    """List your mounted snapshots — read-only overlays added to retrieval.
+
+    A mounted snapshot's facts are included when you read (``praxis_get_context``)
+    but are NOT merged into your live graph and are NOT carried over when you save
+    a snapshot. Mounts can be your own snapshots or any org member's.
+    """
+    if (hint := _not_ready()) is not None:
+        return hint
+    try:
+        resp = httpx.get(
+            f"{identity.api_base()}/mounts",
+            headers=_headers(),
+            timeout=_READ_TIMEOUT,
+        )
+        resp.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        return _friendly(exc)
+    mounts = resp.json().get("mounts", [])
+    if not mounts:
+        return "No snapshots are mounted."
+    lines = [f"{len(mounts)} mounted snapshot(s):"]
+    for m in mounts:
+        who = "you" if m.get("isSelf") else m.get("sourceUser")
+        lines.append(f"  {m.get('snapshot')} (from {who}) — {m.get('count')} node(s)")
+    return "\n".join(lines)
+
+
+@mcp.tool()
+def praxis_mount_snapshot(snapshot: str, source_user: str | None = None) -> str:
+    """Mount a snapshot as a read-only overlay (adds it to what reads recall).
+
+    Once mounted, ``praxis_get_context`` also recalls this snapshot's facts —
+    without merging them into your live graph and without them being carried over
+    on a save. ``source_user`` defaults to you (mount your own snapshot); pass an
+    org member's id (from ``praxis_list_org_sources``) to mount theirs. Idempotent.
+    """
+    if (hint := _not_ready()) is not None:
+        return hint
+    if not snapshot.strip():
+        return "Pass a snapshot name."
+    body: dict[str, object] = {"snapshot": snapshot.strip()}
+    if source_user is not None:
+        body["sourceUser"] = source_user
+    try:
+        resp = httpx.post(
+            f"{identity.api_base()}/mounts",
+            json=body,
+            headers=_headers(),
+            timeout=_WRITE_TIMEOUT,
+        )
+        resp.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code == 404:
+            return (
+                "Unknown member or snapshot — check praxis_list_org_sources / "
+                "praxis_list_snapshots."
+            )
+        return _friendly(exc)
+    m = resp.json()
+    return f"Mounted snapshot {m.get('snapshot')!r} from {m.get('sourceUser')} for reads."
+
+
+@mcp.tool()
+def praxis_unmount_snapshot(snapshot: str, source_user: str | None = None) -> str:
+    """Unmount a read-only snapshot overlay (stops including it in reads).
+
+    ``source_user`` defaults to you. No-op if it was not mounted.
+    """
+    if (hint := _not_ready()) is not None:
+        return hint
+    if not snapshot.strip():
+        return "Pass a snapshot name."
+    body: dict[str, object] = {"snapshot": snapshot.strip()}
+    if source_user is not None:
+        body["sourceUser"] = source_user
+    try:
+        resp = httpx.request(
+            "DELETE",
+            f"{identity.api_base()}/mounts",
+            json=body,
+            headers=_headers(),
+            timeout=_WRITE_TIMEOUT,
+        )
+        resp.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        return _friendly(exc)
+    m = resp.json()
+    return f"Unmounted snapshot {m.get('snapshot')!r} from {m.get('sourceUser')}."
 
 
 @mcp.tool()
@@ -408,6 +889,7 @@ def _org_action(path: str, payload: dict, org_id: str) -> str:
             f"{identity.api_base()}/{path}",
             json=payload,
             headers={"Authorization": f"Bearer {identity.token()}"},
+            timeout=_WRITE_TIMEOUT,
         )
         resp.raise_for_status()
     except httpx.HTTPStatusError as exc:

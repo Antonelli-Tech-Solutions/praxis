@@ -186,6 +186,11 @@ def harness_capabilities() -> set[str]:
     conflict_dir = VERDICT_CACHE_DIR / "conflict"
     if os.getenv("OPENROUTER_API_KEY") or (conflict_dir.exists() and any(conflict_dir.glob("*.json"))):
         caps.add("conflict_verdicts")
+    # Augment (Mem0 UPDATE/merge) verdicts: same shape as merge — a committed
+    # augment cassette replays offline; a live key can compute them.
+    augment_dir = VERDICT_CACHE_DIR / "augment"
+    if os.getenv("OPENROUTER_API_KEY") or (augment_dir.exists() and any(augment_dir.glob("*.json"))):
+        caps.add("augment_verdicts")
     # Claim-extraction replay for the structural contradiction path: a committed
     # claim cassette replays offline; a live key can record it.
     claim_dir = VERDICT_CACHE_DIR / "claim_extract"
@@ -245,6 +250,10 @@ def case_needs(case: EvalCase) -> set[str]:
     # else they'd silently fall back to exact-dedup and mis-grade -> SKIP instead.
     if case.merge_model:
         needs.add("merge_verdicts")
+    # Augment (Mem0 UPDATE/merge) cases need an augment verdict source (committed
+    # cassette or a key), else the Augmenter is inert and the case mis-grades -> SKIP.
+    if case.augment_model:
+        needs.add("augment_verdicts")
     # Conflict cases need claim-extraction replay (the structural detector's front)
     # plus a value-verdict source; without the claim cassette the detector extracts
     # nothing and the case mis-grades -> SKIP instead.
@@ -371,6 +380,32 @@ def _merge_judge_for(case: EvalCase):
     return MergeJudge(llm=llm, cassette=cassette)
 
 
+def _augment_judge_for(case: EvalCase):
+    """Build the Mem0-style ``AugmentJudge`` for a case's ``augment_model`` axis (None => none).
+
+    Mirrors ``_merge_judge_for``: a live OpenRouter judge when a key is set, plus a
+    committed augment verdict cassette for offline replay. With neither, returns None
+    so the ``Augmenter`` is a no-op (the case SKIPs via ``augment_verdicts``).
+    """
+    if not case.augment_model:
+        return None
+    from knowledge.knowledge_graph.write_policy.write_step_variants import AugmentJudge
+    from knowledge.llm.llm_variants.openrouter_llm import OpenRouterLlm
+    from knowledge.llm.verdict_cassette import VerdictCassette
+
+    has_key = bool(os.getenv("OPENROUTER_API_KEY"))
+    llm = OpenRouterLlm(model=case.augment_model) if has_key else None
+    cache = VERDICT_CACHE_DIR / "augment" / f"{_slug(case.augment_model)}.json"
+    cassette = (
+        VerdictCassette(cache, model_id=case.augment_model, allow_compute=has_key)
+        if (cache.exists() or has_key)
+        else None
+    )
+    if llm is None and cassette is None:
+        return None
+    return AugmentJudge(llm=llm, cassette=cassette)
+
+
 def _claim_extractor_for(case: EvalCase):
     """Build the ``ClaimExtractor`` for a case's ``conflict_model`` axis (None => none).
 
@@ -424,6 +459,36 @@ def _claim_value_judge_for(case: EvalCase):
     # The value judge may legitimately be absent (numeric clashes need no LLM);
     # precision-first suppression handles a missing judge.
     return ClaimValueJudge(llm=llm, cassette=cassette)
+
+
+def _semantic_conflict_judge_for(case: EvalCase):
+    """Build the ``SemanticConflictJudge`` for the paraphrase fallback (None => none).
+
+    Mirrors ``_claim_value_judge_for`` but for the second-pass, free-text "does A
+    contradict B?" decision, with its own committed verdict cassette (the
+    ``semantic`` dir). Gated by the same ``conflict_model`` axis as the structural
+    path. Returns None when neither a cassette nor a live key is available, so the
+    detector stays inert (precision-first suppression).
+    """
+    if not case.conflict_model:
+        return None
+    from knowledge.knowledge_graph.write_policy.write_step_variants import (
+        SemanticConflictJudge,
+    )
+    from knowledge.llm.llm_variants.openrouter_llm import OpenRouterLlm
+    from knowledge.llm.verdict_cassette import VerdictCassette
+
+    has_key = bool(os.getenv("OPENROUTER_API_KEY"))
+    llm = OpenRouterLlm(model=case.conflict_model) if has_key else None
+    cache = VERDICT_CACHE_DIR / "semantic" / f"{_slug(case.conflict_model)}.json"
+    cassette = (
+        VerdictCassette(cache, model_id=case.conflict_model, allow_compute=has_key)
+        if (cache.exists() or has_key)
+        else None
+    )
+    if llm is None and cassette is None:
+        return None
+    return SemanticConflictJudge(llm=llm, cassette=cassette)
 
 
 def _caption_captioner_for(case: EvalCase):
@@ -516,9 +581,12 @@ def _build_trio_for(case: EvalCase, llm=None):
         # cassettes replay offline), so seeding stays cheap by default.
         from knowledge.knowledge_graph.knowledge_graph_variants.vector_graph import VectorGraph
         from knowledge.knowledge_graph.write_policy.write_step_variants import (
+            Augmenter,
             ClaimConflictDetector,
             Deduper,
             Redactor,
+            SemanticConflictDetector,
+            TemporalSupersessionDetector,
         )
 
         policy = [Redactor()]
@@ -526,12 +594,26 @@ def _build_trio_for(case: EvalCase, llm=None):
         if aspect_tagger is not None:
             policy.append(aspect_tagger)
         policy.append(Deduper(judge=_merge_judge_for(case)))
+        # Mem0-style UPDATE/merge: opt-in via augment_model (cassette replays
+        # offline). Runs after Deduper, before the conflict path — mirrors the
+        # store's default_write_policy ordering.
+        augment_judge = _augment_judge_for(case)
+        if augment_judge is not None:
+            policy.append(Augmenter(judge=augment_judge))
         # Structural contradiction path (replaces ConflictFlagger): extract claims,
         # then detect same-functional-slot value clashes. Both opt in via conflict_model.
         claim_extractor = _claim_extractor_for(case)
         if claim_extractor is not None:
             policy.append(claim_extractor)
             policy.append(ClaimConflictDetector(judge=_claim_value_judge_for(case)))
+            # Second-pass semantic fallback (Graphiti two-stage): paraphrase
+            # contradictions among cosine-recalled neighbours with no shared slot.
+            policy.append(
+                SemanticConflictDetector(judge=_semantic_conflict_judge_for(case))
+            )
+            # Reinterpret dated same-slot value changes as supersession (deterministic,
+            # no judge): runs last, only over flags the detectors above raised.
+            policy.append(TemporalSupersessionDetector())
         graph = VectorGraph(embedder=embedder, policy=policy)
     return build_trio(
         substrate=case.substrate,
@@ -582,6 +664,7 @@ def _seed_signature(case: EvalCase) -> str:
         # Judge axes change the seeded graph (merge collapses dups; conflict flags),
         # so two cases differing only in a judge model must not share a cached seed.
         "merge_model": case.merge_model,
+        "augment_model": case.augment_model,
         "conflict_model": case.conflict_model,
         "tag_model": case.tag_model,
         "caption_model": case.caption_model,
@@ -691,7 +774,11 @@ def _produce_graph_reader(case: EvalCase, runner: Runner, llm=None) -> EvalConte
     """
     graph, ingestor, reader = _build_trio_for(case, llm=llm)
     for text in case.seeded_insight.via_ingestor:
-        ingestor.ingest(text)  # staged (proposed) -> gated out of retrieval by design
+        # Honor the case's ingest_state (mirrors the full-pipeline _seed_graph). The
+        # default is "proposed" -> gated out of retrieval (the write-intent ->
+        # gated-read path most reader cases test); a case that needs the distilled
+        # facts to be retrievable sets ingest_state: active (e.g. the tax recall case).
+        ingestor.ingest(text, state=case.ingest_state)
     for text in case.seeded_insight.direct_to_graph:
         graph.write(text, state="active")  # pre-curated: retrievable, so the cutoff (not gating) filters
     return EvalContext(case_id=case.id, output=reader.read(case.seed_prompt))
