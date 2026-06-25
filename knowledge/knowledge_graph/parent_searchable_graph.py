@@ -28,6 +28,7 @@ class SearchableGraph(KnowledgeGraph):
         filters: dict | None = None,
         scope: str | None = None,
         state: str | None = "active",
+        exclude_categories: list[str] | None = None,
     ) -> list[SearchHit]:
         """Return the most relevant stored facts for ``query`` (best first).
 

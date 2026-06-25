@@ -274,17 +274,21 @@ class PostgresVectorGraph(SearchableGraph):
         self.semantic_recall_k = semantic_recall_k
 
     # --- KnowledgeGraph contract -------------------------------------------
-    def read(self, context: str | None = None) -> str:
+    def read(
+        self, context: str | None = None, *, exclude_categories: list[str] | None = None
+    ) -> str:
         """Retrieve tenant knowledge: top-k similar to ``context``, else recent.
 
         Score-ordered and token-bounded so the result is a usable reader prompt.
+        ``exclude_categories`` (H2) omits those categories (e.g. ["episodic"]).
         """
         context = (context or "").strip()
+        excluded = set(exclude_categories or ())
         if context:
-            hits = self.search(context, top_k=12)
+            hits = self.search(context, top_k=12, exclude_categories=exclude_categories)
             facts = [h.fact for h in hits]
         else:
-            facts = self._recent(limit=50)
+            facts = [f for f in self._recent(limit=50) if f.category not in excluded]
         parts: list[str] = []
         used = 0
         for fact in facts:
@@ -836,6 +840,7 @@ class PostgresVectorGraph(SearchableGraph):
         mounts: list[tuple[str, str]],
         *,
         top_k: int = 10,
+        exclude_categories: list[str] | None = None,
     ) -> list[SearchHit]:
         """Vector-search the live graph unioned with mounted snapshots, in one query.
 
@@ -859,14 +864,18 @@ class PostgresVectorGraph(SearchableGraph):
         cols = (
             "id, text, source, confidence, scope, category, observation_count, state"
         )
+        # H2: apply category exclusion to BOTH the live and mounted branches so a
+        # mounted snapshot's episodes don't leak into the unioned result.
+        excl = " AND (category IS NULL OR category <> ALL(%s))" if exclude_categories else ""
+        excl_param = [list(exclude_categories)] if exclude_categories else []
         live = (
             f"SELECT {cols}, NULL::text AS mount_user, NULL::text AS mount_key, "
             "1 - (embedding <=> %s) AS score FROM facts "
             "WHERE org_id = %s AND (shared OR user_id = %s) "
-            "AND state = 'active' AND embedding IS NOT NULL "
+            f"AND state = 'active' AND embedding IS NOT NULL{excl} "
             "ORDER BY embedding <=> %s LIMIT %s"
         )
-        params: list[object] = [qvec, self.org_id, self.user_id, qvec, top_k]
+        params: list[object] = [qvec, self.org_id, self.user_id, *excl_param, qvec, top_k]
         sql = f"SELECT * FROM ({live}) AS live"
         if mounts:
             ors = " OR ".join(["(user_id = %s AND cache_key = %s)"] * len(mounts))
@@ -874,14 +883,14 @@ class PostgresVectorGraph(SearchableGraph):
                 f"SELECT {cols}, user_id AS mount_user, cache_key AS mount_key, "
                 "1 - (embedding <=> %s) AS score FROM cached_facts "
                 f"WHERE org_id = %s AND ({ors}) "
-                "AND state = 'active' AND embedding IS NOT NULL "
+                f"AND state = 'active' AND embedding IS NOT NULL{excl} "
                 "ORDER BY embedding <=> %s LIMIT %s"
             )
             sql += f" UNION ALL SELECT * FROM ({mounted}) AS mounted"
             params += [qvec, self.org_id]
             for source_user_id, cache_key in mounts:
                 params += [source_user_id, cache_key]
-            params += [qvec, top_k]
+            params += [*excl_param, qvec, top_k]
         rows = self._conn.execute(sql, params).fetchall()
 
         # Each branch is capped at top_k, so this is at most ~2*top_k rows. Dedupe

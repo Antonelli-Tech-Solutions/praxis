@@ -5,9 +5,9 @@ MCP/HTTP producer and the /context route — and so can't be exercised by compon
 evals. Like test_server.py they need a Postgres DSN AND an OPENROUTER_API_KEY (the
 HTTP write path embeds for real).
 
-Every test here is xfail until H4/H2 land: the producer must honor category+meta (or a
-dedicated episode route), and /context must default-exclude category="episodic" with an
-include_episodic override. They document the gates; remove the xfail as each ships.
+The producer honors category+meta on /insights (routing episodes to the store-only
+lane), and /context default-excludes category="episodic" with an include_episodic
+override (H2) — across the live + mounted overlay union.
 """
 
 from __future__ import annotations
@@ -54,7 +54,6 @@ def client(unique_org):
     conn.close()
 
 
-@pytest.mark.xfail(reason="H4 producer not built — /insights ignores category/meta", strict=False)
 def test_record_episode_via_http_stores_episodic(client):
     """The harness writes episodes over HTTP/MCP; the producer must persist a single
     episodic-category fact carrying the decision text whole and meta.episode intact."""
@@ -63,10 +62,9 @@ def test_record_episode_via_http_stores_episodic(client):
     nodes = client.get("/graph", params={"state": "all"}).json()["graph"]["nodes"]
     episodic = [n for n in nodes if n.get("category") == "episodic"]
     assert len(episodic) == 1
-    assert _EPISODE["insight"] in episodic[0]["content"]  # stored whole
+    assert _EPISODE["insight"] in episodic[0]["label"]  # stored whole (graph node text = label)
 
 
-@pytest.mark.xfail(reason="H2 not built — /context has no default-exclude / include_episodic", strict=False)
 def test_context_excludes_episodic_by_default(client):
     """/context must omit episodes by default and surface them only on opt-in."""
     client.post("/insights", json=_EPISODE)
@@ -80,7 +78,6 @@ def test_context_excludes_episodic_by_default(client):
     assert _EPISODE["insight"] in (opted_in.get("context") or "")
 
 
-@pytest.mark.xfail(reason="H2 not built — exclude must apply to mounted overlay union", strict=False)
 def test_context_excludes_episodic_from_mounted_overlay(client):
     """A mounted snapshot's episodes must also be excluded from /context (the exclude
     predicate must apply to the live+mounted UNION, not just the live branch)."""

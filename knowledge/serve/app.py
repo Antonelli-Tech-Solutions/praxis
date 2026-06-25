@@ -49,6 +49,7 @@ from knowledge.knowledge_graph.knowledge_graph_variants.overlay_graph import (  
     OverlayGraph,
 )
 from knowledge.knowledge_graph.knowledge_graph_variants.postgres_vector_graph import (  # noqa: E402
+    EPISODIC_CATEGORY,
     PostgresVectorGraph,
     default_write_policy,
 )
@@ -976,6 +977,25 @@ def create_app(conn: Any | None = None) -> FastAPI:
         insight = (body.get("insight") or "").strip()
         if not insight:
             raise HTTPException(status_code=400, detail="insight required")
+        # Episodic (H4): a decision log entry bypasses the semantic pipeline — stored
+        # whole, append-only, immutable (no distill/dedup/contradiction) and out of
+        # semantic recall. Routed to the store-only producer.
+        if (body.get("category") or "").strip() == EPISODIC_CATEGORY:
+            ep = (body.get("meta") or {}).get("episode") or {}
+            fid = live_graph(org, principal.sub).record_episode(
+                insight,
+                alternatives=ep.get("alternatives"),
+                outcome=ep.get("outcome", "pending"),
+                decided_at=ep.get("decided_at"),
+                derived_from=body.get("derivedFrom"),
+            )
+            return {
+                "summary": "recorded episode",
+                "action": "episode",
+                "id": fid,
+                "onConflict": "n/a",
+                "contradictionsSurfaced": 0,
+            }
         on_conflict = str(body.get("onConflict") or "auto_resolve").strip().lower()
         if on_conflict not in ("auto_resolve", "surface"):
             raise HTTPException(
@@ -1104,6 +1124,7 @@ def create_app(conn: Any | None = None) -> FastAPI:
     def get_context(
         query: str = "",
         top_k: int = 8,
+        include_episodic: bool = False,
         principal: Principal = Depends(current_user),
         org: str = Depends(active_org),
     ) -> dict[str, Any]:
@@ -1112,14 +1133,21 @@ def create_app(conn: Any | None = None) -> FastAPI:
         If the caller has mounted snapshots (read-only overlays), retrieval unions
         the live graph with those snapshots; overlay hits are flagged ``mounted``
         with their ``owner``/``snapshot``. Mounts never affect writes or saves.
+
+        Episodic decision logs (``category="episodic"``) are excluded by default (H2)
+        so "why we decided" notes never pollute semantic recall; pass
+        ``include_episodic=true`` to include them.
         """
         live = live_graph(org, principal.sub)
         mounts = mounted_store.list(org, principal.sub)
         graph = OverlayGraph(live, mounts) if mounts else live
-        _, _, reader = build_trio(graph=graph, llm=None)
-        hits = graph.search(query, top_k=top_k) if query.strip() else []
+        exclude = None if include_episodic else [EPISODIC_CATEGORY]
+        hits = (
+            graph.search(query, top_k=top_k, exclude_categories=exclude)
+            if query.strip() else []
+        )
         return {
-            "context": reader.read(query),
+            "context": graph.read(query, exclude_categories=exclude),
             "hits": [
                 {
                     "id": h.fact.id,
