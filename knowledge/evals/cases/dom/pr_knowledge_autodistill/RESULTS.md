@@ -80,10 +80,10 @@ that actually traps the blind agent.
 
 - **Two validated footguns** (yoyo control 2/3, delete control 3/3) — the single-footgun
   provisional caveat is **resolved**; the NO-GO is no longer hostage to one construct.
-- **Open — extraction quality.** The delete result says auto-distillation's *phrasing* is the
-  bottleneck for soft constraints. The lever is the distiller (R2 prompt): capture the actionable
-  guard, not just the durable-policy sentence. A cheap next experiment: re-distill the delete PR
-  with a prompt that demands the concrete code form, and re-run the delete auto arm.
+- **Settled — extraction quality (the lever was run; see "EXTRACTION-QUALITY lever" below).** The
+  distiller prompt now folds in the concrete enforcement form; it ships, validated with no
+  yoyo/umap regression. But the upside is **bounded by two ceilings** — source-layer fidelity and
+  footgun availability — so the delete footgun moved only 0/3 → 1/3, not to the curated 2–3/3.
 - **Open — scope-aware retrieval.** Still motivated by the umap rank probe (neutralizing fact ranks
   #6 under repo-scoped distractors; a scope-match boost lifts it to #2). Independent of the
   extraction-quality finding; it's the parent's next slice (needs write-path provenance + a
@@ -100,11 +100,60 @@ carry the scope to fix it (`scope=file:knowledge/knowledge_graph/clustering.py`;
 target) re-ranks the fix **#6→#2 (umap)** / **#2→#1 (yoyo)**. That is the retrieval-attributed
 evidence motivating scope-aware retrieval.
 
+## The EXTRACTION-QUALITY lever — shipped, with its ceiling mapped
+
+The 2×2 named *phrasing* as the delete bottleneck and pointed at the distiller. That lever was
+built and run; the result is that it **works but is twice-bounded**, and the boundary is the real
+finding.
+
+**Part 1 — the distiller now folds in the enforcement form (shipped).** The R2 prompt was changed so
+that, for a constraint on *how code must be written* (one an agent can violate without an error), the
+fact carries the concrete enforcement form (guard/signature/call) as a brief illustrative example,
+not policy prose alone. Validated by re-distilling the **same 31 sources** that produced the frozen
+corpus:
+
+- **No regression on the footgun facts** — re-running yoyo and umap against the re-distilled corpus
+  held **3/3 each** (baseline 3/3). The yoyo fact in fact *improves*, folding in "import `connect`
+  lazily within the local CLI `main()`".
+- **No bloat** — 154 → 157 facts, mean length 195 → 215 chars.
+- **The delete fact gains its real enforcement form** — re-distilling PR #41 now yields *"…enforced
+  by returning a 409 error if an attempt is made to delete an 'active' fact"*. The diluted auto arm
+  moves **0/3 → 1/3** (n=3, so ≈ baseline) — still well short of the curated SQL-guard ideal (2/3
+  isolated, 3/3 diluted).
+
+**Ceiling 1 — source-layer fidelity.** The distiller can only fold in the enforcement the source PR
+*contains*. PR #41 enforces deletion-gating at the **API layer (a 409)**, but the task writes **raw
+psycopg SQL** — so the captured 409 form doesn't transfer; the agent bridges 409 → `WHERE … AND
+state IN (…)` only 1/3 (trial 3 translated it to a `ValueError` on `'active'`; trials 1–2 wrote an
+unguarded `DELETE`). The curated ideal flipped because a *human* wrote the guard at the task's layer
+— a form PR #41's diff never contained.
+
+**Ceiling 2 — footgun availability.** Looking for a footgun whose source enforces *at the task's
+layer*, two candidates were validated and **both failed the blind control at 0/3**:
+
+| candidate | weak fact | new enforcement form | blind exhibit |
+|-----------|-----------|----------------------|---------------|
+| #34 ingestion cassette key | "a deterministic cassette ensures consistent results" | `sha256(model_id + raw_input)` | **0/3** — agent always keyed on `model` |
+| #40 eval cache key | "leaf-name keying rejected for the backend case id" | `c.caseId ?? leafName(c.scope)` | **0/3** — agent always used `caseId` |
+
+Both failed for the **same structural reason**: a same-layer enforcement is only a *footgun* when its
+value is **absent from the task signature**. `delete_fact(conn, fact_id)` exposes no `state`, so the
+agent writes a complete *working* `DELETE` and the state restriction is a non-local rule it must
+already know — that gap is the footgun. #34 hands the agent `model`; #40 hands it `caseId`; both are
+correct-by-default, so neither is a footgun. A visible object-field/param can't be a footgun; only an
+external constraint the signature doesn't surface (a DB column, a cross-cutting policy) qualifies.
+
+**Conclusion.** The lever is real and shipped, but a clean large upside flip can't be demonstrated on
+this corpus — not because the lever is wrong, but because the qualifying intersection (same-layer ∧
+soft-policy ∧ genuinely-a-footgun) is structurally narrow. The delete footgun sits in it; almost
+nothing else in the corpus does.
+
 ## Next increment
 
-1. **Improve the distiller for actionable extraction** (the EXTRACTION-QUALITY lever) — highest-value
-   and cheapest: the delete footgun already isolates it. Re-distill targeting the code guard, re-run
-   the delete auto arm, see if it then flips.
+1. ~~**Improve the distiller for actionable extraction.**~~ **Done** (see above) — shipped and
+   validated; the upside is ceiling-bounded, not a clean flip. A fairer upside test needs a footgun
+   whose source enforces at the task's layer *and* whose enforcement value isn't in the task
+   signature; such footguns are scarce and would have to be authored deliberately.
 2. **Scope-aware retrieval** (the umap ranking lever) — the parent proposal's next slice
    (write-path provenance + scope reader); now data-justified. Warrants its own plan.
 3. **Establish the dogfood "does knowledge help at all" premise** before any GO here is trusted.
