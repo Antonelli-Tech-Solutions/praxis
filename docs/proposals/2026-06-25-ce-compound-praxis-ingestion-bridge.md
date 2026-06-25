@@ -37,8 +37,10 @@ maturity levels:
 
 Two facts make this concrete rather than academic:
 
-1. **`docs/solutions/` is empty in this repo.** The convention is declared in `CLAUDE.md` but nothing
-   has ever been written. "Replace" has nothing to lose; "augment" has nothing to migrate.
+1. **`docs/solutions/` holds exactly one doc here, and it's a real ce-compound output.**
+   [`gate-eval-experiment-plans-on-validated-footguns.md`](../solutions/conventions/gate-eval-experiment-plans-on-validated-footguns.md)
+   was produced by a `/ce-compound` run in session `fd866322`. So there is almost nothing to migrate —
+   *and* that one doc plus its source session is a ready-made validation pairing (see Validation below).
 2. **The extractor already exists.** `CommitIngestor` distills a unit into typed `Insight[]` with one
    structured LLM call and writes each through `Ingestor.ingest(..., state="proposed")` — straight
    into the candidate lifecycle. ce-compound needs the *same* extractor with a session-shaped input
@@ -182,7 +184,7 @@ Minimal, and opt-in per repo (a Praxis-configured project):
 - After ce-compound's Phase 1 extraction, run the session narrative through the `SessionIngestor`
   distillation (in-session call) and write the resulting `Insight[]` as `proposed` candidates.
 - Keep writing the markdown doc **only** as human-readable provenance, or drop it — the graph fact is
-  the record. (In this repo, dropping it changes nothing, since `docs/solutions/` is empty.)
+  the record. (In this repo only one such doc exists, so almost nothing is lost either way.)
 - The Discoverability Check that ce-compound runs against `CLAUDE.md` becomes "agents can reach Praxis
   via `praxis_get_context`," not "agents can grep `docs/solutions/`."
 
@@ -226,6 +228,51 @@ Minimal, and opt-in per repo (a Praxis-configured project):
 - Once the retrieval gate is green, a fresh session retrieves a previously-distilled session fact via
   `praxis_get_context` at the right moment.
 
+## Validation
+
+Split the feature in two — the halves have very different validation cost.
+
+**Write side (extraction) — cheap, checkable now, no agent run.** There is a gold pairing entirely in
+local data: session `fd866322` (a real solved-problem arc — catching that the 002 plan gated on
+falsified footguns and revising it) *and* the `/ce-compound` doc it produced
+([`gate-eval-experiment-plans-on-validated-footguns.md`](../solutions/conventions/gate-eval-experiment-plans-on-validated-footguns.md)),
+which is a **human-vetted reference output**. The test: render the session narrative, run the
+`SessionIngestor` distill prompt over it, and diff the `Insight[]` against the doc. No fresh coding
+tasks, no win-hunt, no multi-arm run — you already did the work once.
+
+**Delivery side (retrieval) — expensive, and deferred.** The markdown-vs-Praxis-vs-cold A/B is the
+multi-arm agent run, and the dogfood suite already attributes the NO-GO to semantic-only retrieval, so
+running it today mostly re-confirms the known gap. Gate it on the retrieval gate going clean-green, and
+reuse the dogfood apparatus (validated footguns, cost-to-correct) rather than fresh constructs — per
+[`gate-eval-experiment-plans-on-validated-footguns.md`](../solutions/conventions/gate-eval-experiment-plans-on-validated-footguns.md)
+itself.
+
+### What the write-side smoke test found (Claude-as-distiller proxy, n=1)
+
+Running the prompt over the `fd866322` narrative recovered the doc's content cleanly — the headline
+convention, the "expensive apparatus-null" rationale, and the three empirical footgun facts
+(phoenix invalid / umap variance-prone / yoyo validated) — and ignored the tool-call play-by-play.
+**Extraction is not the risk.** The risks are downstream of it, and the build should account for them:
+
+1. **Granularity: one doc → ~6 atomic facts.** Better for semantic retrieval (each surfaces
+   independently) but loses the doc's narrative cohesion, and a single precision-first call **over-emits
+   near-duplicates** (two phrasings of the same convention). This is acceptable — `graph.write` dedup
+   merges them and bumps `observation_count` — but it confirms the distiller itself is not dedup-aware
+   (by design) and must rely on the write path.
+2. **Scope is the shakiest column.** The narrative is full of file paths (the 002 plan, the yoyo case)
+   that are *provenance*, while the *lesson* applies `module:knowledge/evals`-wide. The distiller's
+   `file:`-vs-`module:`-vs-`repo` guesses were the least reliable output — concretely confirming the
+   sibling proposal's "provenance is not scope," and pointing at where prompt effort should go.
+3. **Experiment-state vs durable repo knowledge.** Some recovered facts ("the dogfood suite dropped
+   phoenix") describe an *in-flight experiment's current state*, not durable facts about the codebase;
+   they go stale when the suite changes and are lower-value to a coding agent than a true gotcha. The
+   session prompt likely needs to distinguish "knowledge about the code" from "knowledge about an
+   in-flight experiment," or these will pollute retrieval.
+
+The proxy caveat is real: this was run by the assistant, not the configured `OpenRouterLlm`, on one
+session. It de-risks the approach; it is not the verdict. The real `SessionIngestor` run over the same
+pairing is the confirming step.
+
 ## Scope boundaries (deferred)
 
 - **Read-side cutover** — gated on the dogfood retrieval gate (semantic-only retrieval is the known
@@ -245,7 +292,10 @@ Minimal, and opt-in per repo (a Praxis-configured project):
    write-up) or drop entirely once the graph is the record?
 3. **Scope inference for session facts.** A debugging session names files in its narrative —
    provenance — but where the lesson *applies* is a separate judgment (per the sibling proposal's
-   "provenance is not scope"). Does the session prompt need extra guidance to set `scope` well?
+   "provenance is not scope"). The write-side smoke test confirmed this is the distiller's **least
+   reliable output**: does the session prompt need extra guidance (e.g. "the files named are where the
+   lesson was *found*, not necessarily where it *applies*") to set `scope` well, or is scope better
+   left to a downstream pass?
 4. **Overlap with `CommitIngestor` coverage** — *provisionally resolved: default to dedup, do not
    couple the sources.* A session that ends in a merged PR will be distilled twice (session-end and
    post-merge). The instinct to suppress one trigger (e.g. a `Praxis-Ingested: session/<id>` commit
@@ -269,3 +319,7 @@ Minimal, and opt-in per repo (a Praxis-configured project):
    ingested) — but note `session/<id>` ≠ `git/pr:<n>`, so that only dedups re-runs of the *same* unit,
    not across session↔PR. Cross-source, dedup the *outputs* (the graph already does), don't couple the
    triggers.
+5. **Filtering in-flight experiment state.** The write-side smoke test recovered facts describing an
+   experiment's *current state* ("the dogfood suite dropped phoenix"), not durable code knowledge.
+   Should the prompt actively suppress these, should they be a distinct low-confidence category, or is
+   the human gate the right place to drop them?
