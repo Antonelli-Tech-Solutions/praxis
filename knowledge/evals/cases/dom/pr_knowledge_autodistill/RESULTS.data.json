@@ -1,0 +1,215 @@
+{
+  "records": [
+    {
+      "task": "yoyo_lazy_import",
+      "kind": "footgun",
+      "auto": {
+        "cost": 0.0930015,
+        "turns": 6,
+        "tokens": 2076,
+        "correct": true
+      },
+      "control": {
+        "cost": 0.10065099999999999,
+        "turns": 6,
+        "tokens": 3960,
+        "correct": false
+      },
+      "curated": {
+        "cost": 0.0713132,
+        "turns": 2,
+        "tokens": 6071,
+        "correct": true
+      }
+    },
+    {
+      "task": "yoyo_lazy_import",
+      "kind": "footgun",
+      "auto": {
+        "cost": 0.0571478,
+        "turns": 8,
+        "tokens": 1896,
+        "correct": true
+      },
+      "control": {
+        "cost": 0.049331700000000006,
+        "turns": 7,
+        "tokens": 1512,
+        "correct": true
+      },
+      "curated": {
+        "cost": 0.058490799999999996,
+        "turns": 7,
+        "tokens": 1882,
+        "correct": true
+      }
+    },
+    {
+      "task": "yoyo_lazy_import",
+      "kind": "footgun",
+      "auto": {
+        "cost": 0.06153290000000001,
+        "turns": 7,
+        "tokens": 2070,
+        "correct": true
+      },
+      "control": {
+        "cost": 0.0870241,
+        "turns": 14,
+        "tokens": 4561,
+        "correct": false
+      },
+      "curated": {
+        "cost": 0.045933800000000004,
+        "turns": 2,
+        "tokens": 2408,
+        "correct": true
+      }
+    },
+    {
+      "task": "umap_neighbors",
+      "kind": "footgun",
+      "auto": {
+        "cost": 0.0504644,
+        "turns": 5,
+        "tokens": 1310,
+        "correct": true
+      },
+      "control": {
+        "cost": 0.0475502,
+        "turns": 4,
+        "tokens": 1610,
+        "correct": true
+      },
+      "curated": null
+    },
+    {
+      "task": "umap_neighbors",
+      "kind": "footgun",
+      "auto": {
+        "cost": 0.0500495,
+        "turns": 5,
+        "tokens": 1260,
+        "correct": true
+      },
+      "control": {
+        "cost": 0.05210560000000001,
+        "turns": 3,
+        "tokens": 2834,
+        "correct": true
+      },
+      "curated": null
+    },
+    {
+      "task": "umap_neighbors",
+      "kind": "footgun",
+      "auto": {
+        "cost": 0.0431773,
+        "turns": 3,
+        "tokens": 1233,
+        "correct": true
+      },
+      "control": {
+        "cost": 0.06801360000000001,
+        "turns": 8,
+        "tokens": 2658,
+        "correct": true
+      },
+      "curated": null
+    }
+  ],
+  "diagnostics": {
+    "yoyo_lazy_import": {
+      "fact_in_artifact": true,
+      "surfaced": true
+    },
+    "umap_neighbors": {
+      "fact_in_artifact": true,
+      "surfaced": true
+    }
+  },
+  "report": {
+    "tasks": {
+      "yoyo_lazy_import": {
+        "kind": "footgun",
+        "is_footgun": true,
+        "is_gating": true,
+        "auto": {
+          "cost_mean": 0.07056073333333333,
+          "cost_sd": 0.01955756329258155,
+          "tokens_mean": 2014.0,
+          "tokens_sd": 102.23502335305646,
+          "turns_mean": 7.0
+        },
+        "control": {
+          "cost_mean": 0.07900226666666667,
+          "cost_sd": 0.026583453418307652,
+          "tokens_mean": 3344.3333333333335,
+          "tokens_sd": 1615.049328452024,
+          "turns_mean": 9.0
+        },
+        "curated": {
+          "cost_mean": 0.058579266666666664,
+          "cost_sd": 0.012689931278511054,
+          "tokens_mean": 3453.6666666666665,
+          "tokens_sd": 2281.8839438791215,
+          "turns_mean": 3.6666666666666665
+        },
+        "token_delta": -1330.3333333333335,
+        "token_reduced": true,
+        "turn_delta": -2.0,
+        "turn_reduced": true,
+        "auto_avoid_rate": 1.0,
+        "control_exhibit_rate": 0.6666666666666667,
+        "curated_avoid_rate": 1.0,
+        "flip": true,
+        "curated_flip": true,
+        "trials": 3
+      },
+      "umap_neighbors": {
+        "kind": "footgun",
+        "is_footgun": true,
+        "is_gating": false,
+        "auto": {
+          "cost_mean": 0.04789706666666666,
+          "cost_sd": 0.004092698809261844,
+          "tokens_mean": 1267.6666666666667,
+          "tokens_sd": 39.06831623366092,
+          "turns_mean": 4.333333333333333
+        },
+        "control": {
+          "cost_mean": 0.05588980000000001,
+          "cost_sd": 0.010743733621046272,
+          "tokens_mean": 2367.3333333333335,
+          "tokens_sd": 661.7471823387942,
+          "turns_mean": 5.0
+        },
+        "curated": null,
+        "token_delta": -1099.6666666666667,
+        "token_reduced": true,
+        "turn_delta": -0.666666666666667,
+        "turn_reduced": true,
+        "auto_avoid_rate": 1.0,
+        "control_exhibit_rate": 0.0,
+        "curated_avoid_rate": null,
+        "flip": false,
+        "curated_flip": null,
+        "trials": 3
+      }
+    },
+    "errors": []
+  },
+  "gate": {
+    "verdict": "GO (provisional)",
+    "provisional": true,
+    "gating_flip": true,
+    "flips": {
+      "yoyo_lazy_import": true
+    },
+    "tasks_reduced": 2,
+    "tasks_total": 2,
+    "reasons": [
+      "GO is PROVISIONAL \u2014 rests on a single validated footgun (yoyo) and an unestablished dogfood premise; see RESULTS.md"
+    ]
+  }
+}
