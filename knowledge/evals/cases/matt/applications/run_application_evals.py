@@ -40,7 +40,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from knowledge.evals.run import load_cases, load_env
+from knowledge.evals.run import clear_seed_cache, load_cases, load_env, set_seed_cache
 from knowledge.evals.run import main as run_main
 
 # Scope to THIS suite by directory, not by id prefix: other (non-application)
@@ -99,8 +99,20 @@ def main(argv: list[str] | None = None) -> int:
         print(f"no suite cases match {filters!r}")
         return 0
 
+    # Every applications case ingests the same four source docs (resume, LinkedIn,
+    # degree, Gauntlet page) with an identical seed signature. Ingestion is the
+    # expensive part (real LLM distillation + embeddings), so share ONE seeded graph
+    # across the whole suite: the first case ingests, the rest reuse the cached
+    # reader. The reader is read-only, so reuse is safe even under --workers > 1.
+    # (intent_gating cases are graph_reader *component* cases that don't touch the
+    # seed cache, so they're unaffected.)
     case_ids = [c.id for c in cases]
-    return run_main([*case_ids, *flags])
+    set_seed_cache(True)
+    try:
+        return run_main([*case_ids, *flags])
+    finally:
+        set_seed_cache(False)
+        clear_seed_cache()
 
 
 if __name__ == "__main__":

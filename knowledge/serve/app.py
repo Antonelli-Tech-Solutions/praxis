@@ -90,6 +90,12 @@ def create_app(conn: Any | None = None) -> FastAPI:
     The connection is opened once per process (autocommit) and shared by the
     orgs store and every per-request tenant graph. A resolvable DSN is required.
     """
+    # Enable OpenTelemetry → Phoenix tracing when PHOENIX_COLLECTOR_ENDPOINT is
+    # set (env-gated; a no-op otherwise). Each deployment exports to its own
+    # endpoint: local dev → local Phoenix, the deployed API → live Phoenix.
+    from knowledge.observability.tracing import setup_tracing
+
+    setup_tracing()
     conn = conn if conn is not None else db.connect()
     orgs_store = OrgsStore(conn)
     # Bind the auth dependency to this connection so it can also resolve API keys
@@ -916,13 +922,21 @@ def create_app(conn: Any | None = None) -> FastAPI:
         if state not in ("active", "proposed"):
             raise HTTPException(status_code=400, detail="state must be 'active' or 'proposed'")
 
+        from knowledge.injestion.dump_ingest import ingest_dump
+
+        ingest_llm = OpenRouterLlm()
+        # Exact-dedup-only write policy: ingest_dump owns dedup AND conflict
+        # resolution via slot-granular claims (the distiller emits a (subject,
+        # attribute, value) per fact whose subject carries every discriminating
+        # qualifier, so different table rows are different slots and are never
+        # false-flagged). The write policy must NOT also run a conflict step or it
+        # would re-introduce the coarse-slot false positives.
         graph = PostgresVectorGraph(
             conn,
             org,
             principal.sub,
-            policy=[Redactor(), Deduper(), ConflictOverwriter(llm=OpenRouterLlm())],
+            policy=[Redactor(), Deduper()],
         )
-        _, ingestor, _ = build_trio(graph=graph, llm=None)
         results: list[dict[str, Any]] = []
         for doc in documents:
             if not isinstance(doc, dict):
@@ -930,12 +944,21 @@ def create_app(conn: Any | None = None) -> FastAPI:
             text = (doc.get("text") or "").strip()
             if not text:
                 raise HTTPException(status_code=400, detail="each document needs non-empty text")
-            ingestor.ingest(text, state=state)
+            source = doc.get("source")
+            summary = ingest_dump(
+                graph, ingest_llm, text, state=state, source=str(source) if source else None
+            )
             # Best-effort provenance back to the caller: the top fact the just-
             # ingested text now matches (ids are per-fact, a doc distills to many).
             hits = graph.search(text, top_k=1, state=None)
             top_id = hits[0].fact.id if hits else None
-            results.append({"id": top_id, "action": "ingested"})
+            results.append({
+                "id": top_id,
+                "action": "ingested",
+                "facts": summary["facts"],
+                "merged": summary["merged"],
+                "conflicts": summary["conflicts"],
+            })
         return {"results": results, "count": len(results)}
 
     @app.get("/context")

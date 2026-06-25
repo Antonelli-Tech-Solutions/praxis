@@ -71,8 +71,11 @@ jobs:
     runs-on: ubuntu-latest
     env:
       # Connection config consumed by knowledge/serve/db.py. PRAXIS_DB_URL takes
-      # precedence; the AWS trio is the Secrets Manager fallback path.
+      # precedence; the AWS trio is the Secrets Manager fallback path, which is
+      # opt-in (PRAXIS_DB_ALLOW_REMOTE) so local scripts can't reach prod by
+      # accident — CI explicitly allows it here.
       PRAXIS_DB_URL: ${{ secrets.PRAXIS_DB_URL }}
+      PRAXIS_DB_ALLOW_REMOTE: "1"
       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
       AWS_REGION: ${{ secrets.AWS_REGION }}

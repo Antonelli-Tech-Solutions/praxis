@@ -95,6 +95,10 @@ export class BackendServiceStack extends cdk.Stack {
             runtimeEnvironmentVariables: [
               { name: 'PRAXIS_API_HOST', value: '0.0.0.0' },
               { name: 'AWS_REGION', value: this.region },
+              // Opt in to the Secrets Manager DSN fallback. db.py only resolves a
+              // remote DSN when this is set, so a local script that forgets to
+              // load .env can never silently reach this production database.
+              { name: 'PRAXIS_DB_ALLOW_REMOTE', value: '1' },
               { name: 'COGNITO_USER_POOL_ID', value: cognitoUserPoolId },
               { name: 'COGNITO_CLIENT_ID', value: cognitoClientId },
               { name: 'COGNITO_REGION', value: cognitoRegion },
