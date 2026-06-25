@@ -62,14 +62,23 @@ def backfill(
 
     Calls ``ingestor.synthesis`` directly (graph-free) and de-duplicates exact-text
     repeats, preserving first-seen order so the artifacts serialize deterministically.
+    A single unit whose fetch or distill fails is skipped with a warning rather than
+    aborting the whole one-shot (a real backfill spans ~30 live PRs).
     """
-    docs = [build_pr_document(n, fetch=fetch) for n in list_merged_prs(pr_limit, fetch=fetch)]
-    docs += [build_commit_document(sha, fetch=fetch) for sha in commit_shas]
+    units: list[tuple[str, ...]] = [("pr", str(n)) for n in list_merged_prs(pr_limit, fetch=fetch)]
+    units += [("commit", sha) for sha in commit_shas]
 
     insights: list[Insight] = []
     seen: set[str] = set()
-    for doc in docs:
-        for ins in ingestor.synthesis(doc.render(), source=doc.unit_source):
+    for kind, ref in units:
+        try:
+            doc = (build_pr_document(int(ref), fetch=fetch) if kind == "pr"
+                   else build_commit_document(ref, fetch=fetch))
+            distilled = ingestor.synthesis(doc.render(), source=doc.unit_source)
+        except Exception as exc:  # noqa: BLE001 — one bad unit shouldn't sink the backfill
+            print(f"  WARN: skipping {kind}:{ref} — {exc}", flush=True)
+            continue
+        for ins in distilled:
             key = ins.raw_text.strip()
             if key and key not in seen:
                 seen.add(key)

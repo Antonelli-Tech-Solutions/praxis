@@ -63,7 +63,9 @@ TASKS: dict[str, dict] = {
         "correct_check": ("knowledge.evals.deterministic_checks.text:regex_absent",
                           {"pattern": r"(?m)^(?:from|import)\s+knowledge\b"}),
         "output_file": "0002_backfill_fact_source.py",
-        "marker_terms": ["lazil", "knowledge"],  # "import knowledge ... lazily"
+        # The distiller phrases the gotcha as "...not on sys.path, necessitating lazy
+        # imports..."; these terms identify the neutralizing fact across its variants.
+        "marker_terms": ["sys.path", "import"],
         "has_curated": True,
     },
     "umap_neighbors": {

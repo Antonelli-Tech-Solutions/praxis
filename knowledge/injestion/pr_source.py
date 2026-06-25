@@ -59,8 +59,13 @@ class PRDocument:
 
 
 def default_fetcher(argv: list[str]) -> str:
-    """Run ``argv`` and return stdout; raise on a non-zero exit (never a silent empty)."""
-    proc = subprocess.run(argv, capture_output=True, text=True)
+    """Run ``argv`` and return stdout; raise on a non-zero exit (never a silent empty).
+
+    Decodes as UTF-8 with replacement: ``gh``/``git`` emit UTF-8 diffs, but the
+    platform default (cp1252 on Windows) crashes on bytes outside its map.
+    """
+    proc = subprocess.run(argv, capture_output=True, text=True,
+                          encoding="utf-8", errors="replace")
     if proc.returncode != 0:
         detail = (proc.stderr.strip() or proc.stdout.strip())[:500]
         raise RuntimeError(f"{argv[0]} exited {proc.returncode}: {detail}")
