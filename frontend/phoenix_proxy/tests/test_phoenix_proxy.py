@@ -6,7 +6,6 @@ import json
 from typing import Any
 
 import httpx
-import pytest
 from fastapi.testclient import TestClient
 
 from frontend.phoenix_proxy.app import (

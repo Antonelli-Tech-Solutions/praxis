@@ -2,11 +2,8 @@
 
 from __future__ import annotations
 
-import io
 
-import pytest
 
-from knowledge.injestion.image import normalize as norm
 from knowledge.injestion.image.normalize import NormalizedAsset, normalize
 
 

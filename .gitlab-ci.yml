@@ -17,13 +17,17 @@
 #       AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_DEFAULT_REGION (us-east-1)
 
 stages:
+  - lint
+  - test
   - backend
   - frontend
 
-# Only ever run for the main branch (i.e. when an MR is merged). No MR or feature-
-# branch pipelines.
+# Lint runs on merge requests AND on main (post-merge safety net); the deploy jobs
+# below stay main-only via their own `rules`. A feature-branch push with no open MR
+# matches neither rule, so there are no duplicate branch+MR pipelines.
 workflow:
   rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
     - if: '$CI_COMMIT_BRANCH == "main"'
     - when: never
 
@@ -32,6 +36,96 @@ workflow:
   VITE_COGNITO_USER_POOL_ID: us-east-1_4nAMe6bPK
   VITE_COGNITO_CLIENT_ID: 3ij653bq912pi4f17l5hn9iqqn
   VITE_COGNITO_REGION: us-east-1
+
+# ---- Lint / static checks ----------------------------------------------------
+# Each job invokes the repo's existing tool for that language and is gated by
+# `rules:changes` so only the stacks a change actually touches are checked.
+
+# Python: ruff (pyflakes + pycodestyle E4/E7/E9), config in pyproject.toml [tool.ruff].
+python-lint:
+  stage: lint
+  image: ghcr.io/astral-sh/uv:python3.12-bookworm-slim
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes: ["**/*.py", pyproject.toml, .gitlab-ci.yml]
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      changes: ["**/*.py", pyproject.toml, .gitlab-ci.yml]
+  script:
+    - uvx ruff@0.15.20 check .
+
+# Frontend (React/Vite): the repo's `lint` script is `tsc -b --noEmit` (type-check).
+frontend-typecheck:
+  stage: lint
+  image: node:20-alpine
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes: ["frontend-react/**/*", .gitlab-ci.yml]
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      changes: ["frontend-react/**/*", .gitlab-ci.yml]
+  script:
+    - cd frontend-react
+    - npm ci
+    - npm run lint
+
+# Infra (AWS CDK, TypeScript): `tsc` via the `build` script is the type-check gate.
+infra-typecheck:
+  stage: lint
+  image: node:20-alpine
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes: ["infra/**/*", .gitlab-ci.yml]
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      changes: ["infra/**/*", .gitlab-ci.yml]
+  script:
+    - cd infra
+    - npm ci
+    - npm run build
+
+# Go (session-capture wrapper): gofmt (formatting) + go vet (static analysis).
+go-lint:
+  stage: lint
+  image: golang:1.25-alpine
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes: ["session-capture/**/*", .gitlab-ci.yml]
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      changes: ["session-capture/**/*", .gitlab-ci.yml]
+  script:
+    - cd session-capture/wrapper
+    - test -z "$(gofmt -l .)" || { echo 'gofmt: the following files need formatting:'; gofmt -l .; exit 1; }
+    - go vet ./...
+
+# ---- Tests -------------------------------------------------------------------
+# Python suite against an ephemeral pgvector service (the yoyo migrations are the
+# schema source of truth, applied via `knowledge.serve.db`). Runs keyless: the
+# embedder-dependent integration tests (e.g. test_server, the /ingest/session
+# happy-path) skip cleanly without OPENROUTER_API_KEY. To include them, add
+# OPENROUTER_API_KEY as a masked CI/CD variable — the cassette-backed tests replay
+# offline either way. This catches regressions lint can't (e.g. a test double drifting
+# out of sync with a production signature).
+python-test:
+  stage: test
+  image: ghcr.io/astral-sh/uv:python3.12-bookworm-slim
+  services:
+    - name: pgvector/pgvector:pg16
+      alias: postgres
+  variables:
+    POSTGRES_USER: praxis
+    POSTGRES_PASSWORD: praxis
+    POSTGRES_DB: praxis_kg
+    PRAXIS_DB_URL: "postgresql://praxis:praxis@postgres:5432/praxis_kg"
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes: ["**/*.py", pyproject.toml, uv.lock, .gitlab-ci.yml]
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      changes: ["**/*.py", pyproject.toml, uv.lock, .gitlab-ci.yml]
+  before_script:
+    - uv sync --frozen
+    # Wait for the pgvector service to accept connections, then apply migrations.
+    - until uv run --no-sync python -c "import os, psycopg; psycopg.connect(os.environ['PRAXIS_DB_URL']).close()" 2>/dev/null; do echo "waiting for postgres..."; sleep 1; done
+    - uv run --no-sync python -m knowledge.serve.db
+  script:
+    - uv run --no-sync pytest -q
 
 deploy-backend:
   stage: backend

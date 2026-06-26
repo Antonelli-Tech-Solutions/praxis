@@ -377,6 +377,9 @@ class PostgresVectorGraph(SearchableGraph):
         decision.scope = scope
         decision.category = category
         decision.meta = meta or {}
+        # A declared derivation is a new fact built on its sources, never a duplicate;
+        # carry it onto the decision so the Augmenter exempts it from the merge (H5).
+        decision.derived_from = list(derived_from or [])
         claim_recalled = False
         semantic_recalled = False
         for step in self.policy:
@@ -482,7 +485,6 @@ class PostgresVectorGraph(SearchableGraph):
 
     def _dependent_ids(self, fact_id: str, kind: str, max_depth: int) -> set[str]:
         cache = ""
-        params: list[object] = [self.org_id, self.user_id, kind, fact_id]
         if self._cache_key is not None:
             cache = " AND cache_key = %s"
         # Recursive walk up the derivation chain (dst -> src), carrying the visited

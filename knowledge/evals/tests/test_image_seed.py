@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
 
 from knowledge.evals import run
 from knowledge.evals.eval_def import DeterministicCheckRef, EvalCase, SeededInsight
@@ -30,7 +29,17 @@ class SpyGraph:
     def __init__(self):
         self.writes = []
 
-    def write(self, content, *, state="proposed"):
+    def write(
+        self,
+        content,
+        *,
+        state="proposed",
+        source=None,
+        scope=None,
+        category=None,
+        meta=None,
+        tabular=False,
+    ):
         self.writes.append((content, state))
 
     def read(self, context=None):

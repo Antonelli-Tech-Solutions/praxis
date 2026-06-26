@@ -349,7 +349,10 @@ def _ingest_llm_for(case: EvalCase, llm):
         from knowledge.llm.llm_variants.openrouter_llm import OpenRouterLlm
 
         model = OpenRouterLlm(model=case.ingest_model)
-        inner = lambda prompt: model.complete([ChatMessage(role="user", content=prompt)])
+
+        def inner(prompt):
+            return model.complete([ChatMessage(role="user", content=prompt)])
+
     cache = INGEST_CACHE_DIR / f"{_slug(case.ingest_model)}.json"
     return IngestionCassette(cache, model_id=case.ingest_model, inner=inner, allow_compute=has_key)
 

@@ -58,6 +58,17 @@ class WriteDecision:
     # conflicting (same slot, different value) from this write — so a later merge step
     # (Augmenter) must NOT fold this write into them. Filled by the Deduper's slot-guard.
     no_merge_ids: list[str] = field(default_factory=list)
+    # Declared derivation provenance (gap H5): the source ids this write was
+    # explicitly derived from. A write carrying derived_from is a *new* fact built
+    # on its sources (e.g. a learning about how a requirement was implemented), not
+    # a duplicate — so a merge step (Augmenter) must NEVER fold it into another fact,
+    # or the distinct node + its derived_from edge are lost. Set by the store from
+    # the write() call; empty for an ordinary write.
+    derived_from: list[str] = field(default_factory=list)
+    # The category the caller stamped on this write (e.g. "requirement", "learning").
+    # Carried onto the decision so a merge step can refuse to fold across distinct
+    # category values (a "learning" must not be merged into a "requirement").
+    category: str | None = None
     # Shared per-write recall (filled by the store before the steps run).
     embedding: list[float] | None = None
     candidates: list[SearchHit] = field(default_factory=list)

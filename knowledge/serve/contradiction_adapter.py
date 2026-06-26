@@ -9,7 +9,7 @@ candidate-id pairs it flags — best-effort, so offline / no-API-key yields [].
 
 from __future__ import annotations
 
-from typing import Any, Callable
+from typing import Any
 
 from knowledge.knowledge_graph.knowledge_graph_variants.vector_graph import VectorGraph
 
