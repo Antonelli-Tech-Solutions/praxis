@@ -32,6 +32,9 @@ from knowledge.knowledge_graph.write_policy.write_policy_def import WriteDecisio
 from knowledge.knowledge_graph.write_policy.write_step_variants.augment_judge import (
     AugmentJudge,
 )
+from knowledge.knowledge_graph.write_policy.write_step_variants.deduper import (
+    TABULAR_FLAG,
+)
 from knowledge.knowledge_graph.write_policy.write_step_variants.semantic_conflict_detector import (
     SemanticConflictJudge,
 )
@@ -76,6 +79,15 @@ class Augmenter(WriteStep):
         # Folding it into another fact would destroy the distinct node and its
         # derived_from edge, so a declared derivation is never an augment target.
         if decision.derived_from:
+            return
+        # A tabular-flagged write is a deterministic, atomic row linearized one-per-row
+        # from structured/templated input. The Deduper's slot-guard keeps such rows
+        # distinct from each OTHER, but the Augmenter's broader semantic recall can still
+        # fold a row into a pre-existing NON-tabular incumbent that merely shares its
+        # subject (e.g. a "team_day: date, resolved via the 3AM boundary" row blended into
+        # a prose rule about that boundary). A structured row must stay its own fact, so
+        # never additively merge a tabular write away.
+        if TABULAR_FLAG in decision.flags:
             return
         # The Deduper's slot-guard already ruled these candidates distinct (different
         # functional slot) or conflicting (same slot, different value); never fold an
