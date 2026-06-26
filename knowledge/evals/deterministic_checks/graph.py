@@ -826,6 +826,9 @@ def requirement_not_fragmented_by_distillation(
             source="prd-team-app",
             category="requirement",
             meta={"requirement_id": requirement_id},
+            # Mirror add_insight's shaped-fact lane: it now defaults atomic=True so a
+            # pre-atomic insight stays one fact instead of fragmenting per-sentence.
+            atomic=True,
         )
         return graph.all_facts(state="active")
 
@@ -883,3 +886,95 @@ def requirement_not_fragmented_by_distillation(
         for o in (org, ctrl_org):
             conn.execute("DELETE FROM fact_edges WHERE org_id = %s AND user_id = %s", (o, user))
             conn.execute("DELETE FROM facts WHERE org_id = %s AND user_id = %s", (o, user))
+
+
+def contradicting_requirement_not_merged(
+    ctx: EvalContext,
+    *,
+    incumbent_text: str,
+    contradicting_text: str,
+    contradiction_marker: str,
+) -> CheckResult:
+    """A directly-contradicting same-subject requirement must SURFACE, never be merged.
+
+    The agent factory admits each requirement via ``add_insight(on_conflict="surface")`` and
+    depends on a contradiction being *flagged* (a pending pair in ``GET /contradictions``) so
+    the human can adjudicate -- this is the planning loop's self-consistency mechanism. But
+    under ``surface`` (= ``default_write_policy``), the Mem0-style **Augmenter** runs its
+    additive merge BEFORE the ConflictFlagger fires, so a newcomer the Augmenter judges to be
+    "about the same subject" as the incumbent is folded into it -- even when the two
+    **contradict**. ``write()`` returns the incumbent's id, ``contradictionsSurfaced=0``, and
+    the incumbent fact is mutated into a self-contradictory blend.
+
+    Observed live (2026-06-26, agent-factory planning run): writing "daily completion REQUIRES
+    >=1 checklist item" against the incumbent R1 ("the checklist does NOT affect completion")
+    returned ``action="merged"`` with R1's id, 0 contradictions surfaced, and R1's text became
+    self-contradictory (it now asserts both that a checklist item is required AND that the
+    checklist never changes the result). Reproduced deterministically via ``graph.write`` under
+    ``default_write_policy`` (req_id == chal_id).
+
+    Drives the REAL production write policy in a fresh isolated tenant. Requires a Postgres DSN
+    AND an OpenRouter key (the Augmenter + conflict judges are live LLM calls); the harness
+    SKIPs without them.
+
+    Failure points asserted (all must hold for GREEN):
+      FP1  the contradicting write is NOT merged into the incumbent (a distinct fact id);
+      FP2  the incumbent fact is NOT mutated to carry the contradicting clause
+           (``contradiction_marker`` absent from the incumbent text) -- i.e. it is not blended
+           into a self-contradictory fact.
+
+    RED today (FP1 fails: chal_id == req_id; the incumbent absorbs the contradiction). GREEN
+    once the Augmenter refuses to merge contradictory facts so ``surface`` can flag the pair.
+
+    NB ``surface``/FR-005 may demote the distinct newcomer to ``proposed``, so this check does
+    NOT assert an active-fact count -- only that the contradiction was kept as its own fact and
+    the incumbent stayed clean.
+    """
+    from knowledge.evals.run import _eval_embedder
+    from knowledge.knowledge_graph.knowledge_graph_variants.postgres_vector_graph import (
+        PostgresVectorGraph,
+        default_write_policy,
+    )
+    from knowledge.serve import db
+
+    class _CachedAxis:
+        embedder = "cached"
+
+    conn = db.connect()
+    db.bootstrap()
+    org = "eval_contradmerge_" + uuid.uuid4().hex[:12]
+    user = "u1"
+    graph = PostgresVectorGraph(
+        conn, org, user, embedder=_eval_embedder(_CachedAxis()), policy=default_write_policy()
+    )
+    try:
+        req_id = graph.write(incumbent_text, state="active", category="requirement")
+        chal_id = graph.write(contradicting_text, state="active", category="requirement")
+        merged = chal_id is None or chal_id == req_id
+        # On merge the Augmenter updates the incumbent row in place, so req_id stays active.
+        inc = next((f for f in graph.all_facts(state="active") if f.id == req_id), None)
+        inc_text = (getattr(inc, "text", "") or "") if inc else ""
+        blended = contradiction_marker.lower() in inc_text.lower()
+        passed = (not merged) and (not blended)
+        if passed:
+            evidence = (
+                f"contradiction kept distinct (incumbent={req_id}, challenger={chal_id}); "
+                "incumbent text not blended -- surface can flag the pair"
+            )
+        else:
+            evidence = (
+                f"contradicting requirement MERGED by the Augmenter instead of surfaced "
+                f"[FP1 merged={merged}] (req_id={req_id}, chal_id={chal_id}); "
+                f"incumbent blended into a self-contradictory fact "
+                f"[FP2 marker '{contradiction_marker}' present={blended}]. "
+                "The Augmenter ran its additive merge before the ConflictFlagger, so "
+                "on_conflict='surface' never fired (contradictionsSurfaced=0)."
+            )
+        return CheckResult(
+            name="contradicting_requirement_not_merged",
+            passed=passed,
+            evidence=evidence,
+        )
+    finally:
+        conn.execute("DELETE FROM fact_edges WHERE org_id = %s AND user_id = %s", (org, user))
+        conn.execute("DELETE FROM facts WHERE org_id = %s AND user_id = %s", (org, user))
