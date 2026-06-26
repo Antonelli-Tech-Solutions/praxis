@@ -758,3 +758,128 @@ def derived_learning_not_merged_into_source(
     finally:
         conn.execute("DELETE FROM fact_edges WHERE org_id = %s AND user_id = %s", (org, user))
         conn.execute("DELETE FROM facts WHERE org_id = %s AND user_id = %s", (org, user))
+
+
+def requirement_not_fragmented_by_distillation(
+    ctx: EvalContext,
+    *,
+    requirement_text: str,
+    requirement_id: str = "R1",
+    acceptance_marker: str = "Acceptance",
+    control_text: str | None = None,
+) -> CheckResult:
+    """A single multi-sentence requirement written via ``add_insight`` must stay ONE fact.
+
+    The agent factory (``factory-plan``) admits each settled requirement via ``add_insight``
+    with ``category="requirement"`` + ``meta={"requirement_id": ...}``, relying on a 1:1
+    R-id<->fact mapping and on the requirement's binary **acceptance condition** living on the
+    requirement fact. But ``add_insight`` is wired with ``llm=None`` (see ``serve/app.py``
+    ``add_insight`` -> ``build_trio(graph, llm=None)``), so ``PromptIngestor.synthesis`` falls
+    to ``segment_passthrough``, which splits the input into **one fact per sentence**. A
+    three-sentence requirement therefore lands as THREE facts -- and the ``Acceptance: ...``
+    clause is severed into its own fact (all three share the same ``requirement_id``).
+
+    Observed live (2026-06-26, agent-factory planning run): one ``add_insight`` of R1 produced
+    3 active facts; the single-sentence R2 stayed whole. Deterministic -- no LLM / model key --
+    but it drives the REAL production path (``default_write_policy`` + the ``llm=None``
+    ``PromptIngestor`` that ``add_insight`` builds) in a fresh isolated tenant, so it needs a
+    Postgres DSN; the harness SKIPs without one.
+
+    Failure points asserted (all must hold for GREEN):
+      FP1  the requirement lands as exactly ONE active fact (no per-sentence fragmentation);
+      FP2  that fact retains its acceptance condition (``acceptance_marker`` in its text) --
+           i.e. the acceptance is NOT severed into a separate fact;
+      FP3  that fact carries ``category="requirement"`` and ``meta.requirement_id``;
+      FP4  control: a genuinely single-sentence requirement also stays one fact (guards against
+           a trivial "everything collapses to one" pass).
+
+    RED today (FP1 fails: 3 facts). GREEN once ``add_insight`` can ingest a pre-atomic
+    requirement as a single fact (e.g. an ``atomic``/``distill=False`` mode that skips the
+    sentence splitter while keeping dedup + contradiction surfacing).
+    """
+    from knowledge.evals.run import _eval_embedder
+    from knowledge.knowledge_graph.knowledge_graph_variants.postgres_vector_graph import (
+        PostgresVectorGraph,
+        default_write_policy,
+    )
+    from knowledge.wiring import build_trio
+    from knowledge.serve import db
+
+    class _CachedAxis:
+        embedder = "cached"
+
+    conn = db.connect()
+    db.bootstrap()
+    emb = _eval_embedder(_CachedAxis())
+    user = "u1"
+    org = "eval_fragment_" + uuid.uuid4().hex[:12]
+    ctrl_org = "eval_fragment_ctrl_" + uuid.uuid4().hex[:12]
+
+    def _ingest(text: str, org_id: str):
+        # Mirror app.add_insight(on_conflict="surface") EXACTLY: the surface write policy plus
+        # the llm=None PromptIngestor that build_trio wires for the insight path.
+        graph = PostgresVectorGraph(conn, org_id, user, embedder=emb, policy=default_write_policy())
+        _, ingestor, _ = build_trio(graph=graph, llm=None)
+        ingestor.ingest(
+            text,
+            state="active",
+            source="prd-team-app",
+            category="requirement",
+            meta={"requirement_id": requirement_id},
+        )
+        return graph.all_facts(state="active")
+
+    try:
+        facts = _ingest(requirement_text, org)
+        n = len(facts)
+        fp1_one_fact = n == 1
+        the_fact = facts[0] if n == 1 else None
+        fp2_acceptance_kept = bool(
+            the_fact and acceptance_marker.lower() in (the_fact.text or "").lower()
+        )
+        fp3_meta_kept = bool(
+            the_fact
+            and the_fact.category == "requirement"
+            and (the_fact.meta or {}).get("requirement_id") == requirement_id
+        )
+
+        # FP4 control: a single-sentence requirement must stay one fact.
+        fp4_control_ok = True
+        ctrl_n = None
+        if control_text is not None:
+            ctrl_n = len(_ingest(control_text, ctrl_org))
+            fp4_control_ok = ctrl_n == 1
+
+        passed = fp1_one_fact and fp2_acceptance_kept and fp3_meta_kept and fp4_control_ok
+        if passed:
+            evidence = (
+                f"requirement stayed atomic: 1 active fact retaining its acceptance condition "
+                f"and requirement_id={requirement_id}"
+                + ("; control stayed 1 fact" if control_text is not None else "")
+            )
+        else:
+            severed = n > 1 and any(
+                acceptance_marker.lower() in (f.text or "").lower() for f in facts
+            )
+            evidence = (
+                f"requirement FRAGMENTED by the sentence-splitter: ONE add_insight produced "
+                f"{n} active facts (expected 1) [FP1={fp1_one_fact}]; "
+                f"acceptance-on-the-fact [FP2={fp2_acceptance_kept}] "
+                f"(acceptance severed into its own fact: {severed}); "
+                f"category+requirement_id on the fact [FP3={fp3_meta_kept}]"
+                + (
+                    f"; control single-sentence req -> {ctrl_n} fact(s) [FP4={fp4_control_ok}]"
+                    if control_text is not None
+                    else ""
+                )
+                + ". add_insight uses llm=None -> PromptIngestor.segment_passthrough splits per sentence."
+            )
+        return CheckResult(
+            name="requirement_not_fragmented_by_distillation",
+            passed=passed,
+            evidence=evidence,
+        )
+    finally:
+        for o in (org, ctrl_org):
+            conn.execute("DELETE FROM fact_edges WHERE org_id = %s AND user_id = %s", (o, user))
+            conn.execute("DELETE FROM facts WHERE org_id = %s AND user_id = %s", (o, user))
