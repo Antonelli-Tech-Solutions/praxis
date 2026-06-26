@@ -32,6 +32,9 @@ from knowledge.knowledge_graph.write_policy.write_policy_def import WriteDecisio
 from knowledge.knowledge_graph.write_policy.write_step_variants.augment_judge import (
     AugmentJudge,
 )
+from knowledge.knowledge_graph.write_policy.write_step_variants.semantic_conflict_detector import (
+    SemanticConflictJudge,
+)
 
 
 class Augmenter(WriteStep):
@@ -39,8 +42,22 @@ class Augmenter(WriteStep):
 
     consumes_candidates = True
 
-    def __init__(self, judge: AugmentJudge | None = None) -> None:
+    def __init__(
+        self,
+        judge: AugmentJudge | None = None,
+        conflict_judge: SemanticConflictJudge | None = None,
+    ) -> None:
         self.judge = judge
+        # Contradiction-precedence guard. The Augmenter runs BEFORE the conflict
+        # detectors, so without this an additive merge can silently fold a newcomer
+        # into an incumbent the conflict path would have flagged -- blending two
+        # CONTRADICTORY facts and defeating ``on_conflict="surface"`` (the planning
+        # loop's self-consistency mechanism). When set, the judge vetoes any proposed
+        # merge whose two facts logically contradict, so the write falls through to a
+        # plain add and the downstream detectors flag the pair instead. Only consulted
+        # on a merge the AugmentJudge already approved, so it adds no LLM calls (and no
+        # offline cassette entries) for the common no-merge path.
+        self.conflict_judge = conflict_judge
 
     def apply(self, decision: WriteDecision) -> None:
         # Skip if a prior step already decided this write (exact/same-lesson dup),
@@ -84,6 +101,20 @@ class Augmenter(WriteStep):
                 continue
             merged = self.judge.merged_text(decision.text, hit.fact.text)
             if merged and merged.strip():
+                # Contradiction precedence: never fold a newcomer into an incumbent it
+                # logically contradicts -- that would blend a self-contradictory fact and
+                # rob the downstream detectors of a pair to flag. Veto the merge and let
+                # the write fall through to a plain add (precision-first: a None/uncertain
+                # verdict, or no judge, does NOT block the merge).
+                if self.conflict_judge is not None:
+                    try:
+                        contradicts = self.conflict_judge.contradicts(
+                            decision.text, hit.fact.text
+                        )
+                    except Exception:
+                        contradicts = None
+                    if contradicts:
+                        continue
                 decision.action = "augment"
                 decision.update_target_id = hit.fact.id
                 decision.augment_text = merged.strip()

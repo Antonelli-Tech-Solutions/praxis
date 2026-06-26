@@ -181,6 +181,13 @@ def _write_insight(
         scope=scope,
         category=category,
         meta=meta,
+        # Shaped-fact lane: an ``add_insight`` payload is an already-distilled,
+        # self-contained fact. Keep it WHOLE so a multi-sentence insight (e.g. a
+        # settled requirement with its "Acceptance: ..." clause) lands as ONE fact
+        # instead of fragmenting one-per-sentence. Dedup + contradiction surfacing
+        # still run in ``graph.write``. Document/session distillation paths (/ingest,
+        # /ingest/session, regeneration) keep the default atomic=False and split.
+        atomic=True,
     )
     after = graph.search(insight, top_k=1, state=None)
     new_contradictions = set(graph.all_edges("contradiction")) - before_contradictions

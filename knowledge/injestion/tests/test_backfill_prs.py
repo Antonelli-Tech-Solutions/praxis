@@ -25,7 +25,7 @@ class FakeIngestor:
         self.by_source = by_source
         self.seen: list[str] = []
 
-    def synthesis(self, raw_input: str, *, source=None) -> list[Insight]:
+    def synthesis(self, raw_input: str, *, source=None, atomic: bool = False) -> list[Insight]:
         self.seen.append(source)
         return self.by_source.get(source, [])
 
