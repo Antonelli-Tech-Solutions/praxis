@@ -132,11 +132,18 @@ def active_space() -> str:
     A per-process ``PRAXIS_SPACE`` env override takes precedence over the cached
     ``space_id`` when set and non-empty, so an agent can pin a space without a
     ``select`` call (mirrors how :func:`cache_path` lets each server pin an org).
+
+    Unlike :func:`active_org`, this never raises when there is no cached login:
+    the space header is optional (absent == default graph), and ``_headers`` calls
+    it unconditionally, so a missing/unreadable cache resolves to ``""``.
     """
     override = os.environ.get("PRAXIS_SPACE", "").strip()
     if override:
         return override
-    return load_identity().space_id
+    try:
+        return load_identity().space_id
+    except Exception:  # noqa: BLE001 - not-logged-in / corrupt cache => default space
+        return ""
 
 
 def set_space(space_id: str) -> Tenant:
