@@ -214,6 +214,33 @@ def test_leakage_guard_passes_on_clean_facts():
     leakage_guard(inst, client)  # must not raise
 
 
+def test_leakage_guard_ignores_trivial_gold_lines():
+    # Regression for the sympy-27797 false positive: a gold patch's trivial change line
+    # (a bare ``return``) appears in lots of fact text and must NOT trip the guard. Only a
+    # SUBSTANTIVE gold line restated verbatim is a real leak. Gold here has both a
+    # substantive line and a bare ``return``; the fact contains only the ``return``.
+    from knowledge.evals.swebench.instances import Instance
+
+    rec = {
+        "instance_id": "sympy__sympy-trivial",
+        "repo": "sympy/sympy", "version": "1.13", "base_commit": "c" * 40,
+        "created_at": "2025-03-01T00:00:00Z",
+        "problem_statement": "coefficient normalization is wrong",
+        "patch": (
+            "diff --git a/p.py b/p.py\n--- a/p.py\n+++ b/p.py\n@@ -1,2 +1,3 @@\n"
+            "+        coeff = _normalize_coefficients(expr, domain)\n"
+            "+        return\n"
+        ),
+        "test_patch": "", "FAIL_TO_PASS": [], "PASS_TO_PASS": [], "install_config": {},
+    }
+    inst = Instance.from_record(rec)
+    space = space_id_for(inst)
+    # fact contains the bare `return` (trivial) but NOT the substantive coeff line.
+    hits = {space: [{"id": "x", "text": "def helper():\n        return\n"}]}
+    client = FakeClient(context_hits=hits)
+    leakage_guard(inst, client)  # must not raise — `return` is too trivial to be a leak
+
+
 # ---------------------------------------------------------------------------
 # org/space create idempotency.
 # ---------------------------------------------------------------------------

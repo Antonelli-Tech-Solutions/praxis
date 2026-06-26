@@ -170,7 +170,7 @@ def screen_leakage(inst: Instance) -> tuple[bool, bool, str]:
     # (1) STRONG: a substantive added code line is pasted verbatim in the issue.
     for line in added:
         stripped = line.strip()
-        if len(stripped) >= 12 and not _trivial_line(stripped) and stripped in issue:
+        if is_substantive_line(stripped) and stripped in issue:
             return True, False, f"gold added line in problem_statement: {stripped[:60]!r}"
 
     # (2) WEAK: a symbol introduced by the diff is named in the issue (not disqualifying).
@@ -206,6 +206,17 @@ def _common_word(sym: str) -> bool:
 def _trivial_line(stripped: str) -> bool:
     """Comment / import / decorator lines are low-signal for a verbatim-paste match."""
     return stripped.startswith(("#", "import ", "from ", "@", '"""', "'''"))
+
+
+def is_substantive_line(stripped: str) -> bool:
+    """A diff line specific enough that its verbatim reappearance is a real leak signal.
+
+    Long enough to be distinctive (≥12 stripped chars) and not comment/import/decorator/
+    docstring noise. Shared by the selection-time screen (:func:`screen_leakage`) and the
+    runtime ``ingest.leakage_guard`` so both agree on what a leak-bearing line is — a bare
+    ``return`` or other short keyword line is NOT one (matching it aborts runs spuriously).
+    """
+    return len(stripped) >= 12 and not _trivial_line(stripped)
 
 
 def select(

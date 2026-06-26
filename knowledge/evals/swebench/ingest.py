@@ -42,7 +42,7 @@ from knowledge.injestion.pr_source import (
     build_pr_document,
     default_fetcher,
 )
-from knowledge.evals.swebench.instances import Instance
+from knowledge.evals.swebench.instances import Instance, is_substantive_line
 
 # Default dev backend (PRAXIS_AUTH_DISABLED=1 → no login needed); the org owner is
 # the dev tenant `dev-user`, who is the auto-member that `active_org` authorizes.
@@ -421,7 +421,10 @@ def leakage_guard(instance: Instance, client: HttpClient, *, top_k: int = 8) -> 
     space_id = space_id_for(instance)
     query = " ".join(instance.gold_files) + " " + instance.problem_statement
     ctx = client.get_context(space_id, query.strip(), top_k)
-    gold = _diff_changelines(instance.patch)
+    # Only SUBSTANTIVE gold lines count: a bare ``return`` or other short/boilerplate line
+    # appears in countless facts and would abort a run on a spurious match (it did, on
+    # sympy-27797). Same predicate the selection-time screen uses, so the two agree.
+    gold = {ln for ln in _diff_changelines(instance.patch) if is_substantive_line(ln)}
     if not gold:
         return
     for hit in ctx.get("hits", []):
