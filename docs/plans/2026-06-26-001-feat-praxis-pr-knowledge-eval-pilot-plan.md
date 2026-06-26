@@ -1,6 +1,6 @@
 ---
 title: "feat: Praxis PR-knowledge eval pilot (SWE-rebench cost-to-correct A/B)"
-status: active
+status: completed
 date: 2026-06-26
 type: feat
 origin: docs/brainstorms/2026-06-26-praxis-pr-knowledge-eval-pilot-requirements.md
