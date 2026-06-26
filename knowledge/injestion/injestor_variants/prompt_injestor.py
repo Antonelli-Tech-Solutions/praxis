@@ -145,7 +145,17 @@ class PromptIngestor(Ingestor):
         super().__init__(graph)
         self.llm = llm
 
-    def synthesis(self, raw_input: str, *, source: str | None = None) -> list[Insight]:
+    def synthesis(
+        self, raw_input: str, *, source: str | None = None, atomic: bool = False
+    ) -> list[Insight]:
+        # Atomic lane (shaped-fact writes, e.g. ``add_insight``): the input is an
+        # already-distilled, self-contained fact — keep it WHOLE as a single
+        # insight. Skip BOTH the table linearizer and the sentence splitter so a
+        # multi-sentence requirement (with its "Acceptance: ..." clause) stays one
+        # fact rather than fragmenting one-per-sentence. Dedup + contradiction
+        # surfacing still run downstream in ``graph.write``.
+        if atomic:
+            return [Insight(raw_text=raw_input.strip())]
         # Split raw input into discrete ideas only — no graph read. Reconciling
         # with existing knowledge happens later in ``graph.write``.
         #

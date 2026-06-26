@@ -20,12 +20,20 @@ class Ingestor(ABC):
         self.graph = graph
 
     @abstractmethod
-    def synthesis(self, raw_input: str, *, source: str | None = None) -> list[Insight]:
+    def synthesis(
+        self, raw_input: str, *, source: str | None = None, atomic: bool = False
+    ) -> list[Insight]:
         """Transform raw input into structured insights. Variant-defined.
 
         ``source`` is the document's origin/identifier (e.g. a citation or form
         section). Variants that distill with an LLM may use it as context to
         resolve in-document references; deterministic variants can ignore it.
+
+        ``atomic`` requests that the input be kept WHOLE as a single insight —
+        no distillation/segmentation. Callers use it for already-shaped facts
+        (e.g. a settled requirement admitted via ``add_insight``) that must stay
+        a single fact rather than fragmenting one-per-sentence. Variants that
+        cannot honour it may ignore it, but should keep the input atomic when set.
         """
 
     def ingest(
@@ -37,6 +45,7 @@ class Ingestor(ABC):
         scope: str | None = None,
         category: str | None = None,
         meta: dict | None = None,
+        atomic: bool = False,
     ) -> str:
         """Synthesize insights from ``raw_input`` and write each to the graph.
 
@@ -58,8 +67,13 @@ class Ingestor(ABC):
         per-insight value (if any) carries through, and only then does the store's
         ingestion-derived default apply. ``meta`` is writer-only (insights carry
         no meta of their own).
+
+        ``atomic`` is threaded to ``synthesis`` to keep the input WHOLE (one fact,
+        no segmentation) — used by the shaped-fact write lane (``add_insight``) so a
+        pre-atomic insight never fragments. Reconciliation downstream (dedup,
+        contradiction surfacing) still runs in ``graph.write``.
         """
-        insights = self.synthesis(raw_input, source=source)
+        insights = self.synthesis(raw_input, source=source, atomic=atomic)
         for insight in insights:
             # Only thread optional kwargs through when they carry signal: not every
             # graph implementation (in-memory/test doubles) accepts them. ``source``

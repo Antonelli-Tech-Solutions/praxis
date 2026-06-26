@@ -1,0 +1,61 @@
+# CODING-FACTORY planning edge case: a single multi-sentence REQUIREMENT written via
+# add_insight must stay ONE atomic fact -- it must NOT be fragmented into one fact per
+# sentence by the ingestion sentence-splitter.
+#
+# The factory's factory-plan skill admits each settled requirement with
+#   add_insight(insight=<req>, category="requirement", meta={"requirement_id": "<R>"},
+#               on_conflict="surface")
+# and relies on a 1:1 R-id<->fact mapping, with the requirement's binary ACCEPTANCE
+# CONDITION living on the requirement fact (the done-gate checks "every requirement has a
+# binary acceptance condition"). The prose PRD is rendered from these atomic facts.
+#
+# But add_insight is wired with llm=None (serve/app.py add_insight -> build_trio(graph,
+# llm=None)), so PromptIngestor.synthesis falls to segment_passthrough, which splits the
+# input into ONE FACT PER SENTENCE. A three-sentence requirement therefore lands as THREE
+# facts and the "Acceptance: ..." clause is severed into its own fact (all three sharing the
+# same requirement_id).
+#
+#   REQUIREMENT (one add_insight): "Daily completion (R1): a submission for date D is
+#     completed when the daily rep is submitted AND all three check-in ratings (effort,
+#     focus, support) are submitted. The habit checklist is recorded but does not affect
+#     completion. Acceptance: completed=true iff the rep is present AND all three ratings
+#     are non-None; the checklist state never changes the result."
+#
+# Observed LIVE (2026-06-26, agent-factory planning run, prd-team-app, org agent-factory):
+# this single add_insight produced 3 active facts (ids 68cfc1.., 566b33.., afa357..), each
+# carrying category="requirement" + meta.requirement_id="R1"; the acceptance clause landed
+# as its own fact. The single-sentence R2 (semicolon-joined) stayed whole -- so fragmentation
+# is multi-sentence-specific (sentence boundaries), making the done-gate phrasing-sensitive
+# and non-deterministic.
+#
+# Root cause + fix home: the failure is in Praxis ingestion (segment_passthrough), NOT the
+# factory's call. Neither existing write path serves the factory's need: add_insight gives
+# contradiction-surfacing but fragments; insert_fact stays atomic but bypasses the pipeline
+# (no dedup/contradiction). The clean fix is a Praxis "atomic"/"distill=False" mode on
+# add_insight that skips the sentence splitter while keeping dedup + contradiction surfacing;
+# the factory then passes that flag when admitting a (pre-atomic) requirement.
+#
+# DETERMINISTIC: no LLM and no model key needed (segment_passthrough is offline). The check
+# drives the REAL production path (default_write_policy + the llm=None PromptIngestor that
+# add_insight builds) in an isolated tenant, so it needs a Postgres DSN; the harness SKIPs
+# without one. RED today (FP1: 3 facts); GREEN once a pre-atomic requirement ingests as 1 fact.
+id: requirement_not_fragmented_by_distillation
+component: knowledge_graph
+substrate: vector
+embedder: cached
+
+seeded_insight:
+  via_ingestor: []
+  # Seeded by the check into its own isolated tenant (with category + meta, which
+  # direct_to_graph plain strings cannot express); listed here for visibility only.
+  direct_to_graph:
+    - "Daily completion (R1): a submission for date D is completed when the daily rep is submitted AND all three check-in ratings (effort, focus, support) are submitted. The habit checklist is recorded but does not affect completion. Acceptance: completed=true iff the rep is present AND all three ratings are non-None; the checklist state never changes the result."
+
+deterministic_checks:
+  - name: requirement_not_fragmented_by_distillation
+    ref: "knowledge.evals.deterministic_checks.graph:requirement_not_fragmented_by_distillation"
+    params:
+      requirement_text: "Daily completion (R1): a submission for date D is completed when the daily rep is submitted AND all three check-in ratings (effort, focus, support) are submitted. The habit checklist is recorded but does not affect completion. Acceptance: completed=true iff the rep is present AND all three ratings are non-None; the checklist state never changes the result."
+      requirement_id: "R1"
+      acceptance_marker: "Acceptance"
+      control_text: "Team participation percentage for date D = active athletes with completed=true divided by active athletes on roster times 100; when N=0 the result is None, never 0."

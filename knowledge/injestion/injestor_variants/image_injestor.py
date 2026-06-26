@@ -82,7 +82,11 @@ class ImageIngestor(Ingestor):
         """Ingest the folder at ``raw_input``. Image adds are active by default."""
         return super().ingest(raw_input, state=state)
 
-    def synthesis(self, raw_input: str, *, source: str | None = None) -> list[Insight]:
+    def synthesis(
+        self, raw_input: str, *, source: str | None = None, atomic: bool = False
+    ) -> list[Insight]:
+        # ``atomic`` is a shaped-fact-lane hint for prose; image walking has no
+        # segmentation step, so it is accepted for signature parity and ignored.
         folder = Path(raw_input)
 
         # Reconcile: drop assets whose exact content is already in the graph.

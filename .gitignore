@@ -37,3 +37,4 @@ knowledge/**/*.mp4
 knowledge/**/*.webp
 knowledge/**/*.vtt
 .worktrees
+scratch_graph.json

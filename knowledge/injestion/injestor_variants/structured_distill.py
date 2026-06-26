@@ -83,7 +83,11 @@ class StructuredDistillIngestor(Ingestor):
         super().__init__(graph)
         self.llm = llm
 
-    def synthesis(self, raw_input: str, *, source: str | None = None) -> list[Insight]:
+    def synthesis(
+        self, raw_input: str, *, source: str | None = None, atomic: bool = False
+    ) -> list[Insight]:
+        # ``atomic`` (keep-whole hint for the shaped-fact lane) does not apply to
+        # this LLM distiller; accepted for signature parity and ignored.
         content = f"{self._DISTILL_PROMPT}\n\n{self._INPUT_LABEL}:\n{raw_input}"
         raw = self.llm.complete(
             [ChatMessage(role="user", content=content)],

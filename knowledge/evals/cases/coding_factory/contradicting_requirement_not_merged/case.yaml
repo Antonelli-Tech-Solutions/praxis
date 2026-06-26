@@ -1,0 +1,57 @@
+# CODING-FACTORY planning edge case: a directly-CONTRADICTING same-subject requirement,
+# written with on_conflict="surface", must be SURFACED as a contradiction -- never silently
+# merged into the incumbent by the Augmenter.
+#
+# The factory-plan skill admits every requirement via add_insight(on_conflict="surface") and
+# relies on the contradiction being FLAGGED (a pending pair in GET /contradictions) so the
+# human can adjudicate -- this is the planning loop's whole self-consistency mechanism. But
+# under "surface" (= default_write_policy) the Mem0-style Augmenter runs its additive merge
+# BEFORE the ConflictFlagger fires, so a newcomer it judges "about the same subject" as the
+# incumbent gets folded in -- even when the two CONTRADICT. write() returns the incumbent id,
+# contradictionsSurfaced=0, and the incumbent fact is mutated into a self-contradictory blend.
+#
+#   INCUMBENT (R1):    "Daily completion: ... the habit checklist is recorded but does NOT
+#                       affect completion; the checklist state never changes the result."
+#   CONTRADICTING add: "Daily completion REQUIRES at least one habit-checklist item to be
+#                       checked ...; a submission with the rep and all ratings but zero
+#                       checklist items checked is NOT complete."
+#
+# Observed LIVE (2026-06-26, agent-factory planning run, org agent-factory, prd-team-app):
+# add_insight of the contradicting rule under on_conflict="surface" returned action="merged"
+# with R1's id (68cfc1..), contradictionsSurfaced=0, GET /contradictions empty, and R1's text
+# became self-contradictory (asserts BOTH "requires >=1 checklist item" AND "checklist does
+# not affect completion"). Reproduced deterministically via graph.write under
+# default_write_policy: req_id == chal_id, 1 active fact, incumbent blended.
+#
+# Root cause + fix home: PRAXIS write pipeline -- the Augmenter must not additively merge two
+# facts the conflict detector would flag as contradictory; contradiction detection must take
+# precedence over the additive merge (or the Augmenter must check-for-contradiction first).
+# The factory called add_insight correctly (surface mode, distinct requirement_id); it did
+# nothing wrong. Same Augmenter-over-merge family as derived_learning_not_merged_into_source,
+# but more severe: it merges CONTRADICTORY content and defeats contradiction surfacing.
+#
+# The check drives the REAL default_write_policy (Augmenter + conflict judges are live LLM
+# calls) in an isolated tenant -- needs a Postgres DSN AND an OpenRouter key; the harness SKIPs
+# without them. RED today (FP1: chal_id == req_id); GREEN once the Augmenter refuses to merge
+# contradictory facts so "surface" can flag the pair.
+id: contradicting_requirement_not_merged
+component: knowledge_graph
+substrate: vector
+embedder: cached
+augment_model: openai/gpt-4o-mini  # the Augmenter's merge judge runs live inside the check
+
+seeded_insight:
+  via_ingestor: []
+  # Seeded by the check into its own isolated tenant via graph.write (category-tagged);
+  # listed here for visibility only.
+  direct_to_graph:
+    - "Daily completion (R1): a submission for date D is completed when the daily rep is submitted AND all three check-in ratings (effort, focus, support) are submitted. The habit checklist is recorded but does not affect completion; the checklist state never changes the completion result."
+    - "Daily completion requires at least one habit-checklist item to be checked in addition to the daily rep and all three ratings; a submission with the rep and all three ratings but zero checklist items checked is NOT counted as complete."
+
+deterministic_checks:
+  - name: contradicting_requirement_not_merged
+    ref: "knowledge.evals.deterministic_checks.graph:contradicting_requirement_not_merged"
+    params:
+      incumbent_text: "Daily completion (R1): a submission for date D is completed when the daily rep is submitted AND all three check-in ratings (effort, focus, support) are submitted. The habit checklist is recorded but does not affect completion; the checklist state never changes the completion result."
+      contradicting_text: "Daily completion requires at least one habit-checklist item to be checked in addition to the daily rep and all three ratings; a submission with the rep and all three ratings but zero checklist items checked is NOT counted as complete."
+      contradiction_marker: "at least one habit-checklist item"

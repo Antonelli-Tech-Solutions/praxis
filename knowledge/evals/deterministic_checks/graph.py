@@ -758,3 +758,318 @@ def derived_learning_not_merged_into_source(
     finally:
         conn.execute("DELETE FROM fact_edges WHERE org_id = %s AND user_id = %s", (org, user))
         conn.execute("DELETE FROM facts WHERE org_id = %s AND user_id = %s", (org, user))
+
+
+def requirement_not_fragmented_by_distillation(
+    ctx: EvalContext,
+    *,
+    requirement_text: str,
+    requirement_id: str = "R1",
+    acceptance_marker: str = "Acceptance",
+    control_text: str | None = None,
+) -> CheckResult:
+    """A single multi-sentence requirement written via ``add_insight`` must stay ONE fact.
+
+    The agent factory (``factory-plan``) admits each settled requirement via ``add_insight``
+    with ``category="requirement"`` + ``meta={"requirement_id": ...}``, relying on a 1:1
+    R-id<->fact mapping and on the requirement's binary **acceptance condition** living on the
+    requirement fact. But ``add_insight`` is wired with ``llm=None`` (see ``serve/app.py``
+    ``add_insight`` -> ``build_trio(graph, llm=None)``), so ``PromptIngestor.synthesis`` falls
+    to ``segment_passthrough``, which splits the input into **one fact per sentence**. A
+    three-sentence requirement therefore lands as THREE facts -- and the ``Acceptance: ...``
+    clause is severed into its own fact (all three share the same ``requirement_id``).
+
+    Observed live (2026-06-26, agent-factory planning run): one ``add_insight`` of R1 produced
+    3 active facts; the single-sentence R2 stayed whole. Deterministic -- no LLM / model key --
+    but it drives the REAL production path (``default_write_policy`` + the ``llm=None``
+    ``PromptIngestor`` that ``add_insight`` builds) in a fresh isolated tenant, so it needs a
+    Postgres DSN; the harness SKIPs without one.
+
+    Failure points asserted (all must hold for GREEN):
+      FP1  the requirement lands as exactly ONE active fact (no per-sentence fragmentation);
+      FP2  that fact retains its acceptance condition (``acceptance_marker`` in its text) --
+           i.e. the acceptance is NOT severed into a separate fact;
+      FP3  that fact carries ``category="requirement"`` and ``meta.requirement_id``;
+      FP4  control: a genuinely single-sentence requirement also stays one fact (guards against
+           a trivial "everything collapses to one" pass).
+
+    RED today (FP1 fails: 3 facts). GREEN once ``add_insight`` can ingest a pre-atomic
+    requirement as a single fact (e.g. an ``atomic``/``distill=False`` mode that skips the
+    sentence splitter while keeping dedup + contradiction surfacing).
+    """
+    from knowledge.evals.run import _eval_embedder
+    from knowledge.knowledge_graph.knowledge_graph_variants.postgres_vector_graph import (
+        PostgresVectorGraph,
+        default_write_policy,
+    )
+    from knowledge.wiring import build_trio
+    from knowledge.serve import db
+
+    class _CachedAxis:
+        embedder = "cached"
+
+    conn = db.connect()
+    db.bootstrap()
+    emb = _eval_embedder(_CachedAxis())
+    user = "u1"
+    org = "eval_fragment_" + uuid.uuid4().hex[:12]
+    ctrl_org = "eval_fragment_ctrl_" + uuid.uuid4().hex[:12]
+
+    def _ingest(text: str, org_id: str):
+        # Mirror app.add_insight(on_conflict="surface") EXACTLY: the surface write policy plus
+        # the llm=None PromptIngestor that build_trio wires for the insight path.
+        graph = PostgresVectorGraph(conn, org_id, user, embedder=emb, policy=default_write_policy())
+        _, ingestor, _ = build_trio(graph=graph, llm=None)
+        ingestor.ingest(
+            text,
+            state="active",
+            source="prd-team-app",
+            category="requirement",
+            meta={"requirement_id": requirement_id},
+            # Mirror add_insight's shaped-fact lane: it now defaults atomic=True so a
+            # pre-atomic insight stays one fact instead of fragmenting per-sentence.
+            atomic=True,
+        )
+        return graph.all_facts(state="active")
+
+    try:
+        facts = _ingest(requirement_text, org)
+        n = len(facts)
+        fp1_one_fact = n == 1
+        the_fact = facts[0] if n == 1 else None
+        fp2_acceptance_kept = bool(
+            the_fact and acceptance_marker.lower() in (the_fact.text or "").lower()
+        )
+        fp3_meta_kept = bool(
+            the_fact
+            and the_fact.category == "requirement"
+            and (the_fact.meta or {}).get("requirement_id") == requirement_id
+        )
+
+        # FP4 control: a single-sentence requirement must stay one fact.
+        fp4_control_ok = True
+        ctrl_n = None
+        if control_text is not None:
+            ctrl_n = len(_ingest(control_text, ctrl_org))
+            fp4_control_ok = ctrl_n == 1
+
+        passed = fp1_one_fact and fp2_acceptance_kept and fp3_meta_kept and fp4_control_ok
+        if passed:
+            evidence = (
+                f"requirement stayed atomic: 1 active fact retaining its acceptance condition "
+                f"and requirement_id={requirement_id}"
+                + ("; control stayed 1 fact" if control_text is not None else "")
+            )
+        else:
+            severed = n > 1 and any(
+                acceptance_marker.lower() in (f.text or "").lower() for f in facts
+            )
+            evidence = (
+                f"requirement FRAGMENTED by the sentence-splitter: ONE add_insight produced "
+                f"{n} active facts (expected 1) [FP1={fp1_one_fact}]; "
+                f"acceptance-on-the-fact [FP2={fp2_acceptance_kept}] "
+                f"(acceptance severed into its own fact: {severed}); "
+                f"category+requirement_id on the fact [FP3={fp3_meta_kept}]"
+                + (
+                    f"; control single-sentence req -> {ctrl_n} fact(s) [FP4={fp4_control_ok}]"
+                    if control_text is not None
+                    else ""
+                )
+                + ". add_insight uses llm=None -> PromptIngestor.segment_passthrough splits per sentence."
+            )
+        return CheckResult(
+            name="requirement_not_fragmented_by_distillation",
+            passed=passed,
+            evidence=evidence,
+        )
+    finally:
+        for o in (org, ctrl_org):
+            conn.execute("DELETE FROM fact_edges WHERE org_id = %s AND user_id = %s", (o, user))
+            conn.execute("DELETE FROM facts WHERE org_id = %s AND user_id = %s", (o, user))
+
+
+def contradicting_requirement_not_merged(
+    ctx: EvalContext,
+    *,
+    incumbent_text: str,
+    contradicting_text: str,
+    contradiction_marker: str,
+) -> CheckResult:
+    """A directly-contradicting same-subject requirement must SURFACE, never be merged.
+
+    The agent factory admits each requirement via ``add_insight(on_conflict="surface")`` and
+    depends on a contradiction being *flagged* (a pending pair in ``GET /contradictions``) so
+    the human can adjudicate -- this is the planning loop's self-consistency mechanism. But
+    under ``surface`` (= ``default_write_policy``), the Mem0-style **Augmenter** runs its
+    additive merge BEFORE the ConflictFlagger fires, so a newcomer the Augmenter judges to be
+    "about the same subject" as the incumbent is folded into it -- even when the two
+    **contradict**. ``write()`` returns the incumbent's id, ``contradictionsSurfaced=0``, and
+    the incumbent fact is mutated into a self-contradictory blend.
+
+    Observed live (2026-06-26, agent-factory planning run): writing "daily completion REQUIRES
+    >=1 checklist item" against the incumbent R1 ("the checklist does NOT affect completion")
+    returned ``action="merged"`` with R1's id, 0 contradictions surfaced, and R1's text became
+    self-contradictory (it now asserts both that a checklist item is required AND that the
+    checklist never changes the result). Reproduced deterministically via ``graph.write`` under
+    ``default_write_policy`` (req_id == chal_id).
+
+    Drives the REAL production write policy in a fresh isolated tenant. Requires a Postgres DSN
+    AND an OpenRouter key (the Augmenter + conflict judges are live LLM calls); the harness
+    SKIPs without them.
+
+    Failure points asserted (all must hold for GREEN):
+      FP1  the contradicting write is NOT merged into the incumbent (a distinct fact id);
+      FP2  the incumbent fact is NOT mutated to carry the contradicting clause
+           (``contradiction_marker`` absent from the incumbent text) -- i.e. it is not blended
+           into a self-contradictory fact.
+
+    RED today (FP1 fails: chal_id == req_id; the incumbent absorbs the contradiction). GREEN
+    once the Augmenter refuses to merge contradictory facts so ``surface`` can flag the pair.
+
+    NB ``surface``/FR-005 may demote the distinct newcomer to ``proposed``, so this check does
+    NOT assert an active-fact count -- only that the contradiction was kept as its own fact and
+    the incumbent stayed clean.
+    """
+    from knowledge.evals.run import _eval_embedder
+    from knowledge.knowledge_graph.knowledge_graph_variants.postgres_vector_graph import (
+        PostgresVectorGraph,
+        default_write_policy,
+    )
+    from knowledge.serve import db
+
+    class _CachedAxis:
+        embedder = "cached"
+
+    conn = db.connect()
+    db.bootstrap()
+    org = "eval_contradmerge_" + uuid.uuid4().hex[:12]
+    user = "u1"
+    graph = PostgresVectorGraph(
+        conn, org, user, embedder=_eval_embedder(_CachedAxis()), policy=default_write_policy()
+    )
+    try:
+        req_id = graph.write(incumbent_text, state="active", category="requirement")
+        chal_id = graph.write(contradicting_text, state="active", category="requirement")
+        merged = chal_id is None or chal_id == req_id
+        # On merge the Augmenter updates the incumbent row in place, so req_id stays active.
+        inc = next((f for f in graph.all_facts(state="active") if f.id == req_id), None)
+        inc_text = (getattr(inc, "text", "") or "") if inc else ""
+        blended = contradiction_marker.lower() in inc_text.lower()
+        passed = (not merged) and (not blended)
+        if passed:
+            evidence = (
+                f"contradiction kept distinct (incumbent={req_id}, challenger={chal_id}); "
+                "incumbent text not blended -- surface can flag the pair"
+            )
+        else:
+            evidence = (
+                f"contradicting requirement MERGED by the Augmenter instead of surfaced "
+                f"[FP1 merged={merged}] (req_id={req_id}, chal_id={chal_id}); "
+                f"incumbent blended into a self-contradictory fact "
+                f"[FP2 marker '{contradiction_marker}' present={blended}]. "
+                "The Augmenter ran its additive merge before the ConflictFlagger, so "
+                "on_conflict='surface' never fired (contradictionsSurfaced=0)."
+            )
+        return CheckResult(
+            name="contradicting_requirement_not_merged",
+            passed=passed,
+            evidence=evidence,
+        )
+    finally:
+        conn.execute("DELETE FROM fact_edges WHERE org_id = %s AND user_id = %s", (org, user))
+        conn.execute("DELETE FROM facts WHERE org_id = %s AND user_id = %s", (org, user))
+
+
+def tabular_field_not_merged_into_incumbent(
+    ctx: EvalContext,
+    *,
+    incumbent_text: str,
+    table_text: str,
+    overlap_marker: str,
+) -> CheckResult:
+    """A tabular-derived fact must NOT be Augmenter-merged into a pre-existing incumbent.
+
+    When the factory ingests a data-model table, ``add_insight`` (llm=None ->
+    ``PromptIngestor.synthesis`` -> ``linearize_table``) emits one ``tabular``-flagged fact
+    per row. The Deduper's slot-guard keeps those rows distinct from EACH OTHER. But a row
+    whose subject overlaps a PRE-EXISTING, separately-written, non-tabular incumbent is still
+    additively merged into that incumbent by the Mem0-style Augmenter -- the slot-guard does
+    not exempt a tabular write from being folded into an established non-tabular fact.
+
+    Observed live (2026-06-26, agent-factory planning run): with R5 ("team day boundary ...
+    resets at 3:00 AM ...") already active, ingesting a DailySubmission field table merged the
+    ``team_day`` row INTO R5 (R5's text gained "for the team_day field, type is date, note is
+    resolved via the 3AM boundary"), while the other three rows (user_id, completion_status,
+    ratings_json) correctly landed as their own distinct facts. Reproduced deterministically.
+
+    Distinct from ``augment_no_merge_distinct_rules`` (two prose rules seeded together): here a
+    TABULAR fact merges into a SEPARATELY-WRITTEN incumbent despite the slot-guard. Same
+    Augmenter-over-merge family, different mechanism.
+
+    Drives the REAL write policy (``default_write_policy`` + the llm=None linearizing ingestor)
+    in a fresh isolated tenant: writes ``incumbent_text`` active, then ingests ``table_text``.
+    Needs a Postgres DSN AND an OpenRouter key (the Augmenter judge is a live LLM call); the
+    harness SKIPs without them.
+
+    Failure points asserted (all must hold for GREEN):
+      FP1  the incumbent fact is NOT polluted with the overlapping row (``overlap_marker``
+           absent from the incumbent text);
+      FP2  the overlapping row exists as its OWN distinct active fact (carries
+           ``overlap_marker``, separate id from the incumbent).
+
+    RED today (FP1 fails: incumbent absorbs the row; FP2 fails: no standalone row fact). GREEN
+    once the Augmenter stops folding a distinct tabular fact into an overlapping incumbent.
+    """
+    from knowledge.evals.run import _eval_embedder
+    from knowledge.knowledge_graph.knowledge_graph_variants.postgres_vector_graph import (
+        PostgresVectorGraph,
+        default_write_policy,
+    )
+    from knowledge.wiring import build_trio
+    from knowledge.serve import db
+
+    class _CachedAxis:
+        embedder = "cached"
+
+    conn = db.connect()
+    db.bootstrap()
+    org = "eval_tabmerge_" + uuid.uuid4().hex[:12]
+    user = "u1"
+    graph = PostgresVectorGraph(
+        conn, org, user, embedder=_eval_embedder(_CachedAxis()), policy=default_write_policy()
+    )
+    _, ingestor, _ = build_trio(graph=graph, llm=None)
+    marker = overlap_marker.lower()
+    try:
+        inc_id = graph.write(incumbent_text, state="active", category="requirement")
+        ingestor.ingest(table_text, state="active", source="prd-team-app", category="requirement")
+        facts = graph.all_facts(state="active")
+        inc = next((f for f in facts if f.id == inc_id), None)
+        inc_text = (getattr(inc, "text", "") or "") if inc else ""
+        fp1_incumbent_clean = marker not in inc_text.lower()
+        fp2_own_fact = any(
+            marker in (getattr(f, "text", "") or "").lower() and f.id != inc_id for f in facts
+        )
+        passed = fp1_incumbent_clean and fp2_own_fact
+        if passed:
+            evidence = (
+                f"tabular row kept distinct: incumbent {inc_id} not polluted and "
+                f"'{overlap_marker}' lives in its own fact ({len(facts)} active facts)"
+            )
+        else:
+            evidence = (
+                f"tabular row MERGED into the incumbent by the Augmenter "
+                f"[FP1 incumbent-clean={fp1_incumbent_clean}] (incumbent {inc_id} "
+                f"{'absorbed' if not fp1_incumbent_clean else 'kept'} '{overlap_marker}'); "
+                f"standalone row fact present [FP2={fp2_own_fact}]. "
+                f"{len(facts)} active facts -- the slot-guard did not exempt the tabular write "
+                "from being folded into an overlapping pre-existing non-tabular fact."
+            )
+        return CheckResult(
+            name="tabular_field_not_merged_into_incumbent",
+            passed=passed,
+            evidence=evidence,
+        )
+    finally:
+        conn.execute("DELETE FROM fact_edges WHERE org_id = %s AND user_id = %s", (org, user))
+        conn.execute("DELETE FROM facts WHERE org_id = %s AND user_id = %s", (org, user))

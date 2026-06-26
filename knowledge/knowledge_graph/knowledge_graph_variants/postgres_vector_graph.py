@@ -148,7 +148,14 @@ def default_write_policy(llm: Llm | None = None) -> list[WriteStep]:
         # Mem0-style UPDATE/merge: fold a related-but-additive note into an existing
         # fact. Runs after Deduper (dups already collapsed) and before the conflict
         # detector (a genuine clash is still flagged, not silently merged).
-        Augmenter(judge=AugmentJudge(llm=base)),
+        # The Augmenter carries a contradiction-precedence guard (a SemanticConflictJudge):
+        # it runs before the conflict detectors, so it must refuse to additively merge two
+        # facts that contradict -- otherwise a "surface" write silently blends a
+        # contradictory newcomer into the incumbent and never flags the pair.
+        Augmenter(
+            judge=AugmentJudge(llm=base),
+            conflict_judge=SemanticConflictJudge(llm=base),
+        ),
         ClaimConflictDetector(judge=ClaimValueJudge(llm=base)),
         # Second-pass semantic fallback (Graphiti two-stage): catches paraphrase
         # contradictions among cosine-recalled neighbours that share no slot.
