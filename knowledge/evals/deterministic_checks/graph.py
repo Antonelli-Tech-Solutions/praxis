@@ -978,3 +978,98 @@ def contradicting_requirement_not_merged(
     finally:
         conn.execute("DELETE FROM fact_edges WHERE org_id = %s AND user_id = %s", (org, user))
         conn.execute("DELETE FROM facts WHERE org_id = %s AND user_id = %s", (org, user))
+
+
+def tabular_field_not_merged_into_incumbent(
+    ctx: EvalContext,
+    *,
+    incumbent_text: str,
+    table_text: str,
+    overlap_marker: str,
+) -> CheckResult:
+    """A tabular-derived fact must NOT be Augmenter-merged into a pre-existing incumbent.
+
+    When the factory ingests a data-model table, ``add_insight`` (llm=None ->
+    ``PromptIngestor.synthesis`` -> ``linearize_table``) emits one ``tabular``-flagged fact
+    per row. The Deduper's slot-guard keeps those rows distinct from EACH OTHER. But a row
+    whose subject overlaps a PRE-EXISTING, separately-written, non-tabular incumbent is still
+    additively merged into that incumbent by the Mem0-style Augmenter -- the slot-guard does
+    not exempt a tabular write from being folded into an established non-tabular fact.
+
+    Observed live (2026-06-26, agent-factory planning run): with R5 ("team day boundary ...
+    resets at 3:00 AM ...") already active, ingesting a DailySubmission field table merged the
+    ``team_day`` row INTO R5 (R5's text gained "for the team_day field, type is date, note is
+    resolved via the 3AM boundary"), while the other three rows (user_id, completion_status,
+    ratings_json) correctly landed as their own distinct facts. Reproduced deterministically.
+
+    Distinct from ``augment_no_merge_distinct_rules`` (two prose rules seeded together): here a
+    TABULAR fact merges into a SEPARATELY-WRITTEN incumbent despite the slot-guard. Same
+    Augmenter-over-merge family, different mechanism.
+
+    Drives the REAL write policy (``default_write_policy`` + the llm=None linearizing ingestor)
+    in a fresh isolated tenant: writes ``incumbent_text`` active, then ingests ``table_text``.
+    Needs a Postgres DSN AND an OpenRouter key (the Augmenter judge is a live LLM call); the
+    harness SKIPs without them.
+
+    Failure points asserted (all must hold for GREEN):
+      FP1  the incumbent fact is NOT polluted with the overlapping row (``overlap_marker``
+           absent from the incumbent text);
+      FP2  the overlapping row exists as its OWN distinct active fact (carries
+           ``overlap_marker``, separate id from the incumbent).
+
+    RED today (FP1 fails: incumbent absorbs the row; FP2 fails: no standalone row fact). GREEN
+    once the Augmenter stops folding a distinct tabular fact into an overlapping incumbent.
+    """
+    from knowledge.evals.run import _eval_embedder
+    from knowledge.knowledge_graph.knowledge_graph_variants.postgres_vector_graph import (
+        PostgresVectorGraph,
+        default_write_policy,
+    )
+    from knowledge.wiring import build_trio
+    from knowledge.serve import db
+
+    class _CachedAxis:
+        embedder = "cached"
+
+    conn = db.connect()
+    db.bootstrap()
+    org = "eval_tabmerge_" + uuid.uuid4().hex[:12]
+    user = "u1"
+    graph = PostgresVectorGraph(
+        conn, org, user, embedder=_eval_embedder(_CachedAxis()), policy=default_write_policy()
+    )
+    _, ingestor, _ = build_trio(graph=graph, llm=None)
+    marker = overlap_marker.lower()
+    try:
+        inc_id = graph.write(incumbent_text, state="active", category="requirement")
+        ingestor.ingest(table_text, state="active", source="prd-team-app", category="requirement")
+        facts = graph.all_facts(state="active")
+        inc = next((f for f in facts if f.id == inc_id), None)
+        inc_text = (getattr(inc, "text", "") or "") if inc else ""
+        fp1_incumbent_clean = marker not in inc_text.lower()
+        fp2_own_fact = any(
+            marker in (getattr(f, "text", "") or "").lower() and f.id != inc_id for f in facts
+        )
+        passed = fp1_incumbent_clean and fp2_own_fact
+        if passed:
+            evidence = (
+                f"tabular row kept distinct: incumbent {inc_id} not polluted and "
+                f"'{overlap_marker}' lives in its own fact ({len(facts)} active facts)"
+            )
+        else:
+            evidence = (
+                f"tabular row MERGED into the incumbent by the Augmenter "
+                f"[FP1 incumbent-clean={fp1_incumbent_clean}] (incumbent {inc_id} "
+                f"{'absorbed' if not fp1_incumbent_clean else 'kept'} '{overlap_marker}'); "
+                f"standalone row fact present [FP2={fp2_own_fact}]. "
+                f"{len(facts)} active facts -- the slot-guard did not exempt the tabular write "
+                "from being folded into an overlapping pre-existing non-tabular fact."
+            )
+        return CheckResult(
+            name="tabular_field_not_merged_into_incumbent",
+            passed=passed,
+            evidence=evidence,
+        )
+    finally:
+        conn.execute("DELETE FROM fact_edges WHERE org_id = %s AND user_id = %s", (org, user))
+        conn.execute("DELETE FROM facts WHERE org_id = %s AND user_id = %s", (org, user))

@@ -1,0 +1,60 @@
+# CODING-FACTORY ingestion edge case: a TABULAR-derived fact must NOT be Augmenter-merged
+# into a pre-existing, separately-written, non-tabular incumbent that shares its subject.
+#
+# When the factory ingests a data-model table, add_insight (llm=None ->
+# PromptIngestor.synthesis -> linearize_table) emits one `tabular`-flagged fact per row, and
+# the Deduper's slot-guard keeps those rows distinct from EACH OTHER. But a row whose subject
+# overlaps an already-active non-tabular incumbent is still additively merged into that
+# incumbent by the Mem0-style Augmenter -- the slot-guard does not exempt a tabular write from
+# being folded into an established non-tabular fact.
+#
+#   INCUMBENT (R5, pre-existing, active): "Team day boundary: the team day resets at 3:00 AM
+#       ... attributed to team-day D when T >= 03:00, otherwise to team-day D-1."
+#   INGESTED TABLE (DailySubmission fields): rows user_id / team_day / completion_status /
+#       ratings_json. The team_day row linearizes to "For the team_day field, type is date,
+#       note is resolved via the 3AM boundary."
+#
+# Observed LIVE (2026-06-26, agent-factory planning run, org agent-factory): with R5 already
+# active, ingesting the table merged the team_day row INTO R5 (R5's text gained "for the
+# team_day field, type is date, note is resolved via the 3AM boundary"), while user_id /
+# completion_status / ratings_json correctly became their own distinct facts. Reproduced
+# deterministically (4 active facts; team_day has no standalone fact; R5 polluted).
+#
+# Distinct from augment_no_merge_distinct_rules (two PROSE rules seeded together): here a
+# TABULAR fact merges into a SEPARATELY-WRITTEN incumbent despite the slot-guard. Same
+# Augmenter-over-merge family, different mechanism -- which is why it needs its own case.
+#
+# Root cause + fix home: PRAXIS Augmenter -- it must not fold a distinct (esp. tabular-flagged)
+# fact into an overlapping pre-existing incumbent. The factory ingested correctly.
+#
+# The check drives the REAL default_write_policy (Augmenter judge is a live LLM call) plus the
+# llm=None linearizing ingestor, in an isolated tenant -- needs a Postgres DSN AND an OpenRouter
+# key; the harness SKIPs without them. RED today (FP1: R5 polluted, FP2: no standalone row).
+id: tabular_field_not_merged_into_incumbent
+component: knowledge_graph
+substrate: vector
+embedder: cached
+augment_model: openai/gpt-4o-mini  # the Augmenter's merge judge runs live inside the check
+
+seeded_insight:
+  via_ingestor: []
+  # Seeded by the check: the incumbent via graph.write, then the table via the real
+  # linearizing ingestor; listed here for visibility only.
+  direct_to_graph:
+    - "Team day boundary (R5): the team day resets at 3:00 AM in the team's local timezone (not midnight), so a submission made between 00:00 and 02:59 local counts toward the previous calendar day; acceptance: a submission at local time T on calendar date D is attributed to team-day D when T >= 03:00, otherwise to team-day D-1."
+    - "DailySubmission data model (R14) table with rows: user_id (id), team_day (date, resolved via the 3AM boundary), completion_status (boolean), ratings_json (json)."
+
+deterministic_checks:
+  - name: tabular_field_not_merged_into_incumbent
+    ref: "knowledge.evals.deterministic_checks.graph:tabular_field_not_merged_into_incumbent"
+    params:
+      incumbent_text: "Team day boundary (R5): the team day resets at 3:00 AM in the team's local timezone (not midnight), so a submission made between 00:00 and 02:59 local counts toward the previous calendar day; acceptance: a submission at local time T on calendar date D is attributed to team-day D when T >= 03:00, otherwise to team-day D-1."
+      table_text: |-
+        DailySubmission data model (R14):
+        | field | type | note |
+        | --- | --- | --- |
+        | user_id | id | the submitting athlete |
+        | team_day | date | resolved via the 3AM boundary |
+        | completion_status | boolean | derived from rep + ratings |
+        | ratings_json | json | effort, focus, support |
+      overlap_marker: "team_day field"
