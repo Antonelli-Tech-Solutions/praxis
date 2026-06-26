@@ -1172,6 +1172,7 @@ class PostgresVectorGraph(SearchableGraph):
         source: str | None = None,
         confidence: float | None = None,
         meta: dict | None = None,
+        category: str | None = None,
     ) -> None:
         """Patch a fact's fields. Re-embeds when ``text`` changes."""
         sets: list[str] = []
@@ -1190,6 +1191,9 @@ class PostgresVectorGraph(SearchableGraph):
         if meta is not None:
             sets.append("meta = %s")
             params.append(json.dumps(meta))
+        if category is not None:
+            sets.append("category = %s")
+            params.append(category)
         if not sets:
             return
         params.extend([self.org_id, self.user_id, fact_id])
