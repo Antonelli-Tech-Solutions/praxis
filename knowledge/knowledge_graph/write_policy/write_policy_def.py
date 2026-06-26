@@ -54,6 +54,12 @@ class WriteDecision:
     supersede_ids: list[str] = field(default_factory=list)
     flags: list[str] = field(default_factory=list)  # e.g. ["contradiction:<id>"]
     dropped: bool = False  # a step suppressed this write entirely
+    # This write carries a non-empty ``derived_from`` (it explicitly declares a NEW
+    # fact built on a source). A derivation must stay its own distinct node carrying
+    # the derivation edge — never folded back into its source — so the merge steps
+    # (Deduper's same-lesson merge, Augmenter's additive merge) refuse to merge it.
+    # Keyed on derived_from presence, not category. Set by ``write()`` before steps run.
+    derived: bool = False
     # Candidate fact ids the slot-guard ruled distinct (different functional slot) or
     # conflicting (same slot, different value) from this write — so a later merge step
     # (Augmenter) must NOT fold this write into them. Filled by the Deduper's slot-guard.

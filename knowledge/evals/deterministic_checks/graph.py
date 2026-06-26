@@ -716,7 +716,8 @@ def derived_learning_not_merged_into_source(
     GREEN once a ``derived_from``-carrying write is exempt from the merge.
 
     Requires a Postgres DSN AND an OpenRouter key (the Augmenter's judge is a live LLM call);
-    the harness SKIPs without them. Marked xfail: the guard is not built yet.
+    the harness SKIPs without them. GREEN: a derived_from-carrying write is now exempt from
+    the merge (see WriteDecision.derived, threaded in PostgresVectorGraph.write).
     """
     from knowledge.evals.run import _eval_embedder
     from knowledge.knowledge_graph.knowledge_graph_variants.postgres_vector_graph import (

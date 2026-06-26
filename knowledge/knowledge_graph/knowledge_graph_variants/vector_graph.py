@@ -125,6 +125,7 @@ class VectorGraph(SearchableGraph):
         scope: str | None = None,
         category: str | None = None,
         meta: dict | None = None,
+        derived_from: list[str] | None = None,
     ) -> WriteDecision | None:
         """Run the write-policy pipeline over ``content``, then persist.
 
@@ -139,6 +140,11 @@ class VectorGraph(SearchableGraph):
         ``TABULAR_FLAG`` on the decision so the Deduper's slot-guard engages (sibling
         rows must not be silently merged — loss point B).
 
+        ``derived_from`` marks a write that declares a NEW fact built on a source
+        (mirroring the Postgres store): it sets ``decision.derived`` so the merge
+        steps keep it as its own distinct node rather than folding it back into the
+        source. Keyed on derived_from presence, not category.
+
         Returns the enacted ``WriteDecision`` so callers can observe the per-write
         outcome (``action`` add/update/overwrite, ``dropped``, ``update_target_id``)
         without diffing ``facts`` before/after — an additive change; existing
@@ -152,6 +158,7 @@ class VectorGraph(SearchableGraph):
         decision = WriteDecision(text=content, state="active" if state == "active" else "proposed")
         if tabular:
             decision.flags.append(TABULAR_FLAG)
+        decision.derived = bool(derived_from)
         # H12: stash writer metadata on the decision so _add persists it (the
         # Postgres store reads these off the decision the same way).
         decision.source = source
