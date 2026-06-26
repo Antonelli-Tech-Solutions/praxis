@@ -76,6 +76,14 @@ export const EDGE_LEGEND: EdgeLegendEntry[] = [
     strokeWidth: 1.25,
     opacity: 0.75,
   },
+  {
+    kind: "renders",
+    label: "Renders",
+    description: "Requirement governs a wireframe surface (dotted)",
+    dasharray: "1 4",
+    strokeWidth: 1.75,
+    opacity: 0.9,
+  },
 ];
 
 export const GRAPH_INTERACTION_LEGEND = {

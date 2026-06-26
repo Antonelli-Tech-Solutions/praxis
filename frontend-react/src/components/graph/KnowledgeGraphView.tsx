@@ -257,7 +257,9 @@ function KnowledgeGraphViewInner({
               ? "graph-edge graph-edge--contradiction"
               : edge.kind === "support"
                 ? "graph-edge graph-edge--support"
-                : "graph-edge graph-edge--similarity",
+                : edge.kind === "renders"
+                  ? "graph-edge graph-edge--renders"
+                  : "graph-edge graph-edge--similarity",
           animated: edge.kind === "contradiction",
         })),
     [graph.edges, visibleCandidateIds],

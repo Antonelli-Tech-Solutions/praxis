@@ -1,6 +1,10 @@
 import type { CandidateState } from "./candidate";
 
-export type GraphEdgeKind = "contradiction" | "support" | "similarity";
+export type GraphEdgeKind =
+  | "contradiction"
+  | "support"
+  | "similarity"
+  | "renders";
 
 export interface GraphNode {
   id: string;
