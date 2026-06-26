@@ -120,8 +120,10 @@ def _load_instances(n: int, manifest_path: Path | None):
         candidates = load_candidates(fetch_rebench_sympy())
         return [c for c in candidates if c.instance_id in chosen_ids]
 
-    # Fetch a generous superset (versions get filtered in select) and pick the top n.
-    candidates = load_candidates(fetch_rebench_sympy(limit=max(n * 5, 50)))
+    # Load ALL sympy candidates (no limit): SWE-rebench is ordered oldest-first, so a
+    # limit would truncate to 2015-era instances whose versions `select` filters out —
+    # `select` itself sorts by created_at desc and keeps the recent supported-version top n.
+    candidates = load_candidates(fetch_rebench_sympy())
     instances = select(candidates, n)
     if manifest_path is not None:
         write_manifest(instances, manifest_path)
