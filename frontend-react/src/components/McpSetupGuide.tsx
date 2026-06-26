@@ -172,6 +172,14 @@ export function McpSetupGuide() {
           (you set its join password) or <code>praxis_join_org</code>. Check state any
           time with <code>praxis_whoami</code>.
         </p>
+        <p className="muted small">
+          Want a second, independent working graph inside an org (e.g. to keep an
+          experiment separate)? Create one with <code>praxis_create_space</code>, list
+          them with <code>praxis_list_space</code>, and switch with{" "}
+          <code>praxis_select_space</code> (<code>praxis_select_space(&quot;&quot;)</code>{" "}
+          returns to the default graph). The selected space is cached alongside the
+          active org and rides the <code>X-Praxis-Space</code> header.
+        </p>
       </div>
 
       <div className="mcp-guide__step">
@@ -207,6 +215,16 @@ export function McpSetupGuide() {
           <code>praxis_whoami</code> to confirm. <strong>Reconnect <code>/mcp</code></strong>{" "}
           after editing the config so the new env takes effect. Each agent&apos;s caches start
           empty, so each logs in independently and pins its own org.
+        </p>
+        <p className="muted small">
+          To run several agents in the <strong>same org</strong> on{" "}
+          <strong>different working graphs</strong>, give each its own{" "}
+          <em>space</em> rather than its own org: either select a different space in each
+          agent&apos;s cache (<code>praxis_select_space</code>), or pin one per process
+          without a select call via the <code>PRAXIS_SPACE</code> environment variable
+          (it overrides the cached space for that server). Effective tenancy is{" "}
+          <code>(org_id, user_id::space)</code>, so the graphs stay fully isolated
+          server-side.
         </p>
       </div>
 
@@ -262,6 +280,19 @@ export function McpSetupGuide() {
                 <code>praxis_join_org(org_id, password)</code>
               </td>
               <td>Bootstrap or join org membership, then select it.</td>
+            </tr>
+            <tr>
+              <td>
+                <code>praxis_create_space(space_id, name?)</code> /{" "}
+                <code>praxis_list_space()</code> /{" "}
+                <code>praxis_select_space(space_id)</code>
+              </td>
+              <td>
+                Create, list, and switch between separate working graphs inside the
+                active org (a private second axis on tenancy). Select{" "}
+                <code>&quot;&quot;</code> to return to the default graph; or pin one per
+                process with the <code>PRAXIS_SPACE</code> env var.
+              </td>
             </tr>
             <tr>
               <td>

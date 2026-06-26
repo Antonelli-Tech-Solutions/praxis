@@ -24,7 +24,6 @@ export function DataSourceControl({
     setPresetId(config.presetId);
   }, [config]);
 
-  const selectedPreset = DATA_SOURCE_PRESETS.find((p) => p.id === presetId);
   const showJsonFallbackHint =
     config.mode === "live" &&
     storeType === "json" &&
@@ -34,10 +33,6 @@ export function DataSourceControl({
     setPresetId(nextId);
     // Selecting a source switches servers immediately — no separate load step.
     onLoad(nextId);
-  }
-
-  function helpText(): string {
-    return selectedPreset?.helpText ?? "";
   }
 
   return (
@@ -51,7 +46,6 @@ export function DataSourceControl({
           className="data-source-control__select"
           value={presetId}
           onChange={(e) => handlePresetChange(e.target.value)}
-          aria-describedby="data-source-help"
         >
           {DATA_SOURCE_PRESETS.map((preset) => (
             <option key={preset.id} value={preset.id}>
@@ -60,11 +54,6 @@ export function DataSourceControl({
           ))}
         </select>
       </div>
-      {helpText() ? (
-        <p className="data-source-control__hint" id="data-source-help">
-          {helpText()}
-        </p>
-      ) : null}
       {showJsonFallbackHint ? (
         <p className="data-source-control__hint data-source-control__hint--warn">
           API is using JSON fallback — set PRAXIS_DB_URL on the API for RDS persistence.

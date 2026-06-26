@@ -1188,6 +1188,9 @@ code,
   gap: var(--space-2);
   min-width: 260px;
   max-width: 360px;
+  /* Stretch to a common column width so every switcher (incl. a space whose
+     name is short) renders the same size, rather than shrinking to content. */
+  align-self: stretch;
 }
 
 .org-switcher__label,

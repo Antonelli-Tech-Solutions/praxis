@@ -57,8 +57,6 @@ export function DashboardHeader({
           detail={detail}
           storeType={storeType}
         />
-        <OrgSwitcher />
-        <SpaceSwitcher />
         <DataSourceControl
           config={config}
           storeType={storeType}
@@ -67,6 +65,8 @@ export function DashboardHeader({
           onLoadLocalLogs={onLoadLocalLogs}
           onClearLocalLogs={onClearLocalLogs}
         />
+        <OrgSwitcher />
+        <SpaceSwitcher />
       </div>
     </header>
   );
