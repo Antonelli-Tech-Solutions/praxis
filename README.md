@@ -7,8 +7,8 @@
 [![Go](https://img.shields.io/badge/session--capture-Go-00ADD8.svg)](session-capture/README.md)
 [![API Contract](https://img.shields.io/badge/API-contract_v1-4CAF50.svg)](docs/integration/candidate-api-v1.md)
 
+- **PRAXIS Live Website:** [https://app.praxiskg.com/](https://app.praxiskg.com)
 - **Architecture source of truth:** [docs/plans/PRAXIS_Project_Plan.html](docs/plans/PRAXIS_Project_Plan.html)
-- **Current demo alignment:** [docs/monica/REHEARSAL_LOG.md](docs/monica/REHEARSAL_LOG.md), [docs/monica/INTEGRATION_SMOKE.md](docs/monica/INTEGRATION_SMOKE.md)
 - **Current GitHub remote:** [Antonelli-Tech-Solutions/praxis](https://github.com/Antonelli-Tech-Solutions/praxis)
 - **Original project history:** [GitLab - monicapeters/praxis](https://labs.gauntletai.com/monicapeters/praxis)
 - **License:** [MIT](LICENSE)
