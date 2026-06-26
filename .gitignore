@@ -38,3 +38,6 @@ knowledge/**/*.webp
 knowledge/**/*.vtt
 .worktrees
 scratch_graph.json
+
+# Generated Monica demo video capture outputs
+docs/monica/videos/experiment-video-capture-*/BL_proxy/
