@@ -23,7 +23,6 @@ from knowledge.knowledge_graph.write_policy.parent_write_step import WriteStep
 from knowledge.knowledge_graph.write_policy.write_policy_def import WriteDecision
 from knowledge.knowledge_graph.write_policy.write_step_variants.claim_conflict_detector import (
     ClaimConflictDetector,
-    ClaimValueJudge,
 )
 from knowledge.knowledge_graph.write_policy.write_step_variants.deduper import (
     TABULAR_FLAG,

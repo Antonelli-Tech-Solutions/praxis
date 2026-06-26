@@ -116,17 +116,14 @@ The dashboard computes `targetState` from the current candidate state (`proposed
 
 ```json
 {
-  "resolution": "keep_a",
-  "keepId": "cand_9"
+  "keep": ["cand_9"]
 }
 ```
 
-| `resolution` | Meaning |
-|--------------|---------|
-| `keep_a` | Keep the primary (left) candidate in the pair |
-| `keep_b` | Keep the rival (right) candidate |
-
-`merge` is stretch — not required for MVP.
+| Field | Meaning |
+|-------|---------|
+| `keep` | Which facts in the cluster to keep: `"all"`, `"none"`, or a list of candidate ids. Unkept rivals are superseded (not deleted), so the resolution stays discoverable. |
+| `customText` | Alternative to `keep`: a reconciled fact that replaces the whole cluster. |
 
 See [`fixtures/resolve-request.json`](fixtures/resolve-request.json).
 
@@ -140,8 +137,8 @@ See [`fixtures/resolve-request.json`](fixtures/resolve-request.json).
 |-----------|------|
 | Promote | `POST /candidates/{id}/promote` with `{ targetState }` |
 | Reject | `POST /candidates/{id}/reject` with optional `reason` |
-| Keep this candidate | `resolution: keep_a`, `keepId` = primary id |
-| Keep rival | `resolution: keep_b`, `keepId` = rival id |
+| Keep this candidate | `keep: [primaryId]` |
+| Keep rival | `keep: [rivalId]` |
 
 Implementation:
 

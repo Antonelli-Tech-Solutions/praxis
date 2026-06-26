@@ -18,7 +18,11 @@ _REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
-from knowledge.serve.pipeline_adapter import DEFAULT_EXPORT, DEFAULT_INSIGHTS, export_pipeline_candidates
+from knowledge.serve.pipeline_adapter import (  # noqa: E402  (import follows sys.path bootstrap above)
+    DEFAULT_EXPORT,
+    DEFAULT_INSIGHTS,
+    export_pipeline_candidates,
+)
 
 
 def main() -> int:

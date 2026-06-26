@@ -485,7 +485,6 @@ class PostgresVectorGraph(SearchableGraph):
 
     def _dependent_ids(self, fact_id: str, kind: str, max_depth: int) -> set[str]:
         cache = ""
-        params: list[object] = [self.org_id, self.user_id, kind, fact_id]
         if self._cache_key is not None:
             cache = " AND cache_key = %s"
         # Recursive walk up the derivation chain (dst -> src), carrying the visited

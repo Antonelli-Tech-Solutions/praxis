@@ -3,7 +3,6 @@
 import json
 
 from knowledge.knowledge_graph.knowledge_graph_variants.vector_graph import VectorGraph
-from knowledge.knowledge_graph.write_policy.write_policy_def import WriteDecision
 from knowledge.knowledge_graph.write_policy.write_step_variants.claim_extractor import (
     ClaimExtractionJudge,
     ClaimExtractor,
