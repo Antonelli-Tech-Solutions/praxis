@@ -6,7 +6,12 @@ import {
   funnelStatesMatchConfig,
 } from "./legendConfig";
 
-const ALL_EDGE_KINDS: GraphEdgeKind[] = ["contradiction", "support", "similarity"];
+const ALL_EDGE_KINDS: GraphEdgeKind[] = [
+  "contradiction",
+  "support",
+  "similarity",
+  "renders",
+];
 
 describe("legendConfig", () => {
   it("defines legend entries for every graph edge kind", () => {

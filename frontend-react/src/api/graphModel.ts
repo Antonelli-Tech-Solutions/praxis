@@ -12,6 +12,7 @@ const KNOWN_EDGE_KINDS = new Set<GraphEdgeKind>([
   "contradiction",
   "support",
   "similarity",
+  "renders",
 ]);
 
 function canonicalEdgeKey(src: string, dst: string, kind: GraphEdgeKind): string {

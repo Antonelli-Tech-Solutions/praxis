@@ -7,7 +7,12 @@ interface GraphSummaryProps {
 export function GraphSummary({ graph }: GraphSummaryProps) {
   const contradictionCount = graph.edges.filter((e) => e.kind === "contradiction").length;
   const supportCount = graph.edges.filter((e) => e.kind === "support").length;
-  const summary = `${graph.nodes.length} nodes, ${graph.edges.length} edges (${contradictionCount} contradictions, ${supportCount} support)`;
+  const rendersCount = graph.edges.filter((e) => e.kind === "renders").length;
+  const surfaceCount = graph.nodes.filter((n) => n.category === "surface").length;
+  const edgeBreakdown = `${contradictionCount} contradictions, ${supportCount} support, ${rendersCount} renders`;
+  const summary =
+    `${graph.nodes.length} nodes, ${graph.edges.length} edges (${edgeBreakdown})` +
+    (surfaceCount > 0 ? `; ${surfaceCount} surfaces` : "");
 
   return (
     <div className="graph-summary" role="img" aria-label={summary}>
