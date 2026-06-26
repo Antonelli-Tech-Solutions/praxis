@@ -371,6 +371,10 @@ class PostgresVectorGraph(SearchableGraph):
         decision = WriteDecision(text=content, state="active" if state == "active" else "proposed")
         if tabular:
             decision.flags.append(TABULAR_FLAG)
+        # A write carrying derived_from declares a NEW fact built on a source; flag it so
+        # the merge steps (Deduper same-lesson / Augmenter additive) keep it distinct, then
+        # record_derivation below stamps the edge. Keyed on derived_from presence.
+        decision.derived = bool(derived_from)
         # Stash the persistence attributes on the decision so _add/_overwrite
         # (which read them off the decision via getattr) write them through.
         decision.source = source
@@ -1168,6 +1172,7 @@ class PostgresVectorGraph(SearchableGraph):
         source: str | None = None,
         confidence: float | None = None,
         meta: dict | None = None,
+        category: str | None = None,
     ) -> None:
         """Patch a fact's fields. Re-embeds when ``text`` changes."""
         sets: list[str] = []
@@ -1186,6 +1191,9 @@ class PostgresVectorGraph(SearchableGraph):
         if meta is not None:
             sets.append("meta = %s")
             params.append(json.dumps(meta))
+        if category is not None:
+            sets.append("category = %s")
+            params.append(category)
         if not sets:
             return
         params.extend([self.org_id, self.user_id, fact_id])

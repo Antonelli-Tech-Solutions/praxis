@@ -47,6 +47,11 @@ class Augmenter(WriteStep):
         # or there's nothing to merge into, or no judge to decide.
         if decision.dropped or decision.action != "add":
             return
+        # A derived write (non-empty derived_from) explicitly declares a NEW fact built
+        # on a source: it must land as its own distinct node carrying the derivation
+        # edge, never folded back into the source. Never additively merge it away.
+        if decision.derived:
+            return
         if not decision.candidates or self.judge is None:
             return
         # A write that declares derived_from is an explicit NEW fact built on its
