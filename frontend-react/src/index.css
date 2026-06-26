@@ -187,6 +187,7 @@ code,
 
 /* Breathing room between the status badge and the data source control. */
 .dashboard-header__meta .org-switcher,
+.dashboard-header__meta .space-switcher,
 .dashboard-header__meta .data-source-control {
   margin-top: var(--space-3);
 }
@@ -1180,6 +1181,7 @@ code,
 }
 
 .org-switcher,
+.space-switcher,
 .data-source-control {
   display: flex;
   flex-direction: column;
@@ -1188,7 +1190,8 @@ code,
   max-width: 360px;
 }
 
-.org-switcher__label {
+.org-switcher__label,
+.space-switcher__label {
   font-size: 0.78rem;
   font-weight: 600;
   color: var(--muted);
@@ -1196,14 +1199,16 @@ code,
   letter-spacing: 0.04em;
 }
 
-.org-switcher__row {
+.org-switcher__row,
+.space-switcher__row {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-2);
   align-items: center;
 }
 
-.org-switcher__select {
+.org-switcher__select,
+.space-switcher__select {
   flex: 1 1 160px;
   min-width: 0;
   padding: 0.45rem 0.6rem;
@@ -1212,6 +1217,34 @@ code,
   font-size: 0.88rem;
   background: var(--surface);
   color: var(--ink);
+}
+
+/* Inline "new space" create form, revealed by the "New space…" option. */
+.space-switcher__create {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.space-switcher__input {
+  padding: 0.4rem 0.6rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  font-size: 0.85rem;
+  background: var(--surface);
+  color: var(--ink);
+}
+
+.space-switcher__actions {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.space-switcher__error {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--danger, #b42318);
 }
 
 .data-source-control__label {

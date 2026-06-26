@@ -1,6 +1,7 @@
 import { DataSourceControl } from "../ui/DataSourceControl";
 import { EnvironmentBadge } from "../ui/EnvironmentBadge";
 import { OrgSwitcher } from "../ui/OrgSwitcher";
+import { SpaceSwitcher } from "../ui/SpaceSwitcher";
 import { GitHubRepoLink } from "../ui/GitHubRepoLink";
 import type { DataSourceConfig, DataSourceMode } from "../../config/dataSource";
 import type { ApiStoreType } from "../../hooks/useApiHealth";
@@ -57,6 +58,7 @@ export function DashboardHeader({
           storeType={storeType}
         />
         <OrgSwitcher />
+        <SpaceSwitcher />
         <DataSourceControl
           config={config}
           storeType={storeType}
