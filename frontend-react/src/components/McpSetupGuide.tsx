@@ -295,6 +295,21 @@ export function McpSetupGuide() {
             </tr>
             <tr>
               <td>
+                <code>praxis_add_insights(insights, on_conflict?)</code>
+              </td>
+              <td>
+                Bulk sibling of <code>praxis_add_insight</code>: store many
+                already-distilled insights in ONE round-trip (e.g. a whole session&apos;s
+                learnings). <code>insights</code> is a list of{" "}
+                <code>{`{ insight, scope?, category?, source?, meta?, derived_from? }`}</code>{" "}
+                objects; <code>on_conflict</code> is batch-level
+                (<code>auto_resolve</code> | <code>surface</code>). Returns one result per
+                item (<code>ok</code>/<code>id</code>/<code>action</code>/<code>retrievable</code>);
+                a bad item never aborts the rest.
+              </td>
+            </tr>
+            <tr>
+              <td>
                 <code>praxis_list_graph(state?)</code>
               </td>
               <td>
@@ -401,6 +416,18 @@ export function McpSetupGuide() {
                 The full ingestion path also accepts <code>derived_from</code> (source
                 fact ids), recording the same H5 <code>derived_from</code> edges as{" "}
                 <code>praxis_add_insight</code>.
+              </td>
+            </tr>
+            <tr>
+              <td>
+                <code>praxis_ingest_session(narrative, source?)</code>
+              </td>
+              <td>
+                Distill a solved-problem coding session (the problem, what failed, the
+                fix, why it works) into <code>proposed</code> candidates staged for human
+                review — NOT added active. The <code>/ce-compound</code>-style capture
+                path; <code>source</code>, if given, must look like{" "}
+                <code>session/&lt;id&gt;</code>.
               </td>
             </tr>
             <tr>

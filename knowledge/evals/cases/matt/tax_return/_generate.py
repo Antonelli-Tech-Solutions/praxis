@@ -485,25 +485,31 @@ RULESET_DOCS = [
 ]
 
 
+def _one_sentence(*token_patterns: str) -> str:
+    """Match a single distilled sentence that contains ALL ``token_patterns`` in
+    ANY order. Distillation freely reorders ("...12% ... for single filers" vs
+    "Single ... 12% ..."), so order-sensitive checks produce false negatives. We
+    anchor at a sentence/line boundary and use a lookahead per token, each bounded
+    to the same sentence via ``[^.\\n]`` (no period/newline crossed)."""
+    anchor = r"(?is)(?:^|[.\n])\s*"
+    lookaheads = "".join(rf"(?=[^.\n]*(?:{t}))" for t in token_patterns)
+    return anchor + lookaheads
+
+
 def labeled_bracket(label_alt: str, rate_pct: int, figure: int) -> str:
-    """Regex for one distilled bracket fact binding a filing-status LABEL to a
-    RATE and a characteristic dollar FIGURE, within a single sentence (``[^.]``).
-    Binding the status word is essential: a bracket's *numbers* survive via a
-    same-range twin in another status even when this status's fact is dropped, so
-    only a label-bound check catches the silent collapse.
-    """
-    num = comma_optional(figure)
-    return (
-        rf"(?is)(?:{label_alt})[^.]{{0,200}}?{rate_pct}\s*(?:%|percent)"
-        rf"[^.]{{0,110}}?{num}"
-    )
+    """Bind a filing-status LABEL to a bracket RATE and a characteristic dollar
+    FIGURE within one sentence (order-independent). Binding the status word is
+    essential: a bracket's *numbers* survive via a same-range twin in another
+    status even when this status's fact is dropped, so only a label-bound check
+    catches the silent collapse."""
+    return _one_sentence(label_alt, rf"{rate_pct}\s*(?:%|percent)", comma_optional(figure))
 
 
 def labeled_deduction(label_alt: str, amount: int) -> str:
-    """Regex binding a filing-status LABEL to its standard-deduction AMOUNT in one
-    sentence. Single and MFS are both $15,750, so the label binding is what keeps
-    a collision from passing on the bare number."""
-    return rf"(?is)deduction[^.]{{0,80}}?(?:{label_alt})[^.]{{0,40}}?{comma_optional(amount)}"
+    """Bind a filing-status LABEL to its standard-deduction AMOUNT in one sentence
+    (order-independent). Single and MFS are both $15,750, so the label binding is
+    what keeps a collision from passing on the bare number."""
+    return _one_sentence(r"deduction", label_alt, comma_optional(amount))
 
 
 # Status label alternations, and the full TY2025 ladders as
@@ -557,22 +563,18 @@ def build_ruleset_distillation_case() -> dict:
     checks.append(regex_check(
         "recall_brackets_are_marginal", r"(?is)marginal[^.]{0,80}(?:bracket|portion|rate)"))
     # 4) W-2 box mappings the agent needs to read the W-2 into the 1040.
-    checks.append(regex_check(
-        "recall_w2_box1_to_line1a", r"(?is)(?:box\s*1[^.]{0,80}1a|1a[^.]{0,80}box\s*1)"))
-    checks.append(regex_check(
-        "recall_w2_box2_to_line25a", r"(?is)(?:box\s*2[^.]{0,80}25a|25a[^.]{0,80}box\s*2)"))
+    checks.append(regex_check("recall_w2_box1_to_line1a", _one_sentence(r"box\s*1", r"\b1a\b")))
+    checks.append(regex_check("recall_w2_box2_to_line25a", _one_sentence(r"box\s*2", r"25a")))
     # 5) Form 1040 line flow: AGI, taxable income (floored), refund vs. owe.
     checks.append(regex_check(
-        "recall_agi_line11", r"(?is)(?:AGI|adjusted gross income)[^.]{0,80}line\s*11|line\s*11[^.]{0,80}(?:AGI|adjusted gross)"))
+        "recall_agi_line11", _one_sentence(r"AGI|adjusted gross income", r"line\s*11")))
     checks.append(regex_check(
         "recall_taxable_income_line15",
-        r"(?is)taxable income[^.]{0,140}(?:line\s*11[^.]{0,30}line\s*12|11 minus[^.]{0,20}12)"))
+        _one_sentence(r"taxable income", r"line\s*11", r"line\s*12")))
     checks.append(regex_check(
-        "recall_taxable_income_floored", r"(?is)(?:never less than zero|not below zero)"))
-    checks.append(regex_check(
-        "recall_refund_line34", r"(?is)(?:refund[^.]{0,40}line\s*34|line\s*34[^.]{0,40}refund)"))
-    checks.append(regex_check(
-        "recall_owe_line37", r"(?is)(?:owe[^.]{0,40}line\s*37|line\s*37[^.]{0,40}owe)"))
+        "recall_taxable_income_floored", r"(?is)(?:never less than zero|not below zero|not\s+below\s+0)"))
+    checks.append(regex_check("recall_refund_line34", _one_sentence(r"refund", r"line\s*34")))
+    checks.append(regex_check("recall_owe_line37", _one_sentence(r"\bowe", r"line\s*37")))
     # 6) Standard-vs-itemized "larger of" rule and the whole-dollar rounding rule.
     checks.append(regex_check(
         "recall_larger_of_std_or_itemized", r"(?is)larger[^.]{0,60}itemi"))

@@ -1,0 +1,53 @@
+# CODING-FACTORY write-back edge case: a learning DERIVED FROM a requirement must NOT be
+# merged back into that requirement by the Augmenter.
+#
+# The factory's execute->verify->write-back loop writes each requirement as its own fact,
+# then (after building + verifying the feature) writes a learning ABOUT how the requirement
+# was implemented, passing derived_from=[requirement_id] and a distinct category="learning".
+# A derivation explicitly declares a NEW fact built on the source -- it must stay a distinct
+# node carrying a `derived_from` edge (so praxis_get_stale_derivations / dependents work),
+# NOT be folded back into the source requirement.
+#
+#   REQUIREMENT: "Daily completion: a submission for date D is completed when the daily rep
+#                 is submitted AND all three check-in ratings are submitted; the habit
+#                 checklist does not affect completion."
+#   LEARNING:    "Daily completion is implemented as team_app/completion.py:completion_status(
+#                 submission), returning True only when the rep is present and all three
+#                 ratings are non-None; the checklist is ignored. Verified green by
+#                 tests/test_completion.py." (written with derived_from=[REQUIREMENT])
+#
+# Observed live (2026-06-25, agent-factory write-back): writing the learning with
+# derived_from=[req] returned action="added" but with the REQUIREMENT's id -- the learning
+# was MERGED into the requirement (blended content, learning meta dropped, no derivation
+# edge). Reproduced deterministically by a probe: under [Redactor, Deduper] the two stay
+# DISTINCT, but under default_write_policy (which adds the Mem0-style Augmenter) they MERGE.
+# So the Augmenter is the culprit -- it ignores derived_from + category.
+#
+# This is a DIFFERENT bug from coding_factory/plan_requirements_kept_distinct (two distinct
+# requirements, different subjects -> the slot-guard). Here it's same-subject but a derived,
+# different-category fact: the clean fix is "a write carrying derived_from must never merge".
+#
+# The check drives the REAL production write policy (default_write_policy -> Augmenter) in an
+# isolated tenant -- so it needs a Postgres DSN AND an OpenRouter key (the Augmenter's judge
+# is a live LLM call); the harness SKIPs without them. RED today; GREEN once a
+# derived_from-carrying write is exempt from the merge.
+id: derived_learning_not_merged_into_source
+component: knowledge_graph
+substrate: vector
+embedder: cached
+augment_model: openai/gpt-4o-mini  # the Augmenter's judge runs live inside the check
+
+seeded_insight:
+  via_ingestor: []
+  # Seeded by the check into its own tenant (with category + derived_from, which
+  # direct_to_graph strings cannot express); listed here for visibility only.
+  direct_to_graph:
+    - "Daily completion: a submission for date D is completed when the daily rep is submitted and all three check-in ratings are submitted; the habit checklist does not affect completion."
+    - "Daily completion is implemented as team_app/completion.py:completion_status(submission), returning True only when the rep is present and all three ratings are non-None; the checklist is ignored. Verified green by tests/test_completion.py."
+
+deterministic_checks:
+  - name: derived_learning_not_merged_into_source
+    ref: "knowledge.evals.deterministic_checks.graph:derived_learning_not_merged_into_source"
+    params:
+      requirement_text: "Daily completion: a submission for date D is completed when the daily rep is submitted and all three check-in ratings are submitted; the habit checklist does not affect completion."
+      learning_text: "Daily completion is implemented as team_app/completion.py:completion_status(submission), returning True only when the rep is present and all three ratings are non-None; the checklist is ignored. Verified green by tests/test_completion.py."

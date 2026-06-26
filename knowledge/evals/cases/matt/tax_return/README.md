@@ -64,54 +64,57 @@ filing status, and the "standard deduction" concept. This grades the **retrieval
 set itself** (recall), not only the final answer, so retrieval can't be tuned on
 answer quality alone.
 
-## Bracket-collision recall case (`bracket_collision/`)
+## Ruleset-distillation integrity case (`ruleset_distillation/`)
 
-`matt_tax_return_bracket_collision_recall` is a `component: graph_reader` case
-that **captures a real distillation failure** found by auditing the live graph.
-When two filing statuses share the same numeric bracket range, Praxis's
-near-duplicate / overwrite-conflict pass collapses them and **silently rejects**
-one — with no contradiction flagged. In TY2025 the Married-filing-separately
-ladder shares the 12% / 22% / 24% / 32% lower-bracket boundaries with Single
-("MFS thresholds match Single except in the top two brackets"). In the observed
-run, distillation kept all seven MFS brackets but dropped the **Single 12%
-($11,925–$48,475), 24% ($103,350–$197,300), and 35% ($250,525–$626,350)** facts,
-plus the computation rule **"sum the tax from each bracket"** — the 12% gap is
-exactly the bracket the flagship single-filer/~$40k case needs.
+`matt_tax_return_ruleset_distillation` is a `component: graph_reader` case that
+ingests the **exact 26-doc `app/rules.py` `RULE_DOCUMENTS` corpus** the live
+graph is seeded from (copied verbatim into `_generate.py`), through the **full
+live-like write policy** (`merge_model` + `conflict_model` wire the LLM merge
+judge and the claim/semantic conflict detectors), then asserts the reader
+surfaces every salient fact an agent needs to file a 1040. It grew out of an
+audit that found the distiller silently dropping filing-status brackets whose
+numeric range collides across statuses (e.g. Single 22% merged into the MFS
+twin), so the checks cover the **whole rule set**, not just the brackets:
 
-The case ingests the Single ladder, MFS ladder, and computation rule as separate
-docs, runs them through the **full live-like write policy** (`merge_model` +
-`conflict_model` wire the LLM merge judge and the claim/semantic conflict
-detectors — the reject-the-loser path), then asserts the reader surfaces each
-Single bracket as a **distinct, status-labelled** fact, that the
-**sum-of-brackets rule** survives, and that the **MFS twin survives alongside**
-the Single one. Each check binds the *filing-status label* to the rate + bound,
-because the bracket *numbers* survive via the MFS twin even when the Single fact
-is dropped — only a label-bound check catches the silent rejection.
-`recall_single_32pct_control` anchors a Single bracket whose range is unique.
+- **Standard deduction** for all four statuses (label-bound; Single and MFS are
+  both $15,750, so only the label binding distinguishes them).
+- **Every bracket of every status's full 10%–37% ladder** (28 checks), each
+  binding *filing-status label + rate + a characteristic dollar figure* within a
+  single sentence, **order-independent** (distillation freely reorders
+  "Single … 12% …" vs "12% … for single filers").
+- The **marginal / sum-of-brackets** computation rule.
+- The **W-2 box mappings** (box 1 → line 1a, box 2 → line 25a).
+- The **Form 1040 line flow**: AGI (line 11), taxable income = line 11 − line 12
+  floored at zero, refund (line 34) vs. amount owed (line 37), the "larger of
+  standard or itemized" rule, and whole-dollar rounding.
 
-### Status: GREEN — and what that revealed
+Checks bind the status label because a bracket's bare *numbers* can survive via a
+same-range twin in another status even when this status's own fact is dropped —
+only a label-bound check catches that silent collapse.
 
-The case currently **passes**. The canonical write policy with `gpt-4o-mini`
-judges does the right thing: it keeps all 14 brackets distinct. The live
-silent-rejection **could not be reproduced** through this offline path — a
-combined doc, sequential docs, the full conflict+merge policy, and a double
-re-seed were all tried, and every variant keeps the brackets. So the live drop
-comes from something this case does not yet replicate. Two leading suspects:
+### Status: RED — and what it caught (20/43 at time of writing)
 
-1. **Deployed judge config.** The running serve may use a different judge model
-   or a looser dedup/merge threshold than `gpt-4o-mini`, so a clash the eval
-   judge keeps, the live judge collapses.
-2. **Full-corpus collision pressure.** The live graph was seeded from the whole
-   26-doc `rules.py` set (standard deductions where Single == MFS == $15,750,
-   every status's brackets, W-2 + return facts) — far denser near-duplicate
-   pressure than these three docs.
+Run against the pinned ingest cassette, the case **fails 23 of 43 checks**, and
+every failure is a *genuine* dropped fact (verified: the missing dollar figures —
+$31,500, $375,800, $17,000, $206,700, $394,600, $501,050, $250,500 — appear
+nowhere in the distilled output). Of the **28 bracket facts, only ~8 survived**;
+the MFJ standard deduction and the taxable-income floor ("never less than zero")
+were also lost. So distilling the dense, cross-status-overlapping numeric corpus
+through the merge+conflict policy is **heavily lossy** — the same class of defect
+the audit found, at larger scale.
 
-So this is committed as a **regression guard** that encodes the correct
-expectation and exercises the real write policy. To turn it RED against the
-actual defect, the next step is to seed the real `rules.py` `RULE_DOCUMENTS`
-corpus through this same policy, and/or pin the case's judge model/threshold to
-the deployed serve's. (An alternative is an integration test that drives the live
-`/ingest` with `auto_resolve` and asserts the Single brackets are not rejected.)
+**Faithfulness caveat.** This offline policy is *harsher* than the live harness
+`/ingest`: re-seeding the real harness (`POST /api/seed_kg`) into a clean org
+keeps a near-complete graph (~62 facts, only Single 22% dropped), whereas this
+eval's `merge_model`+`conflict_model` config (both `gpt-4o-mini`) collapses most
+brackets. So treat the exact 20/43 as a **stress-configuration** signal, not a
+1:1 reproduction of the deployed serve. The value is directional and regressive:
+it pins, deterministically, which facts this policy preserves, so a distiller
+change can be measured against it. Re-record the cassette
+(`embed_cache --add` + a keyed run) after a distiller change to refresh the
+baseline. To tighten faithfulness, pin the case's judge model/threshold to the
+deployed serve's, or add an integration arm that drives the live `/ingest`
+directly and asserts the full ladders survive.
 
 ## Full-pipeline knobs (per scenario)
 
