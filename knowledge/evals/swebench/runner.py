@@ -61,10 +61,13 @@ GitRunner = Callable[[list[str], Path], str]
 # patch -> resolved? The rework loop's oracle. U6 passes U2's real grader; tests stub it.
 GradeFn = Callable[[str], bool]
 
-# Tools the agent may use. Read/Edit/Write/Grep/Glob + acceptEdits is the proven
-# smoke-driver set: NO Bash and NO bypassPermissions — the grader runs the tests,
-# which sidesteps the auto-mode unsafe-agent guard (see run_agent.sh).
-_ALLOWED_TOOLS = ["Read", "Edit", "Write", "Grep", "Glob"]
+# Tools the agent may use. Bash is INCLUDED so the agent can navigate the repo and run
+# its own repro test like a real SWE-bench agent — the n=1 shakedown showed a no-Bash
+# agent burns its whole turn budget just *reading* a large source file and never edits.
+# The original "no Bash" choice dodged an ORCHESTRATOR-side unsafe-agent guard that does
+# not apply to a plain `claude` subprocess; bypassPermissions (below) lets Bash run
+# unattended in the throwaway checkout, exactly as the sealed-box ClaudeCodeRunner does.
+_ALLOWED_TOOLS = ["Read", "Edit", "Write", "Grep", "Glob", "Bash"]
 
 _DEFAULT_MAX_TURNS = 40
 
@@ -247,7 +250,7 @@ def _agent_args(
         "--model", model,
         "--max-turns", str(max_turns),
         "--allowedTools", *_ALLOWED_TOOLS,
-        "--permission-mode", "acceptEdits",
+        "--permission-mode", "bypassPermissions",
     ]
     if mcp_config_path is not None:
         # --strict-mcp-config so ONLY this config's praxis server is loaded (control's
