@@ -47,6 +47,7 @@ class Tenant:
     email: str | None
     org_id: str
     api_base: str
+    space_id: str = ""
 
 
 def _cognito_env() -> tuple[str, str, str]:
@@ -83,6 +84,7 @@ def save_identity(tenant: Tenant) -> None:
                 "email": tenant.email,
                 "org_id": tenant.org_id,
                 "api_base": tenant.api_base,
+                "space_id": tenant.space_id,
             }
         ),
         encoding="utf-8",
@@ -102,6 +104,7 @@ def load_identity() -> Tenant:
         email=data.get("email"),
         org_id=data["org_id"],
         api_base=data.get("api_base", DEFAULT_API_BASE),
+        space_id=data.get("space_id", ""),
     )
 
 
@@ -119,6 +122,34 @@ def set_org(org_id: str) -> Tenant:
     """Set the active org on the cached identity and persist it."""
     tenant = load_identity()
     tenant.org_id = org_id
+    save_identity(tenant)
+    return tenant
+
+
+def active_space() -> str:
+    """The active space id (``X-Praxis-Space`` value); ``""`` for the default space.
+
+    A per-process ``PRAXIS_SPACE`` env override takes precedence over the cached
+    ``space_id`` when set and non-empty, so an agent can pin a space without a
+    ``select`` call (mirrors how :func:`cache_path` lets each server pin an org).
+
+    Unlike :func:`active_org`, this never raises when there is no cached login:
+    the space header is optional (absent == default graph), and ``_headers`` calls
+    it unconditionally, so a missing/unreadable cache resolves to ``""``.
+    """
+    override = os.environ.get("PRAXIS_SPACE", "").strip()
+    if override:
+        return override
+    try:
+        return load_identity().space_id
+    except Exception:  # noqa: BLE001 - not-logged-in / corrupt cache => default space
+        return ""
+
+
+def set_space(space_id: str) -> Tenant:
+    """Set the active space on the cached identity and persist it."""
+    tenant = load_identity()
+    tenant.space_id = space_id
     save_identity(tenant)
     return tenant
 

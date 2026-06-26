@@ -77,6 +77,7 @@ from knowledge.serve.facts_candidates import (  # noqa: E402
 )
 from knowledge.serve.mounted_store import MountedStore  # noqa: E402
 from knowledge.serve.orgs_store import OrgsStore  # noqa: E402
+from knowledge.serve.spaces_store import SpacesStore  # noqa: E402
 from knowledge.serve.rate_limit import (  # noqa: E402
     LLM_RATE_LIMIT,
     build_limiter,
@@ -283,6 +284,7 @@ def create_app(conn: Any | None = None) -> FastAPI:
     conn = _ConnProxy(resolve_conn)
     orgs_store = OrgsStore(conn)
     mounted_store = MountedStore(conn)
+    spaces_store = SpacesStore(conn)
     # Bind the auth dependency to this connection so it can also resolve API keys
     # (X-Praxis-Key) in addition to the Cognito Bearer JWT / dev seam.
     current_user = make_current_user(conn)
@@ -346,6 +348,33 @@ def create_app(conn: Any | None = None) -> FastAPI:
             raise HTTPException(status_code=403, detail=f"not a member of org {org!r}")
         return org
 
+    def active_user_id(
+        principal: Principal = Depends(current_user),
+        org: str = Depends(active_org),
+        x_praxis_space: str | None = Header(default=None),
+    ) -> str:
+        """Resolve the effective tenant ``user_id`` for the requester's working graph.
+
+        A *space* (``X-Praxis-Space``) lets one login own multiple ``user_id``
+        partitions within an org, so different agents can drive different live
+        graphs concurrently. The derivation is the one key rule of the feature:
+
+        * no space selected (absent/empty header) -> ``principal.sub`` UNCHANGED,
+          so a login's existing default graph stays exactly where it was.
+        * named space ``<sid>`` -> ``f"{principal.sub}::space:{sid}"``, but only
+          after proving the caller owns that space (spaces are PRIVATE to the
+          creating login); an unknown/unowned space is a 404.
+
+        This is the tenant-graph owner — NOT the caller's identity. Identity uses
+        (membership, /me, API-key minting, mount source-user) keep ``principal.sub``.
+        """
+        space = (x_praxis_space or "").strip()
+        if not space:
+            return principal.sub
+        if not spaces_store.owns(org, principal.sub, space):
+            raise HTTPException(status_code=404, detail=f"unknown space {space!r}")
+        return f"{principal.sub}::space:{space}"
+
     @app.get("/health")
     @limiter.exempt  # App Runner health check — never rate-limited.
     def health() -> dict[str, Any]:
@@ -405,6 +434,56 @@ def create_app(conn: Any | None = None) -> FastAPI:
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc))
         return {"orgId": org_id, "status": "password_changed"}
+
+    # --- spaces (a login's private, named working knowledge graphs) --------
+    import re as _re
+
+    # A space_id is a user-picked slug: lowercase letters/digits/dash/underscore.
+    # The ':' separator used to build the effective user_id is therefore
+    # impossible in a slug, so "<sub>::space:<sid>" can never collide with a
+    # raw sub. ``default`` is reserved (it names the no-space graph).
+    _SPACE_SLUG_RE = _re.compile(r"^[a-z0-9_-]+$")
+
+    @app.post("/spaces")
+    def create_space(
+        body: dict[str, Any] = Body(default={}),
+        principal: Principal = Depends(current_user),
+        org: str = Depends(active_org),
+    ) -> dict[str, Any]:
+        """Create a private named space (a fresh working graph) in the active org.
+
+        ``active_org`` proves membership; the space is owned by ``principal.sub``
+        (identity, not the tenant-graph owner) and is private to that login. The
+        ``spaceId`` is validated app-side: a non-empty slug, not the reserved
+        ``default``, and never containing ``:`` (the effective-user_id separator).
+        409 if the login already has a space by that id.
+        """
+        space_id = str(body.get("spaceId") or "").strip()
+        name = body.get("name")
+        name = str(name) if name is not None else None
+        if not space_id or ":" in space_id or space_id == "default":
+            raise HTTPException(
+                status_code=400,
+                detail="spaceId must be a non-'default' slug without ':'",
+            )
+        if not _SPACE_SLUG_RE.fullmatch(space_id):
+            raise HTTPException(
+                status_code=400,
+                detail="spaceId must be lowercase letters, digits, '-' or '_'",
+            )
+        try:
+            spaces_store.create_space(org, principal.sub, space_id, name)
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc))
+        return {"spaceId": space_id, "name": name, "active": True}
+
+    @app.get("/spaces")
+    def list_spaces(
+        principal: Principal = Depends(current_user),
+        org: str = Depends(active_org),
+    ) -> dict[str, Any]:
+        """List the caller's private spaces in the active org (ordered by id)."""
+        return {"spaces": spaces_store.list_spaces(org, principal.sub)}
 
     # --- API keys (in-page key management, scoped to the active org) -------
     def _apikey_view(rec: dict[str, Any]) -> dict[str, Any]:
@@ -474,16 +553,18 @@ def create_app(conn: Any | None = None) -> FastAPI:
         state: str | None = None,
         principal: Principal = Depends(current_user),
         org: str = Depends(active_org),
+        uid: str = Depends(active_user_id),
     ) -> list[dict[str, Any]]:
-        return candidates_for(org, principal.sub).list(state)
+        return candidates_for(org, uid).list(state)
 
     @app.get("/candidates/{cid}")
     def get_candidate(
         cid: str,
         principal: Principal = Depends(current_user),
         org: str = Depends(active_org),
+        uid: str = Depends(active_user_id),
     ) -> dict[str, Any]:
-        c = candidates_for(org, principal.sub).get(cid)
+        c = candidates_for(org, uid).get(cid)
         if c is None:
             raise HTTPException(status_code=404, detail=f"unknown candidate {cid}")
         return c
@@ -494,9 +575,10 @@ def create_app(conn: Any | None = None) -> FastAPI:
         body: dict[str, Any] = Body(default={}),
         principal: Principal = Depends(current_user),
         org: str = Depends(active_org),
+        uid: str = Depends(active_user_id),
     ) -> dict[str, Any]:
         try:
-            return candidates_for(org, principal.sub).promote(cid, body.get("targetState"))
+            return candidates_for(org, uid).promote(cid, body.get("targetState"))
         except KeyError:
             raise HTTPException(status_code=404, detail=f"unknown candidate {cid}")
         except PromotionError as exc:
@@ -508,9 +590,10 @@ def create_app(conn: Any | None = None) -> FastAPI:
         body: dict[str, Any] = Body(default={}),
         principal: Principal = Depends(current_user),
         org: str = Depends(active_org),
+        uid: str = Depends(active_user_id),
     ) -> dict[str, Any]:
         try:
-            return candidates_for(org, principal.sub).reject(cid, body.get("reason"))
+            return candidates_for(org, uid).reject(cid, body.get("reason"))
         except KeyError:
             raise HTTPException(status_code=404, detail=f"unknown candidate {cid}")
 
@@ -520,6 +603,7 @@ def create_app(conn: Any | None = None) -> FastAPI:
         body: dict[str, Any] = Body(default={}),
         principal: Principal = Depends(current_user),
         org: str = Depends(active_org),
+        uid: str = Depends(active_user_id),
     ) -> dict[str, Any]:
         """Feed a downstream verification result back into a fact's trust.
 
@@ -533,7 +617,7 @@ def create_app(conn: Any | None = None) -> FastAPI:
             raise HTTPException(
                 status_code=400, detail="body must include a boolean 'success'"
             )
-        live_graph(org, principal.sub).record_outcome(fact_id, success=success)
+        live_graph(org, uid).record_outcome(fact_id, success=success)
         return {"id": fact_id, "success": success}
 
     @app.post("/derivations")
@@ -541,6 +625,7 @@ def create_app(conn: Any | None = None) -> FastAPI:
         body: dict[str, Any] = Body(default={}),
         principal: Principal = Depends(current_user),
         org: str = Depends(active_org),
+        uid: str = Depends(active_user_id),
     ) -> dict[str, Any]:
         """Attach a ``derived_from`` edge from one fact to each of its sources (H5).
 
@@ -557,7 +642,7 @@ def create_app(conn: Any | None = None) -> FastAPI:
             raise HTTPException(
                 status_code=400, detail="body must include 'factId' and non-empty 'sourceIds'"
             )
-        g = live_graph(org, principal.sub)
+        g = live_graph(org, uid)
         if g.get_fact(fact_id) is None:
             raise HTTPException(status_code=404, detail=f"unknown fact {fact_id}")
         missing = [s for s in source_ids if g.get_fact(s) is None]
@@ -573,9 +658,10 @@ def create_app(conn: Any | None = None) -> FastAPI:
         body: dict[str, Any] = Body(default={}),
         principal: Principal = Depends(current_user),
         org: str = Depends(active_org),
+        uid: str = Depends(active_user_id),
     ) -> dict[str, Any]:
         try:
-            return candidates_for(org, principal.sub).create(body)
+            return candidates_for(org, uid).create(body)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc))
 
@@ -585,9 +671,10 @@ def create_app(conn: Any | None = None) -> FastAPI:
         body: dict[str, Any] = Body(default={}),
         principal: Principal = Depends(current_user),
         org: str = Depends(active_org),
+        uid: str = Depends(active_user_id),
     ) -> dict[str, Any]:
         try:
-            return candidates_for(org, principal.sub).update(cid, body)
+            return candidates_for(org, uid).update(cid, body)
         except KeyError:
             raise HTTPException(status_code=404, detail=f"unknown candidate {cid}")
         except ValueError as exc:
@@ -598,9 +685,10 @@ def create_app(conn: Any | None = None) -> FastAPI:
         cid: str,
         principal: Principal = Depends(current_user),
         org: str = Depends(active_org),
+        uid: str = Depends(active_user_id),
     ) -> dict[str, Any]:
         try:
-            candidates_for(org, principal.sub).delete(cid)
+            candidates_for(org, uid).delete(cid)
             return {"deleted": cid}
         except KeyError:
             raise HTTPException(status_code=404, detail=f"unknown candidate {cid}")
@@ -612,8 +700,9 @@ def create_app(conn: Any | None = None) -> FastAPI:
     def contradictions(
         principal: Principal = Depends(current_user),
         org: str = Depends(active_org),
+        uid: str = Depends(active_user_id),
     ) -> list[dict[str, Any]]:
-        return candidates_for(org, principal.sub).contradictions()
+        return candidates_for(org, uid).contradictions()
 
     @app.post("/contradictions/{pair_id}/resolve")
     def resolve(
@@ -621,8 +710,9 @@ def create_app(conn: Any | None = None) -> FastAPI:
         body: dict[str, Any] = Body(default={}),
         principal: Principal = Depends(current_user),
         org: str = Depends(active_org),
+        uid: str = Depends(active_user_id),
     ) -> dict[str, Any]:
-        facade = candidates_for(org, principal.sub)
+        facade = candidates_for(org, uid)
         custom_text = body.get("customText")
         if custom_text is not None and str(custom_text).strip():
             try:
@@ -653,6 +743,7 @@ def create_app(conn: Any | None = None) -> FastAPI:
         state: str = "active",
         principal: Principal = Depends(current_user),
         org: str = Depends(active_org),
+        uid: str = Depends(active_user_id),
     ) -> dict[str, Any]:
         """The live graph for the requester.
 
@@ -664,7 +755,7 @@ def create_app(conn: Any | None = None) -> FastAPI:
         - a specific state (``proposed`` / ``active`` / ``decayed``) — only facts
           in that state, with edges between them.
         """
-        g = live_graph(org, principal.sub)
+        g = live_graph(org, uid)
         if state == "active":
             return {"graph": graph_adapter.graph_from_facts(g.active_facts(), g.active_edges())}
         facts = g.all_facts(None if state == "all" else state)
@@ -676,14 +767,16 @@ def create_app(conn: Any | None = None) -> FastAPI:
     def clear_graph(
         principal: Principal = Depends(current_user),
         org: str = Depends(active_org),
+        uid: str = Depends(active_user_id),
     ) -> dict[str, Any]:
         """Truncate the requester's live graph only (scoped to org_id + user_id).
 
-        Deletes every fact/edge owned by ``principal.sub`` in this org; other
-        users' rows (including their shared facts) are untouched. Implemented as
-        a load of zero cache keys, which truncates without refilling.
+        Deletes every fact/edge owned by the effective tenant ``uid`` in this org
+        (the default graph or the selected space); other users' rows (including
+        their shared facts) are untouched. Implemented as a load of zero cache
+        keys, which truncates without refilling.
         """
-        g = live_graph(org, principal.sub)
+        g = live_graph(org, uid)
         removed = len(g.all_facts())
         g.load_caches([])
         return {"cleared": removed}
@@ -693,8 +786,9 @@ def create_app(conn: Any | None = None) -> FastAPI:
     def list_snapshots(
         principal: Principal = Depends(current_user),
         org: str = Depends(active_org),
+        uid: str = Depends(active_user_id),
     ) -> dict[str, Any]:
-        entries = live_graph(org, principal.sub).list_caches("snapshot:")
+        entries = live_graph(org, uid).list_caches("snapshot:")
         return {
             "snapshots": [
                 {
@@ -711,12 +805,13 @@ def create_app(conn: Any | None = None) -> FastAPI:
         body: dict[str, Any] = Body(default={}),
         principal: Principal = Depends(current_user),
         org: str = Depends(active_org),
+        uid: str = Depends(active_user_id),
     ) -> dict[str, Any]:
         """Save the current live graph under ``name`` (create or overwrite)."""
         name = str(body.get("name") or "").strip()
         if not name:
             raise HTTPException(status_code=400, detail="name required")
-        count = live_graph(org, principal.sub).save_cache(f"snapshot:{name}")
+        count = live_graph(org, uid).save_cache(f"snapshot:{name}")
         return {"name": name, "count": count}
 
     @app.post("/snapshots/{name}/load")
@@ -725,6 +820,7 @@ def create_app(conn: Any | None = None) -> FastAPI:
         body: dict[str, Any] = Body(default={}),
         principal: Principal = Depends(current_user),
         org: str = Depends(active_org),
+        uid: str = Depends(active_user_id),
     ) -> dict[str, Any]:
         """Put a snapshot into the live graph.
 
@@ -736,7 +832,7 @@ def create_app(conn: Any | None = None) -> FastAPI:
         mode = str(body.get("mode") or "replace").strip().lower()
         if mode not in ("add", "replace"):
             raise HTTPException(status_code=400, detail="mode must be 'add' or 'replace'")
-        g = live_graph(org, principal.sub)
+        g = live_graph(org, uid)
         key = f"snapshot:{name}"
         if g.cache_count(key) == 0:
             raise HTTPException(status_code=404, detail=f"unknown snapshot {name!r}")
@@ -748,9 +844,12 @@ def create_app(conn: Any | None = None) -> FastAPI:
         name: str,
         principal: Principal = Depends(current_user),
         org: str = Depends(active_org),
+        uid: str = Depends(active_user_id),
     ) -> dict[str, Any]:
-        live_graph(org, principal.sub).delete_cache(f"snapshot:{name}")
+        live_graph(org, uid).delete_cache(f"snapshot:{name}")
         # Drop any mounts the owner had of this snapshot (it no longer exists).
+        # Mounts stay keyed on principal.sub for v1 (spaces<->mounts is out of
+        # scope): a no-op for space snapshots, which are never mountable yet.
         mounted_store.unmount(org, principal.sub, principal.sub, name)
         return {"deleted": name}
 
@@ -915,6 +1014,7 @@ def create_app(conn: Any | None = None) -> FastAPI:
         body: dict[str, Any] = Body(default={}),
         principal: Principal = Depends(current_user),
         org: str = Depends(active_org),
+        uid: str = Depends(active_user_id),
     ) -> dict[str, Any]:
         """Copy selected snapshot facts from a source into the caller's live graph.
 
@@ -956,7 +1056,7 @@ def create_app(conn: Any | None = None) -> FastAPI:
         # zero-cache-load truncation as /graph/clear). Dedup/conflict are then
         # moot on the now-empty graph, but the policy stays identical.
         if mode == "replace":
-            live_graph(org, principal.sub).load_caches([])
+            live_graph(org, uid).load_caches([])
 
         # Distillation-free fold-in policy: dedup the already-atomic facts, then
         # the structural claim path (extract -> detect) flags genuine value
@@ -966,7 +1066,7 @@ def create_app(conn: Any | None = None) -> FastAPI:
         graph = PostgresVectorGraph(
             conn,
             org,
-            principal.sub,
+            uid,
             policy=[
                 Deduper(),
                 ClaimExtractor(judge=ClaimExtractionJudge(llm=base_llm)),
@@ -1025,13 +1125,14 @@ def create_app(conn: Any | None = None) -> FastAPI:
     def cached_eval_cases(
         principal: Principal = Depends(current_user),
         org: str = Depends(active_org),
+        uid: str = Depends(active_user_id),
     ) -> dict[str, Any]:
         """Eval case ids with cached data + node counts (drives the UI status dots).
 
         ``counts`` maps each cached case id to how many nodes its cached
         distillation holds — what the dashboard shows inside the green dot.
         """
-        entries = live_graph(org, principal.sub).list_caches("eval:")
+        entries = live_graph(org, uid).list_caches("eval:")
         ids = [e["key"].split("eval:", 1)[1] for e in entries]
         counts = {
             e["key"].split("eval:", 1)[1]: int(e.get("count", 0)) for e in entries
@@ -1100,6 +1201,7 @@ def create_app(conn: Any | None = None) -> FastAPI:
         body: dict[str, Any] | None = Body(default=None),
         principal: Principal = Depends(current_user),
         org: str = Depends(active_org),
+        uid: str = Depends(active_user_id),
     ) -> dict[str, Any]:
         """Run pipeline: create/update the eval CACHE only — never touch the graph.
 
@@ -1112,7 +1214,7 @@ def create_app(conn: Any | None = None) -> FastAPI:
             case_ids = _selected_case_ids(body)
             regenerated, from_cache = _ensure_cached(
                 org,
-                principal.sub,
+                uid,
                 case_ids,
                 distill=bool(body.get("distill", True)),
                 force=True,
@@ -1135,6 +1237,7 @@ def create_app(conn: Any | None = None) -> FastAPI:
         body: dict[str, Any] | None = Body(default=None),
         principal: Principal = Depends(current_user),
         org: str = Depends(active_org),
+        uid: str = Depends(active_user_id),
     ) -> dict[str, Any]:
         """Put cached eval data into the live graph.
 
@@ -1151,7 +1254,7 @@ def create_app(conn: Any | None = None) -> FastAPI:
             case_ids = _selected_case_ids(body)
             regenerated, from_cache = _ensure_cached(
                 org,
-                principal.sub,
+                uid,
                 case_ids,
                 distill=bool(body.get("distill", False)),
                 force=False,
@@ -1162,7 +1265,7 @@ def create_app(conn: Any | None = None) -> FastAPI:
             raise HTTPException(status_code=503, detail=str(exc))
 
         keys = [f"eval:{cid}" for cid in case_ids]
-        live = live_graph(org, principal.sub)
+        live = live_graph(org, uid)
         if mode == "replace":
             facts_in_graph = live.load_caches(keys)
         else:
@@ -1196,6 +1299,7 @@ def create_app(conn: Any | None = None) -> FastAPI:
         body: dict[str, Any] = Body(default={}),
         principal: Principal = Depends(current_user),
         org: str = Depends(active_org),
+        uid: str = Depends(active_user_id),
     ) -> dict[str, Any]:
         """Ingest a fully-approved insight into the live ``facts`` store.
 
@@ -1225,7 +1329,7 @@ def create_app(conn: Any | None = None) -> FastAPI:
         # whole, append-only, immutable (no distill/dedup/contradiction) and out of
         # semantic recall. Routed to the store-only producer.
         if (body.get("category") or "").strip() == EPISODIC_CATEGORY:
-            return _record_episode(live_graph(org, principal.sub), insight, body)
+            return _record_episode(live_graph(org, uid), insight, body)
         on_conflict = str(body.get("onConflict") or "auto_resolve").strip().lower()
         if on_conflict not in ("auto_resolve", "surface"):
             raise HTTPException(
@@ -1244,7 +1348,7 @@ def create_app(conn: Any | None = None) -> FastAPI:
         # pipeline only *flags* the clash, so the store persists a pending
         # contradiction edge instead of rejecting a side.
         graph = PostgresVectorGraph(
-            conn, org, principal.sub, policy=_insight_write_policy(on_conflict)
+            conn, org, uid, policy=_insight_write_policy(on_conflict)
         )
         _, ingestor, _ = build_trio(graph=graph, llm=None)
         return _write_insight(
@@ -1264,6 +1368,7 @@ def create_app(conn: Any | None = None) -> FastAPI:
         body: dict[str, Any] = Body(default={}),
         principal: Principal = Depends(current_user),
         org: str = Depends(active_org),
+        uid: str = Depends(active_user_id),
     ) -> dict[str, Any]:
         """Bulk-write many fully-approved insights in one synchronous round-trip (H8).
 
@@ -1298,7 +1403,7 @@ def create_app(conn: Any | None = None) -> FastAPI:
         # One policy graph + ingestor for the whole batch (the throughput win); the
         # episodic store-only path needs no policy, so it reuses the same instance.
         graph = PostgresVectorGraph(
-            conn, org, principal.sub, policy=_insight_write_policy(on_conflict)
+            conn, org, uid, policy=_insight_write_policy(on_conflict)
         )
         # Throughput: the serial loop below embeds each insight's text once, so N
         # items would be N embedding round-trips. Memoize the graph's embedder and
@@ -1357,6 +1462,7 @@ def create_app(conn: Any | None = None) -> FastAPI:
         body: dict[str, Any] = Body(default={}),
         principal: Principal = Depends(current_user),
         org: str = Depends(active_org),
+        uid: str = Depends(active_user_id),
     ) -> dict[str, Any]:
         """Batch-ingest raw documents through the tenant's distillation pipeline.
 
@@ -1409,7 +1515,7 @@ def create_app(conn: Any | None = None) -> FastAPI:
         graph = PostgresVectorGraph(
             conn,
             org,
-            principal.sub,
+            uid,
             policy=[Redactor(), Deduper()],
         )
         # H5: body-level derivation provenance — each distilled fact links back to
@@ -1464,6 +1570,7 @@ def create_app(conn: Any | None = None) -> FastAPI:
         body: dict[str, Any] = Body(default={}),
         principal: Principal = Depends(current_user),
         org: str = Depends(active_org),
+        uid: str = Depends(active_user_id),
     ) -> dict[str, Any]:
         """Distill one solved-problem session narrative into ``proposed`` candidates.
 
@@ -1515,7 +1622,7 @@ def create_app(conn: Any | None = None) -> FastAPI:
         # /ingest is bound to ingest_dump). Redact+dedup policy mirrors /ingest so
         # session narratives — which may carry secrets — are scrubbed on write too.
         graph = PostgresVectorGraph(
-            conn, org, principal.sub, policy=[Redactor(), Deduper()]
+            conn, org, uid, policy=[Redactor(), Deduper()]
         )
         ingestor = SessionIngestor(graph, OpenRouterLlm())
         insights = ingestor.synthesis(narrative, source=source)
@@ -1567,6 +1674,7 @@ def create_app(conn: Any | None = None) -> FastAPI:
     def stale_derivations(
         principal: Principal = Depends(current_user),
         org: str = Depends(active_org),
+        uid: str = Depends(active_user_id),
     ) -> dict[str, Any]:
         """Active learnings flagged stale because a fact they derive from was invalidated (H5).
 
@@ -1575,7 +1683,7 @@ def create_app(conn: Any | None = None) -> FastAPI:
         those suspect learnings for human/agent review (precision-first: flagged,
         never auto-rejected).
         """
-        stale = live_graph(org, principal.sub).stale_derived()
+        stale = live_graph(org, uid).stale_derived()
         return {"stale": [_derivation_view(f) for f in stale]}
 
     @app.get("/facts/{fact_id}/dependents")
@@ -1583,13 +1691,14 @@ def create_app(conn: Any | None = None) -> FastAPI:
         fact_id: str,
         principal: Principal = Depends(current_user),
         org: str = Depends(active_org),
+        uid: str = Depends(active_user_id),
     ) -> dict[str, Any]:
         """Transitive derivation dependents of ``fact_id`` (the learnings derived from it).
 
         Walks ``derived_from`` edges (src=dependent -> dst=basis) up the chain,
         cycle-guarded and depth-bounded, newest first.
         """
-        deps = live_graph(org, principal.sub).dependents(fact_id)
+        deps = live_graph(org, uid).dependents(fact_id)
         return {"factId": fact_id, "dependents": [_derivation_view(f) for f in deps]}
 
     # --- requirement RENDERS surface (factory completeness gate) ------------
@@ -1598,6 +1707,7 @@ def create_app(conn: Any | None = None) -> FastAPI:
         body: dict[str, Any] = Body(default={}),
         principal: Principal = Depends(current_user),
         org: str = Depends(active_org),
+        uid: str = Depends(active_user_id),
     ) -> dict[str, Any]:
         """Idempotently ensure a surface fact exists for ``(project, screenId)``.
 
@@ -1612,7 +1722,7 @@ def create_app(conn: Any | None = None) -> FastAPI:
             raise HTTPException(
                 status_code=400, detail="body must include 'project' and 'screenId'"
             )
-        g = live_graph(org, principal.sub)
+        g = live_graph(org, uid)
         surface_id = g.ensure_surface(
             project,
             screen_id,
@@ -1627,6 +1737,7 @@ def create_app(conn: Any | None = None) -> FastAPI:
         body: dict[str, Any] = Body(default={}),
         principal: Principal = Depends(current_user),
         org: str = Depends(active_org),
+        uid: str = Depends(active_user_id),
     ) -> dict[str, Any]:
         """Bind a requirement fact to a surface via a typed ``renders`` edge (PRIMARY write).
 
@@ -1641,7 +1752,7 @@ def create_app(conn: Any | None = None) -> FastAPI:
                 status_code=400,
                 detail="body must include 'requirementFactId', 'screenId' and 'project'",
             )
-        g = live_graph(org, principal.sub)
+        g = live_graph(org, uid)
         if g.get_fact(requirement_fact_id) is None:
             raise HTTPException(
                 status_code=404, detail=f"unknown fact {requirement_fact_id}"
@@ -1665,6 +1776,7 @@ def create_app(conn: Any | None = None) -> FastAPI:
         body: dict[str, Any] = Body(default={}),
         principal: Principal = Depends(current_user),
         org: str = Depends(active_org),
+        uid: str = Depends(active_user_id),
     ) -> dict[str, Any]:
         """Remove the ``renders`` edge between a requirement fact and a surface.
 
@@ -1678,7 +1790,7 @@ def create_app(conn: Any | None = None) -> FastAPI:
                 status_code=400,
                 detail="body must include 'requirementFactId', 'screenId' and 'project'",
             )
-        g = live_graph(org, principal.sub)
+        g = live_graph(org, uid)
         g.unbind_surface(requirement_fact_id, screen_id, project)
         return {
             "requirementFactId": requirement_fact_id,
@@ -1693,6 +1805,7 @@ def create_app(conn: Any | None = None) -> FastAPI:
         project: str = "",
         principal: Principal = Depends(current_user),
         org: str = Depends(active_org),
+        uid: str = Depends(active_user_id),
     ) -> dict[str, Any]:
         """Active requirement facts that render the surface ``(project, screenId)`` (PRIMARY read).
 
@@ -1701,7 +1814,7 @@ def create_app(conn: Any | None = None) -> FastAPI:
         project = str(project or "").strip()
         if not project:
             raise HTTPException(status_code=400, detail="query param 'project' is required")
-        reqs = live_graph(org, principal.sub).requirements_for_surface(project, screen_id)
+        reqs = live_graph(org, uid).requirements_for_surface(project, screen_id)
         return {
             "project": project,
             "screenId": screen_id,
@@ -1713,9 +1826,10 @@ def create_app(conn: Any | None = None) -> FastAPI:
         fact_id: str,
         principal: Principal = Depends(current_user),
         org: str = Depends(active_org),
+        uid: str = Depends(active_user_id),
     ) -> dict[str, Any]:
         """Active surface facts governed by the requirement ``fact_id`` (which screens it renders)."""
-        surfaces = live_graph(org, principal.sub).surfaces_for_requirement(fact_id)
+        surfaces = live_graph(org, uid).surfaces_for_requirement(fact_id)
         return {"factId": fact_id, "surfaces": [_derivation_view(f) for f in surfaces]}
 
     @app.get("/surfaces/bindings")
@@ -1723,12 +1837,13 @@ def create_app(conn: Any | None = None) -> FastAPI:
         project: str = "",
         principal: Principal = Depends(current_user),
         org: str = Depends(active_org),
+        uid: str = Depends(active_user_id),
     ) -> dict[str, Any]:
         """All requirement<->surface ``renders`` bindings for ``project`` (any state)."""
         project = str(project or "").strip()
         if not project:
             raise HTTPException(status_code=400, detail="query param 'project' is required")
-        bindings = live_graph(org, principal.sub).list_surface_bindings(project)
+        bindings = live_graph(org, uid).list_surface_bindings(project)
         return {"project": project, "bindings": bindings}
 
     @app.get("/surfaces/coverage")
@@ -1737,6 +1852,7 @@ def create_app(conn: Any | None = None) -> FastAPI:
         scope: str | None = None,
         principal: Principal = Depends(current_user),
         org: str = Depends(active_org),
+        uid: str = Depends(active_user_id),
     ) -> dict[str, Any]:
         """Bidirectional completeness gate for ``project``.
 
@@ -1746,7 +1862,7 @@ def create_app(conn: Any | None = None) -> FastAPI:
         project = str(project or "").strip()
         if not project:
             raise HTTPException(status_code=400, detail="query param 'project' is required")
-        cov = live_graph(org, principal.sub).surface_coverage(project, scope=scope)
+        cov = live_graph(org, uid).surface_coverage(project, scope=scope)
         return {
             "project": project,
             "uncoveredSurfaces": [_derivation_view(f) for f in cov["uncoveredSurfaces"]],
@@ -1760,13 +1876,14 @@ def create_app(conn: Any | None = None) -> FastAPI:
         project: str = "",
         principal: Principal = Depends(current_user),
         org: str = Depends(active_org),
+        uid: str = Depends(active_user_id),
     ) -> dict[str, Any]:
         """Active requirements in ``prd-<project>`` not yet verified-complete (derived
         from verification + staleness: never-built | regressed | stale)."""
         project = str(project or "").strip()
         if not project:
             raise HTTPException(status_code=400, detail="query param 'project' is required")
-        items = live_graph(org, principal.sub).incomplete_requirements(project)
+        items = live_graph(org, uid).incomplete_requirements(project)
         return {
             "project": project,
             "incomplete": [_requirement_completeness_view(i) for i in items],
@@ -1777,12 +1894,13 @@ def create_app(conn: Any | None = None) -> FastAPI:
         project: str = "",
         principal: Principal = Depends(current_user),
         org: str = Depends(active_org),
+        uid: str = Depends(active_user_id),
     ) -> dict[str, Any]:
         """Done-of-definition counts for ``prd-<project>``'s active requirements."""
         project = str(project or "").strip()
         if not project:
             raise HTTPException(status_code=400, detail="query param 'project' is required")
-        summary = live_graph(org, principal.sub).completeness_summary(project)
+        summary = live_graph(org, uid).completeness_summary(project)
         return {"project": project, **summary}
 
     @app.get("/context")
@@ -1798,6 +1916,7 @@ def create_app(conn: Any | None = None) -> FastAPI:
         char_budget: int | None = None,
         principal: Principal = Depends(current_user),
         org: str = Depends(active_org),
+        uid: str = Depends(active_user_id),
     ) -> dict[str, Any]:
         """Return active-fact context relevant to ``query`` (the eval read path).
 
@@ -1828,7 +1947,10 @@ def create_app(conn: Any | None = None) -> FastAPI:
                 raise HTTPException(
                     status_code=400, detail="as_of must be an ISO-8601 timestamp"
                 )
-        live = live_graph(org, principal.sub)
+        live = live_graph(org, uid)
+        # Mounts stay keyed on principal.sub for v1: spaces<->mounts interaction is
+        # out of scope, so a space's live retrieval unions only with the default
+        # login's mounts (a noted limitation). The live graph itself IS the space.
         mounts = mounted_store.list(org, principal.sub)
         graph = OverlayGraph(live, mounts) if mounts else live
         exclude = None if include_episodic else [EPISODIC_CATEGORY]

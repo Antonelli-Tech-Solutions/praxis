@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CONTRACT_HEADER, ORG_HEADER, contractHeaders } from "./contract";
+import { CONTRACT_HEADER, ORG_HEADER, SPACE_HEADER, contractHeaders } from "./contract";
 
 describe("contractHeaders", () => {
   it("sets the contract version header by default", () => {
@@ -19,5 +19,15 @@ describe("contractHeaders", () => {
     const headers = contractHeaders("tok123") as Record<string, string>;
     expect(headers.Authorization).toBe("Bearer tok123");
     expect(headers[ORG_HEADER]).toBeUndefined();
+  });
+
+  it("sets X-Praxis-Space when a space id is provided", () => {
+    const headers = contractHeaders("tok123", "acme", "alpha") as Record<string, string>;
+    expect(headers[SPACE_HEADER]).toBe("alpha");
+  });
+
+  it("omits X-Praxis-Space for the default graph (no space id)", () => {
+    const headers = contractHeaders("tok123", "acme") as Record<string, string>;
+    expect(headers[SPACE_HEADER]).toBeUndefined();
   });
 });
