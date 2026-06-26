@@ -17,6 +17,7 @@ Then, in a session, ask Claude to log you in (it calls ``praxis_login``).
 from __future__ import annotations
 
 import json
+import os
 import re
 
 import httpx
@@ -43,7 +44,30 @@ _AUTH_HINT = (
 )
 
 
+def _auth_disabled() -> bool:
+    """Local dev seam mirroring the backend's ``PRAXIS_AUTH_DISABLED=1``.
+
+    When set, the MCP client skips the Cognito login gate entirely: the
+    auth-disabled backend treats every caller as its fixed ``dev-user`` principal
+    and ignores the bearer token, so no login (and no Cognito config) is needed.
+    The data tools just need an org the dev principal belongs to — see ``_dev_org``.
+    """
+    return os.environ.get("PRAXIS_AUTH_DISABLED") == "1"
+
+
+def _dev_org() -> str:
+    """The ``X-Praxis-Org`` to send in auth-disabled mode.
+
+    The backend still authorizes org membership (the dev principal must be a member
+    of this org). Override with ``PRAXIS_MCP_ORG``; defaults to ``"default"``.
+    """
+    return os.environ.get("PRAXIS_MCP_ORG", "default").strip() or "default"
+
+
 def _headers() -> dict[str, str]:
+    if _auth_disabled():
+        # No bearer: the auth-disabled backend ignores it and uses dev-user.
+        return {"X-Praxis-Org": _dev_org()}
     return {
         "Authorization": f"Bearer {identity.token()}",
         "X-Praxis-Org": identity.active_org(),
@@ -72,6 +96,8 @@ def _not_ready() -> str | None:
     Lets the data tools fail soft (telling Claude how to get the user logged in /
     an org selected) instead of raising, so login is fully chat-driven.
     """
+    if _auth_disabled():
+        return None
     if not identity.is_logged_in():
         return (
             "Not logged in to Praxis. Ask the user for their Praxis email and "
@@ -1324,6 +1350,11 @@ def praxis_join_org(org_id: str, password: str) -> str:
 @mcp.tool()
 def praxis_whoami() -> str:
     """Report the current login + active org (and the user's orgs)."""
+    if _auth_disabled():
+        return (
+            f"auth-disabled dev mode: principal 'dev-user', org {_dev_org()!r} "
+            "(no login required)."
+        )
     if not identity.is_logged_in():
         return "Not logged in — call `praxis_login`."
     tenant = identity.load_identity()
