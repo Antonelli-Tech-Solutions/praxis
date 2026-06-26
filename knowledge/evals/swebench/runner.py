@@ -79,7 +79,11 @@ class ArmResult:
     arm: str  # "treatment" | "control"
     patch: str  # final LF-normalized unified diff
     resolved: bool  # from the last grade callback
-    cost_usd: float | None  # cumulative agent cost across rework rounds (cost-to-correct in-arm)
+    # Cumulative agent spend across the rounds actually run: equals the in-arm
+    # cost-to-correct when ``resolved`` (the loop stops at the first resolved round),
+    # and total spend across all K+1 attempts when the arm never resolves. Read it
+    # alongside ``resolved`` — the analysis segregates resolve-rate from cost.
+    cost_usd: float | None
     tokens: int | None
     turns: int | None
     rework_rounds: int
@@ -244,9 +248,11 @@ def run_arm(
     (treatment additionally wires the org-pinned Praxis MCP; control does not) →
     extract the LF patch → ``grade(patch)``. If not resolved and rounds < ``k_rework``,
     re-prompt with the full issue + "still not resolved" + the prior repro (never the
-    gold tests) and repeat. Cost/turns/tokens accumulate across rounds — the in-arm
-    cost-to-correct. ``grade`` is injected so the loop tests offline (U6 passes U2's
-    real grader); ``run_cli`` and ``run_git`` are injected for the same reason.
+    gold tests) and repeat. Cost/turns/tokens accumulate across the rounds run: that
+    sum is the in-arm cost-to-correct when the arm resolves (the loop breaks at the
+    first resolved round), or total spend across all K+1 attempts when it never does.
+    ``grade`` is injected so the loop tests offline (U6 passes U2's real grader);
+    ``run_cli`` and ``run_git`` are injected for the same reason.
     """
     treatment = arm == "treatment"
     # Treatment wires the MCP pinned to the instance's org; control wires nothing.

@@ -5,8 +5,9 @@ work of its own. It *composes* the units already built —
 
 * the U5 runner (:func:`knowledge.evals.swebench.runner.run_arm`) which ALREADY owns
   the repro-test rework loop: it grades after every round, reworks up to ``k_rework``
-  times, and returns ``ArmResult.cost_usd`` as the cumulative in-arm cost-to-correct.
-  U6 does **not** re-implement rework — it builds the grade callback and faithfully
+  times, and returns ``ArmResult.cost_usd`` as cumulative in-arm spend (= cost-to-correct
+  when the arm resolves, total spend across attempts when it does not — read with
+  ``resolved``). U6 does **not** re-implement rework — it builds the grade callback and faithfully
   records whatever ``run_arm`` reports.
 * the U2 grader (:func:`knowledge.evals.swebench.grader.grade`) as the correctness
   oracle: the callback ``run_arm`` wants is ``lambda patch: grade(instance, patch).resolved``.
@@ -94,6 +95,10 @@ def run_one(
     records: list[dict] = []
     for arm in ARMS:
         result = run_arm(instance, arm, grade=grade_fn, k_rework=k_rework, **arm_kwargs)
+        # Catch an arm/result desync early: the record's arm (and its retrieval-overhead
+        # nulling) keys off result.arm, so a runner that returned the wrong arm would
+        # silently mislabel the record. They must agree.
+        assert result.arm == arm, f"run_arm returned arm={result.arm!r} for requested {arm!r}"
         records.append(_arm_record(instance, trial, result))
 
     treat = next(r for r in records if r["arm"] == "treatment")

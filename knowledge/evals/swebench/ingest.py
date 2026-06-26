@@ -253,6 +253,10 @@ def select_window(instance: Instance, fetch: Fetcher,
     cutoff = instance.created_at
     fix = fix_pr_number(instance)
     rows = _merged_pr_list(fetch, limit)
+    # The string compare is correct only because both timestamps are Z-normalized
+    # RFC3339 (gh's `mergedAt` and SWE-rebench's `created_at` both are): lexical order
+    # then matches chronological order. A bare-date or differently-offset cutoff would
+    # mis-window — if that ever changes, parse to datetime before comparing.
     in_window = [
         r for r in rows
         if r.get("mergedAt") and str(r["mergedAt"]) < cutoff and int(r["number"]) != fix

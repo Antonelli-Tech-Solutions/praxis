@@ -17,6 +17,7 @@ import pytest
 
 from knowledge.evals.swebench.grader import (
     GradeResult,
+    _locate_report,
     grade,
     parse_report,
     prepare,
@@ -94,6 +95,27 @@ def test_write_predictions_lf_and_instance_id(tmp_path):
     assert isinstance(row, list) and len(row) == 1
     assert row[0]["instance_id"] == "sympy__sympy-fake-0001"
     assert row[0]["model_patch"] == "diff --git a/x b/x\n+line\n"
+
+
+# ---- report location (pure; fake logs/ tree, no Docker) ---------------------------------
+
+
+def test_locate_report_finds_instance_report(tmp_path, monkeypatch):
+    # The harness writes logs/run_evaluation/<run_id>/<model>/<instance_id>/report.json
+    # relative to cwd; _locate_report globs for it. Build a fake tree and chdir in.
+    inst_id, run_id = "sympy__sympy-fake-0001", "praxis_eval"
+    report_dir = tmp_path / "logs" / "run_evaluation" / run_id / "some_model" / inst_id
+    report_dir.mkdir(parents=True)
+    (report_dir / "report.json").write_text(json.dumps({inst_id: {"resolved": True}}), encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+
+    found = _locate_report(inst_id, run_id)
+    assert found == {inst_id: {"resolved": True}}
+
+
+def test_locate_report_missing_returns_none(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)  # no logs/ tree at all
+    assert _locate_report("sympy__sympy-fake-0001", "praxis_eval") is None
 
 
 def test_grade_empty_patch_unresolved_without_docker(tmp_path):
