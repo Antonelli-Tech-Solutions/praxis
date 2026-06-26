@@ -378,6 +378,42 @@ class PostgresVectorGraph(SearchableGraph):
         newly-persisted fact to that conflicting fact, so the dashboard
         Contradictions tab works directly off the facts spine.
         """
+        decision = self.decide(
+            content,
+            state=state,
+            source=source,
+            scope=scope,
+            category=category,
+            meta=meta,
+            tabular=tabular,
+            derived_from=derived_from,
+        )
+        if decision is None:
+            return None
+        return self.persist(decision)
+
+    def decide(
+        self,
+        content: str,
+        *,
+        state: str = "proposed",
+        source: str | None = None,
+        scope: str | None = None,
+        category: str | None = None,
+        meta: dict | None = None,
+        tabular: bool = False,
+        derived_from: list[str] | None = None,
+    ) -> WriteDecision | None:
+        """Run the read-only half of ``write``: embed, recall, and the policy steps.
+
+        Returns the finished :class:`WriteDecision` (its ``action``/target/embedding
+        decided, ``demote_active_contradiction`` applied) ready for :meth:`persist`,
+        or ``None`` when the write is empty or a policy step dropped it. Performs **no
+        writes** — only ``SELECT``s — so it is safe to run concurrently (each caller
+        on its own connection). ``write`` = this then ``persist``; the batch writer
+        splits the two to decide in parallel and commit serially without losing
+        same-batch dedup (see ``knowledge/serve/batch_writer``).
+        """
         content = content.strip()
         if not content:
             return None
@@ -426,6 +462,17 @@ class PostgresVectorGraph(SearchableGraph):
         # flagged against an already-active fact lands "proposed" (a pending
         # contradiction); the contradiction edge is still persisted below.
         demote_active_contradiction(decision)
+        return decision
+
+    def persist(self, decision: WriteDecision) -> str | None:
+        """Enact a finished :class:`WriteDecision` (the write half of ``write``).
+
+        Writes through the action ``decide`` settled on (add/merge/augment/overwrite),
+        records contradiction edges, and stamps any declared ``derived_from``
+        provenance. Must run on a connection that owns the write — the batch writer
+        calls this serially on the base connection so each commit is visible to the
+        next item's recall.
+        """
         if decision.action == "update" and decision.update_target_id:
             self._merge(decision)
             fact_id = decision.update_target_id
@@ -437,9 +484,34 @@ class PostgresVectorGraph(SearchableGraph):
         else:
             fact_id = self._add(decision)
         self._persist_contradictions(fact_id, decision)
-        if derived_from:
-            self.record_derivation(fact_id, derived_from)
+        if decision.derived_from:
+            self.record_derivation(fact_id, decision.derived_from)
         return fact_id
+
+    def sibling(
+        self, conn: psycopg.Connection, *, policy: list[WriteStep] | None = None
+    ) -> "PostgresVectorGraph":
+        """A clone of this graph bound to ``conn`` (same tenant/embedder/recall config).
+
+        Used by the parallel batch writer to give each worker thread its own
+        connection — a psycopg connection is not safe for concurrent cross-thread
+        use — while preserving identical decide() behavior. ``policy`` defaults to a
+        SHARED reference to this graph's policy; pass a fresh policy list when the
+        steps hold per-call state. The embedder is shared (thread-safe memo)."""
+        return PostgresVectorGraph(
+            conn,
+            self.org_id,
+            self.user_id,
+            embedder=self.embedder,
+            policy=self.policy if policy is None else policy,
+            recall_floor=self.recall_floor,
+            recall_k=self.recall_k,
+            semantic_recall_floor=self.semantic_recall_floor,
+            semantic_recall_k=self.semantic_recall_k,
+            facts_table=self._facts_table,
+            edges_table=self._edges_table,
+            cache_key=self._cache_key,
+        )
 
     def record_episode(
         self,

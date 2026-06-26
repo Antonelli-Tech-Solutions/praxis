@@ -68,7 +68,7 @@ from knowledge.knowledge_graph.write_policy.write_step_variants import (  # noqa
 )
 from knowledge.llm.embedder_variants.memoizing_embedder import MemoizingEmbedder  # noqa: E402
 from knowledge.llm.llm_variants.openrouter_llm import OpenRouterLlm  # noqa: E402
-from knowledge.serve import db, graph_adapter  # noqa: E402
+from knowledge.serve import batch_writer, db, graph_adapter  # noqa: E402
 from knowledge.serve.auth import Principal, make_current_user  # noqa: E402
 from knowledge.serve.facts_candidates import (  # noqa: E402
     DeletionError,
@@ -221,6 +221,44 @@ def _write_insight(
     }
 
 
+def _batch_result_from_outcome(
+    outcome: "batch_writer.BatchOutcome", on_conflict: str, index: int
+) -> dict[str, Any]:
+    """Render a batch writer outcome into the per-item result shape ``_write_insight``
+    returns, derived from the WriteDecision instead of a before/after re-search.
+
+    ``action`` mirrors ``_write_insight``: a contradiction flag -> "surfaced"; a
+    dedup/augment merge into an existing fact -> "merged"; an add or force-overwrite
+    (a fresh row) -> "added". ``contradictionsSurfaced`` counts the decision's
+    ``contradiction:<id>`` flags (the edges ``persist`` records)."""
+    if outcome.error is not None:
+        return {"ok": False, "error": outcome.error, "index": index}
+    decision = outcome.decision
+    if decision is None:
+        # A policy step suppressed the write (empty text is filtered earlier);
+        # nothing landed, so it's ok but not retrievable.
+        return {
+            "ok": True, "summary": "added insight", "action": "added", "id": None,
+            "onConflict": on_conflict, "contradictionsSurfaced": 0, "retrievable": False,
+        }
+    contradictions = sum(1 for f in decision.flags if f.startswith("contradiction:"))
+    if contradictions:
+        action = "surfaced"
+    elif decision.action in ("update", "augment"):
+        action = "merged"
+    else:
+        action = "added"
+    return {
+        "ok": True,
+        "summary": f"{action} insight",
+        "action": action,
+        "id": outcome.fact_id,
+        "onConflict": on_conflict,
+        "contradictionsSurfaced": contradictions,
+        "retrievable": outcome.fact_id is not None,
+    }
+
+
 class _ConnProxy:
     """A connection handle that forwards every access to *the calling thread's*
     real connection (resolved fresh on each attribute access).
@@ -262,6 +300,9 @@ def create_app(conn: Any | None = None) -> FastAPI:
         # we rebind to the proxy below (which would make resolve return the proxy).
         _explicit_conn = conn
         resolve_conn: Callable[[], Any] = lambda: _explicit_conn  # noqa: E731
+        # A single explicit connection (tests): no independent per-worker
+        # connections to hand out, so the batch writer runs serially on it.
+        make_worker_conn: Callable[[], Any] | None = None
     else:
         dsn = db.resolve_dsn()
         if dsn is None:
@@ -280,6 +321,11 @@ def create_app(conn: Any | None = None) -> FastAPI:
             c = db.connect(dsn)
             _tls.conn = c
             return c
+
+        # The batch writer decides items in parallel, each worker on its OWN
+        # connection (a psycopg connection is not safe for concurrent use). This
+        # opens a fresh autocommit connection the worker closes when done.
+        make_worker_conn = lambda: db.connect(dsn)  # noqa: E731
 
     conn = _ConnProxy(resolve_conn)
     orgs_store = OrgsStore(conn)
@@ -1382,8 +1428,11 @@ def create_app(conn: Any | None = None) -> FastAPI:
         Why it exists (gap H8): the local loop accumulates many learnings per
         session. Writing them one-MCP-call-at-a-time pays N HTTP/auth/graph
         setups and, if fired concurrently, can overwhelm the conflict-checked
-        write path. This endpoint does ONE round-trip, builds the policy graph +
-        ingestor ONCE, and writes the items **serially** within the request.
+        write path. This endpoint does ONE round-trip and builds the policy graph
+        ONCE. The conflict-checked semantic insights are **decided in parallel**
+        (each worker on its own connection) and **committed serially** with a
+        same-batch reconciliation pass, so dedup is preserved while the costly
+        recall+judge work overlaps (see ``knowledge/serve/batch_writer``).
 
         Returns ``{"results": [...], "count": int}`` — one result per input item,
         in order, each carrying ``id``/``action``/``contradictionsSurfaced`` and a
@@ -1400,8 +1449,10 @@ def create_app(conn: Any | None = None) -> FastAPI:
             raise HTTPException(
                 status_code=400, detail="onConflict must be 'auto_resolve' or 'surface'"
             )
-        # One policy graph + ingestor for the whole batch (the throughput win); the
-        # episodic store-only path needs no policy, so it reuses the same instance.
+        # One policy graph for the whole batch (the throughput win). It is the serial
+        # "base": it commits each decision and is the connection a same-batch
+        # re-decide runs on. Worker graphs are cloned from it onto their own
+        # connections inside the batch writer.
         graph = PostgresVectorGraph(
             conn, org, uid, policy=_insight_write_policy(on_conflict)
         )
@@ -1419,40 +1470,86 @@ def create_app(conn: Any | None = None) -> FastAPI:
                 if isinstance(item, dict)
             ]
         )
-        _, ingestor, _ = build_trio(graph=graph, llm=None)
-        results: list[dict[str, Any]] = []
+        # Memoize + pre-embed every item's text in ONE batch call up front so the
+        # parallel decides (and any re-decide) resolve embeddings from the memo
+        # instead of paying N round-trips. The memo is lock-guarded so the workers
+        # share it safely; any text not pre-warmed falls through to the inner embedder.
+        graph.embedder = MemoizingEmbedder(graph.embedder)
+        graph.embedder.prefetch(
+            [
+                (item.get("insight") or "").strip()
+                for item in insights
+                if isinstance(item, dict)
+            ]
+        )
+
+        # Pass 1: validate + split. Episodic items are store-only (no recall, and
+        # semantic recall excludes them), so they neither see nor affect the
+        # semantic facts — handle them serially inline; collect the rest for the
+        # parallel decide. ``results[i]`` is filled in input order either way.
+        results: list[dict[str, Any] | None] = [None] * len(insights)
+        to_decide: list[dict[str, Any]] = []
+        decide_index: list[int] = []
         for i, item in enumerate(insights):
             if not isinstance(item, dict):
-                results.append({"ok": False, "error": "each insight must be an object", "index": i})
+                results[i] = {"ok": False, "error": "each insight must be an object", "index": i}
                 continue
             text = (item.get("insight") or "").strip()
             if not text:
-                results.append({"ok": False, "error": "insight required", "index": i})
+                results[i] = {"ok": False, "error": "insight required", "index": i}
                 continue
             item_meta = item.get("meta")
             if item_meta is not None and not isinstance(item_meta, dict):
-                results.append({"ok": False, "error": "meta must be an object", "index": i})
+                results[i] = {"ok": False, "error": "meta must be an object", "index": i}
                 continue
-            # A single bad/edge-case item must not poison the rest of the batch.
-            try:
-                if (item.get("category") or "").strip() == EPISODIC_CATEGORY:
+            if (item.get("category") or "").strip() == EPISODIC_CATEGORY:
+                try:
                     res = _record_episode(graph, text, item)
-                else:
-                    res = _write_insight(
-                        graph,
-                        ingestor,
-                        insight=text,
-                        source=item.get("source"),
-                        scope=item.get("scope"),
-                        category=item.get("category"),
-                        meta=item_meta,
-                        on_conflict=on_conflict,
-                        derived_from=item.get("derivedFrom"),
-                    )
-                res["ok"] = True
-            except Exception as exc:  # noqa: BLE001 - report, don't abort the batch
-                res = {"ok": False, "error": str(exc), "index": i}
-            results.append(res)
+                    res["ok"] = True
+                except Exception as exc:  # noqa: BLE001 - report, don't abort the batch
+                    res = {"ok": False, "error": str(exc), "index": i}
+                results[i] = res
+                continue
+            to_decide.append(
+                {
+                    "text": text,
+                    "state": "active",  # human-gated add -> live knowledge
+                    "source": item.get("source"),
+                    "scope": item.get("scope"),
+                    "category": item.get("category"),
+                    "meta": item_meta,
+                    "derived_from": item.get("derivedFrom"),
+                }
+            )
+            decide_index.append(i)
+
+        # Pass 2: parallel-decide / serial-commit the semantic insights. With an
+        # explicit single connection (tests) there are no independent connections,
+        # so fall back to one worker on the shared connection (still correct: all
+        # items decide before any commit, and the reconciliation pass dedups
+        # same-batch collisions). Don't close a connection we don't own.
+        if to_decide:
+            if make_worker_conn is not None:
+                connect_fn: Callable[[], Any] = make_worker_conn
+                close_fn: Callable[[Any], None] | None = None
+                workers = max(1, int(os.getenv(
+                    "PRAXIS_BATCH_WRITE_WORKERS", str(batch_writer.DEFAULT_MAX_WORKERS)
+                )))
+            else:
+                connect_fn = lambda: conn  # noqa: E731 - shared explicit connection
+                close_fn = lambda _c: None  # noqa: E731 - not ours to close
+                workers = 1
+            outcomes = batch_writer.write_insights(
+                to_decide,
+                base=graph,
+                connect=connect_fn,
+                close=close_fn,
+                policy_factory=lambda: _insight_write_policy(on_conflict),
+                max_workers=workers,
+            )
+            for idx, outcome in zip(decide_index, outcomes):
+                results[idx] = _batch_result_from_outcome(outcome, on_conflict, idx)
+
         return {"results": results, "count": len(results)}
 
     @app.post("/ingest")
