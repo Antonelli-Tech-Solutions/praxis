@@ -4,6 +4,7 @@ import { Authenticator } from "@aws-amplify/ui-react";
 import "@aws-amplify/ui-react/styles.css";
 import { configureAmplify, isLocalAuthBypassEnabled } from "./auth/amplifyConfig";
 import { OrgGate } from "./auth/OrgGate";
+import { SpaceGate } from "./auth/SpaceGate";
 import App from "./App";
 
 configureAmplify();
@@ -14,7 +15,9 @@ configureAmplify();
 // Any deployed build sets VITE_COGNITO_*, so the bypass never runs in production.
 const gated = (
   <OrgGate>
-    <App />
+    <SpaceGate>
+      <App />
+    </SpaceGate>
   </OrgGate>
 );
 

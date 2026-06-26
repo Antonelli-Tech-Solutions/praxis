@@ -17,6 +17,7 @@ Then, in a session, ask Claude to log you in (it calls ``praxis_login``).
 from __future__ import annotations
 
 import json
+import os
 import re
 
 import httpx
@@ -43,11 +44,44 @@ _AUTH_HINT = (
 )
 
 
+def _auth_disabled() -> bool:
+    """Local dev seam: skip the Cognito login gate for an auth-disabled backend.
+
+    Gated on ``PRAXIS_MCP_AUTH_DISABLED=1`` — deliberately distinct from the
+    backend's ``PRAXIS_AUTH_DISABLED`` (which the test harness sets process-wide),
+    so this client bypass never activates unintentionally. When set, the MCP client
+    sends no bearer token (the auth-disabled backend ignores it and uses its fixed
+    ``dev-user`` principal), so no login or Cognito config is needed. The data tools
+    just need an org the dev principal belongs to — see ``_dev_org``.
+    """
+    return os.environ.get("PRAXIS_MCP_AUTH_DISABLED") == "1"
+
+
+def _dev_org() -> str:
+    """The ``X-Praxis-Org`` to send in auth-disabled mode.
+
+    The backend still authorizes org membership (the dev principal must be a member
+    of this org). Override with ``PRAXIS_MCP_ORG``; defaults to ``"default"``.
+    """
+    return os.environ.get("PRAXIS_MCP_ORG", "default").strip() or "default"
+
+
 def _headers() -> dict[str, str]:
-    return {
-        "Authorization": f"Bearer {identity.token()}",
-        "X-Praxis-Org": identity.active_org(),
-    }
+    if _auth_disabled():
+        # No bearer: the auth-disabled backend ignores it and uses dev-user.
+        headers = {"X-Praxis-Org": _dev_org()}
+    else:
+        headers = {
+            "Authorization": f"Bearer {identity.token()}",
+            "X-Praxis-Org": identity.active_org(),
+        }
+    # Only send X-Praxis-Space when a named space is active; an absent/empty header
+    # means the default space (user_id = the login's sub), so the existing one-graph-
+    # per-login behaviour is unchanged for anyone who never selects a space.
+    space = identity.active_space()
+    if space:
+        headers["X-Praxis-Space"] = space
+    return headers
 
 
 def _friendly(exc: httpx.HTTPStatusError) -> str:
@@ -72,6 +106,8 @@ def _not_ready() -> str | None:
     Lets the data tools fail soft (telling Claude how to get the user logged in /
     an org selected) instead of raising, so login is fully chat-driven.
     """
+    if _auth_disabled():
+        return None
     if not identity.is_logged_in():
         return (
             "Not logged in to Praxis. Ask the user for their Praxis email and "
@@ -1322,8 +1358,105 @@ def praxis_join_org(org_id: str, password: str) -> str:
 
 
 @mcp.tool()
+def praxis_create_space(space_id: str, name: str | None = None) -> str:
+    """Create a private working *space* in the active org and select it.
+
+    A space is an independent live knowledge graph owned by your login: it lets one
+    login drive MULTIPLE separate graphs in an org (e.g. different agents on different
+    tasks) instead of the single default graph. ``space_id`` is a short slug you pick
+    (lowercase letters/digits/dash/underscore; ``"default"`` and anything with ``:``
+    are reserved). Spaces are private to the creating login. On success the new space
+    becomes active locally (subsequent get_context / add_insight calls run against it,
+    via the ``X-Praxis-Space`` header). Use ``praxis_select_space`` with ``""`` to
+    return to the default space.
+    """
+    if (hint := _not_ready()) is not None:
+        return hint
+    if not space_id.strip():
+        return "Pass a non-empty space_id (a slug you pick)."
+    try:
+        resp = httpx.post(
+            f"{identity.api_base()}/spaces",
+            json={"spaceId": space_id, "name": name},
+            headers=_headers(),
+            timeout=_WRITE_TIMEOUT,
+        )
+        resp.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code == 409:
+            return f"Space {space_id!r} already exists — select it with praxis_select_space."
+        if exc.response.status_code == 400:
+            return f"Invalid space id {space_id!r}: {exc.response.text}"
+        return _friendly(exc)
+    identity.set_space(space_id)
+    return f"Created space {space_id!r}; it is now the active space."
+
+
+@mcp.tool()
+def praxis_list_space() -> str:
+    """List the private spaces you own in the active org (and which is active).
+
+    Each space is an independent live graph owned by your login (see
+    ``praxis_create_space``). Returns each space's id, name, and creation time, and
+    notes which one is currently active — ``(default)`` when no named space is
+    selected. Switch with ``praxis_select_space``.
+    """
+    if (hint := _not_ready()) is not None:
+        return hint
+    try:
+        resp = httpx.get(
+            f"{identity.api_base()}/spaces",
+            headers=_headers(),
+            timeout=_READ_TIMEOUT,
+        )
+        resp.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        return _friendly(exc)
+    spaces = resp.json().get("spaces", [])
+    active = identity.active_space()
+    active_label = active or "(default)"
+    if not spaces:
+        return f"No named spaces yet. Active space: {active_label}."
+    lines = [f"{len(spaces)} space(s) (active: {active_label}):"]
+    for s in spaces:
+        sid = s.get("space_id") or s.get("spaceId")
+        marker = " *" if sid == active else ""
+        name = s.get("name")
+        label = f" — {name}" if name else ""
+        created = s.get("created_at") or s.get("createdAt")
+        when = f" (created {created})" if created else ""
+        lines.append(f"  {sid}{label}{when}{marker}")
+    return "\n".join(lines)
+
+
+@mcp.tool()
+def praxis_select_space(space_id: str) -> str:
+    """Set the active space for subsequent get_context / add_insight calls.
+
+    Switches the live graph this login drives to the named space (see
+    ``praxis_create_space`` / ``praxis_list_space``). Pass ``""`` or ``"default"`` to
+    clear back to the default space (the login's own single graph). This is local —
+    it just changes the ``X-Praxis-Space`` header sent on later calls.
+    """
+    if not identity.is_logged_in():
+        return "Not logged in — call `praxis_login` first."
+    space = space_id.strip()
+    if space.lower() == "default":
+        space = ""
+    identity.set_space(space)
+    if not space:
+        return "Active space cleared back to the default space."
+    return f"Active space set to {space!r}."
+
+
+@mcp.tool()
 def praxis_whoami() -> str:
     """Report the current login + active org (and the user's orgs)."""
+    if _auth_disabled():
+        return (
+            f"auth-disabled dev mode: principal 'dev-user', org {_dev_org()!r} "
+            "(no login required)."
+        )
     if not identity.is_logged_in():
         return "Not logged in — call `praxis_login`."
     tenant = identity.load_identity()
@@ -1610,6 +1743,71 @@ def praxis_surface_coverage(project: str, scope: str | None = None) -> str:
             "uncoveredSurfaces": surfaces,
             "uncoveredRequirements": reqs,
         },
+    )
+
+
+@mcp.tool()
+def praxis_incomplete_requirements(project: str) -> str:
+    """List the project's requirements that are NOT yet built/verified-complete.
+
+    Completeness is DERIVED from verification signals, never a self-set flag: a
+    requirement is incomplete if it has never had a successful outcome (never-built),
+    its most recent outcome was a failure after a prior success (regressed — the
+    bug/ticket path), or a fact it derives from changed (stale — needs rework). Use
+    this to pick the next requirement to build and to re-find regressed ones after a
+    ticket records a failed outcome.
+
+    Returns a human summary plus a JSON block with ``incomplete`` — one entry per
+    requirement (``id``/``text``/``state``/``source``/``scope``/``category``/``meta``
+    plus ``reason``/``reasons``/``successCount``/``failureCount``/``lastOutcome``).
+    """
+    if (hint := _not_ready()) is not None:
+        return hint
+    try:
+        resp = httpx.get(
+            f"{identity.api_base()}/requirements/incomplete",
+            params={"project": project},
+            headers=_headers(),
+            timeout=_READ_TIMEOUT,
+        )
+        resp.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        return _friendly(exc)
+    payload = resp.json()
+    incomplete = payload.get("incomplete", [])
+    return _structured(
+        f"{len(incomplete)} incomplete requirement(s) in {project}."
+        if incomplete
+        else f"All active requirements in {project} are verified-complete.",
+        {"project": project, "incomplete": incomplete},
+    )
+
+
+@mcp.tool()
+def praxis_completeness_summary(project: str) -> str:
+    """Done-of-definition counts for a project's active requirements.
+
+    Returns totals (``total_active_requirements``/``complete``/``incomplete``) and a
+    ``breakdown`` of incomplete by reason (``never_built``/``stale``/``regressed``),
+    all derived from verification + staleness — no self-set completeness flag.
+    """
+    if (hint := _not_ready()) is not None:
+        return hint
+    try:
+        resp = httpx.get(
+            f"{identity.api_base()}/requirements/completeness",
+            params={"project": project},
+            headers=_headers(),
+            timeout=_READ_TIMEOUT,
+        )
+        resp.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        return _friendly(exc)
+    payload = resp.json()
+    return _structured(
+        f"{payload.get('complete', 0)}/{payload.get('total_active_requirements', 0)} "
+        f"requirement(s) complete in {project}.",
+        payload,
     )
 
 

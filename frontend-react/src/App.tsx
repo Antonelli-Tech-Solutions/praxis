@@ -39,6 +39,7 @@ import { filterCandidates, useCandidates } from "./hooks/useCandidates";
 import { PRESET_IDS } from "./config/dataSource";
 import { LoadingSkeleton } from "./components/ui/LoadingSkeleton";
 import { useOrg } from "./auth/OrgGate";
+import { useSpace } from "./auth/SpaceGate";
 import type { Candidate, CandidateWriteInput } from "./types/candidate";
 import type { LocalLogFileInput } from "./types/transcript";
 import type { ViewTab } from "./types/view";
@@ -82,7 +83,11 @@ export default function App() {
   );
   const [localRawFiles, setLocalRawFiles] = useState<LocalLogFileInput[]>([]);
   const { getToken, orgId, orgName, userId, signOut, switchOrg } = useOrg();
-  const auth = useMemo(() => ({ getToken, orgId }), [getToken, orgId]);
+  const { spaceId } = useSpace();
+  const auth = useMemo(
+    () => ({ getToken, orgId, spaceId }),
+    [getToken, orgId, spaceId],
+  );
   const { config, mode, label, detail, ingestApiBaseUrl, applyConfig } =
     useDataSource(localSession, auth);
   const [healthRefreshKey, setHealthRefreshKey] = useState(0);
