@@ -35,10 +35,14 @@ export interface OrgContextValue {
   userId: string;
   /** The logged-in user's email, when present on the token. */
   email?: string;
+  /** Every org the user belongs to (powers the in-app org switcher). */
+  orgs: OrgMembership[];
   /** Resolve a currently-valid Cognito ID token. */
   getToken: () => Promise<string | undefined>;
   /** Sign the user out of Amplify. */
   signOut: () => Promise<void>;
+  /** Switch the active org in place, without returning to the picker. */
+  selectOrg: (orgId: string) => void;
   /** Clear the active org and return to the workspace picker (stays logged in). */
   switchOrg: () => void;
 }
@@ -272,11 +276,13 @@ export function OrgGate({ children }: OrgGateProps) {
       orgName,
       userId: identity.sub,
       email: identity.email,
+      orgs: memberships,
       getToken,
       signOut: handleSignOut,
+      selectOrg: chooseOrg,
       switchOrg,
     };
-  }, [activeOrg, memberships, identity, getToken, handleSignOut, switchOrg]);
+  }, [activeOrg, memberships, identity, getToken, handleSignOut, chooseOrg, switchOrg]);
 
   if (loading) {
     return <div className="org-gate org-gate--loading">Loading your workspace…</div>;
