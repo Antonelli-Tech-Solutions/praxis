@@ -45,14 +45,16 @@ _AUTH_HINT = (
 
 
 def _auth_disabled() -> bool:
-    """Local dev seam mirroring the backend's ``PRAXIS_AUTH_DISABLED=1``.
+    """Local dev seam: skip the Cognito login gate for an auth-disabled backend.
 
-    When set, the MCP client skips the Cognito login gate entirely: the
-    auth-disabled backend treats every caller as its fixed ``dev-user`` principal
-    and ignores the bearer token, so no login (and no Cognito config) is needed.
-    The data tools just need an org the dev principal belongs to — see ``_dev_org``.
+    Gated on ``PRAXIS_MCP_AUTH_DISABLED=1`` — deliberately distinct from the
+    backend's ``PRAXIS_AUTH_DISABLED`` (which the test harness sets process-wide),
+    so this client bypass never activates unintentionally. When set, the MCP client
+    sends no bearer token (the auth-disabled backend ignores it and uses its fixed
+    ``dev-user`` principal), so no login or Cognito config is needed. The data tools
+    just need an org the dev principal belongs to — see ``_dev_org``.
     """
-    return os.environ.get("PRAXIS_AUTH_DISABLED") == "1"
+    return os.environ.get("PRAXIS_MCP_AUTH_DISABLED") == "1"
 
 
 def _dev_org() -> str:
