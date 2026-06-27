@@ -66,6 +66,7 @@ def test_add_insight_posts_with_auth_and_returns_summary(monkeypatch):
     assert captured["json"] == {
         "insight": "use uv, not pip",
         "onConflict": "auto_resolve",
+        "raw": False,
         "scope": "global",
         "category": "constraint",
     }
@@ -109,6 +110,7 @@ def test_add_insights_batch_posts_list_and_summarizes(monkeypatch):
             {"insight": "deploy on Fridays", "scope": "ops"},
         ],
         "onConflict": "auto_resolve",
+        "raw": False,
     }
     assert captured["headers"]["Authorization"] == "Bearer id-tok"
     assert captured["headers"]["X-Praxis-Org"] == "acme"
