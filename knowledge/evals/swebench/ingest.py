@@ -33,6 +33,8 @@ from __future__ import annotations
 
 import json
 import re
+import time
+import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
 from typing import Protocol
@@ -109,6 +111,14 @@ class HttpClient(Protocol):
     def get_graph(self, space: str, state: str = "active") -> dict: ...
 
 
+# Transient-failure retry policy for UrllibClient (mirrors openrouter_http.default_post):
+# 429 (slowapi per-route limit / OpenRouter upstream) and 5xx are flaky, not fatal — retry
+# with exponential backoff so a higher --ingest-workers backs off instead of crashing.
+_RETRYABLE_STATUS = {429, 500, 502, 503, 504}
+_MAX_ATTEMPTS = 4
+_BACKOFF_BASE = 0.5  # seconds; doubles each retry (0.5, 1.0, 2.0)
+
+
 class OrgConflict(Exception):
     """``POST /orgs`` returned 409 — the org already exists (idempotent create)."""
 
@@ -139,13 +149,32 @@ class UrllibClient:
         headers = {"Content-Type": "application/json", "X-Praxis-Org": self.org}
         if space:
             headers["X-Praxis-Space"] = space
-        req = urllib.request.Request(url, data=data, method=method, headers=headers)
-        with urllib.request.urlopen(req) as resp:
-            return json.load(resp)
+
+        # Retry transient failures with exponential backoff (mirrors the LLM client's
+        # openrouter_http.default_post). The paid routes (/ingest, /context) are rate-
+        # limited to 30/min and the distillation behind them can 429 upstream from
+        # OpenRouter — both are transient, so a higher --ingest-workers degrades into
+        # backoff instead of crashing. A 429 from slowapi or OpenRouter is in the
+        # retryable set; 409 (org/space exists) is NOT, so it still propagates to
+        # post_orgs/post_spaces to become OrgConflict/SpaceConflict, and other 4xx fail fast.
+        last_exc: Exception | None = None
+        for attempt in range(_MAX_ATTEMPTS):
+            req = urllib.request.Request(url, data=data, method=method, headers=headers)
+            try:
+                with urllib.request.urlopen(req) as resp:
+                    return json.load(resp)
+            except urllib.error.HTTPError as exc:
+                if exc.code not in _RETRYABLE_STATUS:
+                    raise  # 409 conflict / other 4xx — caller handles or fails fast
+                last_exc = exc
+            except (urllib.error.URLError, OSError) as exc:
+                last_exc = exc  # connection reset / timeout — transient
+            if attempt + 1 < _MAX_ATTEMPTS:
+                time.sleep(_BACKOFF_BASE * 2**attempt)
+        assert last_exc is not None  # only reached after a caught failure
+        raise last_exc
 
     def post_orgs(self, body: dict) -> dict:
-        import urllib.error
-
         try:
             return self._call("POST", "/orgs", body=body)
         except urllib.error.HTTPError as exc:
@@ -154,8 +183,6 @@ class UrllibClient:
             raise
 
     def post_spaces(self, space_id: str, name: str | None = None) -> dict:
-        import urllib.error
-
         try:
             return self._call("POST", "/spaces", body={"spaceId": space_id, "name": name})
         except urllib.error.HTTPError as exc:

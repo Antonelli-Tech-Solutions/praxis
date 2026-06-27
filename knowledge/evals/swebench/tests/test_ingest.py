@@ -186,6 +186,84 @@ def test_window_handles_mixed_timestamp_formats_at_boundary():
 
 
 # ---------------------------------------------------------------------------
+# UrllibClient transient-failure retry (429/5xx → backoff, not crash).
+# ---------------------------------------------------------------------------
+def _http_error(url, code):
+    import urllib.error
+
+    return urllib.error.HTTPError(url, code, "x", {}, None)
+
+
+def _fake_urlopen_sequence(*outcomes):
+    """Build a urlopen stub that yields each outcome in turn: an int code raises that
+    HTTPError; a bytes value is returned as a readable JSON response."""
+    calls = {"n": 0}
+
+    class _Resp:
+        def __init__(self, data):
+            self._data = data
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def read(self):
+            return self._data
+
+    def urlopen(req, *a, **k):
+        outcome = outcomes[calls["n"]]
+        calls["n"] += 1
+        if isinstance(outcome, int):
+            raise _http_error(req.full_url, outcome)
+        return _Resp(outcome)
+
+    return urlopen, calls
+
+
+def test_urllib_client_retries_429_then_succeeds(monkeypatch):
+    from knowledge.evals.swebench import ingest as ingest_mod
+
+    monkeypatch.setattr(ingest_mod.time, "sleep", lambda *_a, **_k: None)  # no real backoff wait
+    urlopen, calls = _fake_urlopen_sequence(429, 503, b'{"results": [], "count": 0}')
+    monkeypatch.setattr(ingest_mod.urllib.request, "urlopen", urlopen)
+
+    client = ingest_mod.UrllibClient(base_url="http://x")
+    out = client.post_ingest("space", {"documents": []})
+    assert out == {"results": [], "count": 0}
+    assert calls["n"] == 3  # two transient failures retried, third attempt succeeded
+
+
+def test_urllib_client_does_not_retry_client_error(monkeypatch):
+    from knowledge.evals.swebench import ingest as ingest_mod
+
+    monkeypatch.setattr(ingest_mod.time, "sleep", lambda *_a, **_k: None)
+    urlopen, calls = _fake_urlopen_sequence(400, b'{"unreached": true}')
+    monkeypatch.setattr(ingest_mod.urllib.request, "urlopen", urlopen)
+
+    client = ingest_mod.UrllibClient(base_url="http://x")
+    with pytest.raises(Exception) as exc_info:  # noqa: PT011 — HTTPError subclass
+        client.get_graph("space")
+    assert getattr(exc_info.value, "code", None) == 400
+    assert calls["n"] == 1  # 4xx fails fast, no retry
+
+
+def test_urllib_client_409_is_not_retried_and_becomes_space_conflict(monkeypatch):
+    # 409 must NOT be retried and must still surface as SpaceConflict (idempotent create).
+    from knowledge.evals.swebench import ingest as ingest_mod
+
+    monkeypatch.setattr(ingest_mod.time, "sleep", lambda *_a, **_k: None)
+    urlopen, calls = _fake_urlopen_sequence(409, b'{"unreached": true}')
+    monkeypatch.setattr(ingest_mod.urllib.request, "urlopen", urlopen)
+
+    client = ingest_mod.UrllibClient(base_url="http://x")
+    with pytest.raises(SpaceConflict):
+        client.post_spaces("dup")
+    assert calls["n"] == 1  # conflict resolved on the first response, never retried
+
+
+# ---------------------------------------------------------------------------
 # Batching (turn ~50 rate-limited per-PR posts into 1–2).
 # ---------------------------------------------------------------------------
 def test_batches_pack_to_cap_preserving_order():
