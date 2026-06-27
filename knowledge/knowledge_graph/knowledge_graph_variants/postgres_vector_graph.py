@@ -112,6 +112,15 @@ RENDERS_EDGE = "renders"            # src=requirement fact, dst=surface fact
 SURFACE_CATEGORY = "surface"
 REQUIREMENT_CATEGORY = "requirement"
 
+# Coverage "check" facts (agent-factory coverage spine). A free-form category like
+# any other (no schema change): a check is a fact with category="check" carrying its
+# applicability/severity in ``meta`` (e.g. meta.scope="planning"|"validation",
+# meta.applies_to, meta.angle, meta.severity). The factory writes them via the RAW
+# insert path (``/candidates`` -> ``_add``) so distinct checks ACCUMULATE rather than
+# being deduped/merged by the write policy. Read back EXHAUSTIVELY (not top-k) via
+# ``facts_by`` / ``checks_for_surface`` so a completeness gate never silently drops one.
+CHECK_CATEGORY = "check"
+
 # Episodic memory (gap H4). The reserved category that routes a write down the
 # store-only lane (whole, append-only, immutable — never distilled/deduped/
 # contradicted) and out of semantic recall (H2). Load-bearing: a non-episode write
@@ -1223,6 +1232,69 @@ class PostgresVectorGraph(SearchableGraph):
         rows = self._conn.execute(sql, params).fetchall()
         return [self._row_to_fact(r) for r in rows]
 
+    def facts_by(
+        self,
+        *,
+        category: str | None = None,
+        source: str | None = None,
+        scope: str | None = None,
+        state: str | None = "active",
+        meta_filter: dict | None = None,
+    ) -> list[Fact]:
+        """EXHAUSTIVE, server-side filtered enumeration of facts — no top-k, no ranking.
+
+        The completeness primitive the coverage spine needs: ``get_context`` is a
+        semantic top-k that *samples* (it can silently drop a match) and ``all_facts``
+        has no category/meta filter; this returns EVERY active fact matching the given
+        column/meta predicates in one indexed SQL query (not load-all-then-filter in
+        Python), newest first.
+
+        Column equality filters (each optional, AND-combined): ``category``, ``source``,
+        ``scope`` (the top-level scope COLUMN — distinct from ``meta.scope``).
+        ``state`` defaults to ``"active"``; pass ``state=None`` to enumerate across all
+        lifecycle states.
+
+        ``meta_filter`` matches the JSONB ``meta`` column: for each ``{key: value}`` the
+        fact qualifies when ``meta.key == value`` (scalar equality) OR — when
+        ``meta.key`` is a JSON array — ``value`` is a MEMBER of it. The array case lets
+        a check tagged ``meta.applies_to=["s-home","*"]`` match a query for ``"s-home"``
+        or ``"*"``. All keys must match (AND). Respects the same tenancy / sharing
+        visibility and ``cache_key`` binding as the rest of the read surface.
+        """
+        sql = (
+            "SELECT id, text, source, confidence, scope, category, observation_count, "
+            "state, created_at, meta, cluster_id, cluster_label "
+            f"FROM {self._facts_table} WHERE org_id = %s AND (shared OR user_id = %s)"
+        )
+        params: list[object] = [self.org_id, self.user_id]
+        if self._cache_key is not None:
+            sql += " AND cache_key = %s"
+            params.append(self._cache_key)
+        if state is not None:
+            sql += " AND state = %s"
+            params.append(state)
+        if category is not None:
+            sql += " AND category = %s"
+            params.append(category)
+        if source is not None:
+            sql += " AND source = %s"
+            params.append(source)
+        if scope is not None:
+            sql += " AND scope = %s"
+            params.append(scope)
+        for key, value in (meta_filter or {}).items():
+            # Scalar equality OR array-membership, in one indexed JSONB predicate:
+            #   meta->>key = value                      (scalar: "planning")
+            #   jsonb_typeof(meta->key)='array' AND meta->key @> [value]  (list: applies_to)
+            sql += (
+                " AND (meta->>%s = %s OR (jsonb_typeof(meta->%s) = 'array' "
+                "AND meta->%s @> %s::jsonb))"
+            )
+            params.extend([key, value, key, key, json.dumps([value])])
+        sql += " ORDER BY created_at DESC"
+        rows = self._conn.execute(sql, params).fetchall()
+        return [self._row_to_fact(r) for r in rows]
+
     def get_fact(self, fact_id: str) -> Fact | None:
         rows = self._conn.execute(
             "SELECT id, text, source, confidence, scope, category, observation_count, "
@@ -1513,11 +1585,21 @@ class PostgresVectorGraph(SearchableGraph):
         if surface is not None:
             self.remove_edge(requirement_fact_id, surface.id, RENDERS_EDGE)
 
-    def requirements_for_surface(self, project: str, screen_id: str) -> list[Fact]:
-        """PRIMARY query: active requirement facts that RENDER ``(project, screen_id)``.
+    def _facts_for_surface(
+        self,
+        project: str,
+        screen_id: str,
+        *,
+        category: str | None = None,
+        meta_scope: str | None = None,
+    ) -> list[Fact]:
+        """Active facts bound (RENDERS) to ``(project, screen_id)``, newest first.
 
-        Joins ``fact_edges`` (kind=RENDERS_EDGE, dst=surface) to the source facts and
-        returns the ``active`` ones, newest first. Empty when the surface is unknown.
+        The shared join behind ``requirements_for_surface`` (no category filter -> the
+        governing requirements) and ``checks_for_surface`` (category="check", optional
+        ``meta_scope``). ``category``/``meta_scope`` are extra equality predicates on
+        the source fact; with both ``None`` the result is exactly the original
+        ``requirements_for_surface`` behavior. Empty when the surface is unknown.
         """
         surface = self._find_surface(project, screen_id)
         if surface is None:
@@ -1531,12 +1613,42 @@ class PostgresVectorGraph(SearchableGraph):
             "AND e.kind = %s AND e.dst_id = %s AND r.state = 'active'"
         )
         params: list[object] = [self.org_id, self.user_id, RENDERS_EDGE, surface.id]
+        if category is not None:
+            sql += " AND r.category = %s"
+            params.append(category)
+        if meta_scope is not None:
+            sql += " AND r.meta->>'scope' = %s"
+            params.append(meta_scope)
         if self._cache_key is not None:
             sql += " AND e.cache_key = %s"
             params.append(self._cache_key)
         sql += " ORDER BY r.created_at DESC"
         rows = self._conn.execute(sql, params).fetchall()
         return [self._row_to_fact(r) for r in rows]
+
+    def requirements_for_surface(self, project: str, screen_id: str) -> list[Fact]:
+        """PRIMARY query: active requirement facts that RENDER ``(project, screen_id)``.
+
+        Joins ``fact_edges`` (kind=RENDERS_EDGE, dst=surface) to the source facts and
+        returns the ``active`` ones, newest first. Empty when the surface is unknown.
+        """
+        return self._facts_for_surface(project, screen_id)
+
+    def checks_for_surface(
+        self, project: str, screen_id: str, scope: str | None = None
+    ) -> list[Fact]:
+        """All active ``check`` facts bound (RENDERS) to ``(project, screen_id)``.
+
+        The surface-scoped convenience over :meth:`facts_by` for the coverage spine:
+        the generalization of :meth:`requirements_for_surface` to ``category="check"``,
+        reusing the same ``renders``-edge binding. ``scope`` (optional) narrows to a
+        single coverage gate by matching ``meta.scope`` ("planning" | "validation").
+        EXHAUSTIVE (every bound check, no top-k) and active-only, so a rejected check
+        or surface drops out with no stale hook. Empty when the surface is unknown.
+        """
+        return self._facts_for_surface(
+            project, screen_id, category=CHECK_CATEGORY, meta_scope=scope
+        )
 
     def surfaces_for_requirement(self, requirement_fact_id: str) -> list[Fact]:
         """Active surface facts governed by ``requirement_fact_id`` (newest first).

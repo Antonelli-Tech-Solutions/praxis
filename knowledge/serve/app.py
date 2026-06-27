@@ -21,6 +21,7 @@ Run: uv run python -m knowledge.serve   (serves on http://localhost:8000)
 
 from __future__ import annotations
 
+import json
 import os
 import threading
 from datetime import datetime, timezone
@@ -1917,6 +1918,77 @@ def create_app(conn: Any | None = None) -> FastAPI:
             "screenId": screen_id,
             "requirements": [_derivation_view(f) for f in reqs],
         }
+
+    @app.get("/surfaces/{screen_id}/checks")
+    def checks_for_surface(
+        screen_id: str,
+        project: str = "",
+        scope: str | None = None,
+        principal: Principal = Depends(current_user),
+        org: str = Depends(active_org),
+        uid: str = Depends(active_user_id),
+    ) -> dict[str, Any]:
+        """Active ``check`` facts bound to the surface ``(project, screenId)`` (EXHAUSTIVE).
+
+        The coverage-spine convenience over ``/facts/by``: every check the
+        ``renders`` edge binds to this screen, optionally narrowed to one gate via
+        ``scope`` (matches ``meta.scope`` — "planning" | "validation"). Active-only.
+        """
+        project = str(project or "").strip()
+        if not project:
+            raise HTTPException(status_code=400, detail="query param 'project' is required")
+        checks = live_graph(org, uid).checks_for_surface(project, screen_id, scope=scope)
+        return {
+            "project": project,
+            "screenId": screen_id,
+            "scope": scope,
+            "checks": [_derivation_view(f) for f in checks],
+        }
+
+    @app.get("/facts/by")
+    def facts_by(
+        category: str | None = None,
+        source: str | None = None,
+        scope: str | None = None,
+        state: str = "active",
+        meta: str | None = None,
+        principal: Principal = Depends(current_user),
+        org: str = Depends(active_org),
+        uid: str = Depends(active_user_id),
+    ) -> dict[str, Any]:
+        """EXHAUSTIVE, server-side filtered fact enumeration (no top-k, no ranking).
+
+        The completeness primitive: returns EVERY active fact matching the column
+        filters (``category``/``source``/``scope`` — the top-level scope column) plus
+        the JSONB ``meta`` filter. ``state`` defaults to ``active``; pass
+        ``state=any`` (or empty) to enumerate across all lifecycle states. ``meta`` is
+        a JSON object string (e.g. ``{"scope":"validation","applies_to":"s-home"}``);
+        each key matches by scalar equality OR array-membership. 400 on invalid JSON.
+        """
+        state_filter: str | None = state
+        if state in ("", "any", "all"):
+            state_filter = None
+        meta_filter: dict | None = None
+        if meta is not None and meta.strip():
+            try:
+                parsed = json.loads(meta)
+            except json.JSONDecodeError as exc:
+                raise HTTPException(
+                    status_code=400, detail=f"meta must be valid JSON: {exc}"
+                ) from exc
+            if not isinstance(parsed, dict):
+                raise HTTPException(
+                    status_code=400, detail="meta must be a JSON object"
+                )
+            meta_filter = parsed
+        facts = live_graph(org, uid).facts_by(
+            category=category,
+            source=source,
+            scope=scope,
+            state=state_filter,
+            meta_filter=meta_filter,
+        )
+        return {"facts": [_derivation_view(f) for f in facts]}
 
     @app.get("/facts/{fact_id}/surfaces")
     def surfaces_for_requirement(
