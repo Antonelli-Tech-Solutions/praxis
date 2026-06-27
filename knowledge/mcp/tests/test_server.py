@@ -958,3 +958,82 @@ def test_auth_failure_maps_to_friendly_message(monkeypatch):
 
     out = server.praxis_get_context("anything")
     assert "login" in out.lower()
+
+
+def test_facts_by_sends_filters_and_json_meta(monkeypatch):
+    _patch_identity(monkeypatch)
+    captured = {}
+
+    def fake_get(url, params, headers, timeout=None):
+        captured["url"] = url
+        captured["params"] = params
+        captured["headers"] = headers
+        return _Resp({"facts": [{"id": "c1", "category": "check"}]})
+
+    monkeypatch.setattr(server.httpx, "get", fake_get)
+
+    out = server.praxis_facts_by(
+        category="check",
+        state="active",
+        meta_filter={"scope": "validation", "applies_to": "auth"},
+    )
+
+    assert captured["url"] == "http://api.test/facts/by"
+    assert captured["params"]["category"] == "check"
+    assert captured["params"]["state"] == "active"
+    # meta_filter is JSON-encoded into a single query param.
+    assert json.loads(captured["params"]["meta"]) == {
+        "scope": "validation",
+        "applies_to": "auth",
+    }
+    assert captured["headers"]["X-Praxis-Org"] == "acme"
+    data = _extract_json(out)
+    assert data["facts"] == [{"id": "c1", "category": "check"}]
+
+
+def test_facts_by_omits_meta_param_when_unset(monkeypatch):
+    _patch_identity(monkeypatch)
+    captured = {}
+    monkeypatch.setattr(
+        server.httpx,
+        "get",
+        lambda url, params, headers, timeout=None: captured.update(params=params)
+        or _Resp({"facts": []}),
+    )
+    out = server.praxis_facts_by(source="prd-app")
+    assert "meta" not in captured["params"]
+    assert captured["params"]["source"] == "prd-app"
+    assert "No facts match" in out
+
+
+def test_checks_for_surface_sends_project_and_scope(monkeypatch):
+    _patch_identity(monkeypatch)
+    captured = {}
+
+    def fake_get(url, params, headers, timeout=None):
+        captured["url"] = url
+        captured["params"] = params
+        return _Resp({"checks": [{"id": "c1"}, {"id": "c2"}]})
+
+    monkeypatch.setattr(server.httpx, "get", fake_get)
+
+    out = server.praxis_checks_for_surface("demo", "s-home", scope="validation")
+
+    assert captured["url"] == "http://api.test/surfaces/s-home/checks"
+    assert captured["params"] == {"project": "demo", "scope": "validation"}
+    data = _extract_json(out)
+    assert {c["id"] for c in data["checks"]} == {"c1", "c2"}
+
+
+def test_checks_for_surface_omits_scope_when_unset(monkeypatch):
+    _patch_identity(monkeypatch)
+    captured = {}
+    monkeypatch.setattr(
+        server.httpx,
+        "get",
+        lambda url, params, headers, timeout=None: captured.update(params=params)
+        or _Resp({"checks": []}),
+    )
+    out = server.praxis_checks_for_surface("demo", "s-home")
+    assert captured["params"] == {"project": "demo"}
+    assert "No checks" in out
