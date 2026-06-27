@@ -3,6 +3,7 @@ import { nextPromotionState } from "./candidateModel";
 
 export const CONTRACT_HEADER = "X-Praxis-Contract";
 export const ORG_HEADER = "X-Praxis-Org";
+export const SPACE_HEADER = "X-Praxis-Space";
 
 const RESOLUTION_TO_API: Record<string, string> = {
   keep_primary: "keep_a",
@@ -15,7 +16,11 @@ export function contractVersion(): string {
   return import.meta.env.VITE_PRAXIS_CONTRACT_VERSION?.trim() || "1";
 }
 
-export function contractHeaders(token?: string, orgId?: string): HeadersInit {
+export function contractHeaders(
+  token?: string,
+  orgId?: string,
+  spaceId?: string,
+): HeadersInit {
   const headers: Record<string, string> = {
     Accept: "application/json",
     "Content-Type": "application/json",
@@ -26,6 +31,11 @@ export function contractHeaders(token?: string, orgId?: string): HeadersInit {
   }
   if (orgId) {
     headers[ORG_HEADER] = orgId;
+  }
+  // The default space sends no header (the backend reads principal.sub); a named
+  // space selects a sibling working graph within the same org.
+  if (spaceId) {
+    headers[SPACE_HEADER] = spaceId;
   }
   return headers;
 }

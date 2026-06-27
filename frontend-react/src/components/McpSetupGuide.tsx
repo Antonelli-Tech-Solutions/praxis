@@ -172,6 +172,14 @@ export function McpSetupGuide() {
           (you set its join password) or <code>praxis_join_org</code>. Check state any
           time with <code>praxis_whoami</code>.
         </p>
+        <p className="muted small">
+          Want a second, independent working graph inside an org (e.g. to keep an
+          experiment separate)? Create one with <code>praxis_create_space</code>, list
+          them with <code>praxis_list_space</code>, and switch with{" "}
+          <code>praxis_select_space</code> (<code>praxis_select_space(&quot;&quot;)</code>{" "}
+          returns to the default graph). The selected space is cached alongside the
+          active org and rides the <code>X-Praxis-Space</code> header.
+        </p>
       </div>
 
       <div className="mcp-guide__step">
@@ -207,6 +215,16 @@ export function McpSetupGuide() {
           <code>praxis_whoami</code> to confirm. <strong>Reconnect <code>/mcp</code></strong>{" "}
           after editing the config so the new env takes effect. Each agent&apos;s caches start
           empty, so each logs in independently and pins its own org.
+        </p>
+        <p className="muted small">
+          To run several agents in the <strong>same org</strong> on{" "}
+          <strong>different working graphs</strong>, give each its own{" "}
+          <em>space</em> rather than its own org: either select a different space in each
+          agent&apos;s cache (<code>praxis_select_space</code>), or pin one per process
+          without a select call via the <code>PRAXIS_SPACE</code> environment variable
+          (it overrides the cached space for that server). Effective tenancy is{" "}
+          <code>(org_id, user_id::space)</code>, so the graphs stay fully isolated
+          server-side.
         </p>
       </div>
 
@@ -265,6 +283,41 @@ export function McpSetupGuide() {
             </tr>
             <tr>
               <td>
+                <code>praxis_create_space(space_id, name?)</code> /{" "}
+                <code>praxis_list_space()</code> /{" "}
+                <code>praxis_select_space(space_id)</code>
+              </td>
+              <td>
+                Create, list, and switch between separate working graphs inside the
+                active org (a private second axis on tenancy). Select{" "}
+                <code>&quot;&quot;</code> to return to the default graph; or pin one per
+                process with the <code>PRAXIS_SPACE</code> env var.
+              </td>
+            </tr>
+            <tr>
+              <td>
+                <code>praxis_delete_space(space_id)</code>
+              </td>
+              <td>
+                <strong>Destructive.</strong> Permanently delete one of your spaces and
+                its entire working graph (facts, snapshots, mounts). If you delete the
+                space you currently have selected, the cache falls back to the default
+                graph automatically.
+              </td>
+            </tr>
+            <tr>
+              <td>
+                <code>praxis_delete_org(org_id)</code>
+              </td>
+              <td>
+                <strong>Destructive &amp; owner-only.</strong> Permanently delete an org
+                and ALL of its data for <em>every</em> member (knowledge graphs,
+                snapshots, spaces, api keys, memberships). A non-owner member gets a
+                clear refusal; non-members 404.
+              </td>
+            </tr>
+            <tr>
+              <td>
                 <code>praxis_get_context(query, top_k=8, as_of?, include_episodic=false)</code>
               </td>
               <td>
@@ -280,22 +333,25 @@ export function McpSetupGuide() {
             </tr>
             <tr>
               <td>
-                <code>praxis_add_insight(insight, derived_from?)</code>
+                <code>praxis_add_insight(insight, derived_from?, raw=False)</code>
               </td>
               <td>
                 Store a single fully-approved fact (confidence 1.0). Re-adds merge;
                 conflicts force-overwrite the nearest contradicting fact. Pass{" "}
                 <code>derived_from</code> (a list of source fact ids) to record H5{" "}
                 <code>derived_from</code> edges so the new learning is traceable to — and
-                invalidated with — its sources. (The optional{" "}
-                <code>scope</code> / <code>category</code> / <code>source</code> args are
-                accepted but not yet honored by the backend — scope and category are
-                derived during ingestion.)
+                invalidated with — its sources. Set <code>raw=True</code> for a{" "}
+                <strong>fast trusted insert</strong> that skips dedup and the
+                conflict/LLM steps (redaction still runs, so secrets are scrubbed) —
+                ideal when you trust the input and per-item LLM checks would be too slow.
+                (The optional <code>scope</code> / <code>category</code> /{" "}
+                <code>source</code> args are accepted but not yet honored by the
+                backend — scope and category are derived during ingestion.)
               </td>
             </tr>
             <tr>
               <td>
-                <code>praxis_add_insights(insights, on_conflict?)</code>
+                <code>praxis_add_insights(insights, on_conflict?, raw=False)</code>
               </td>
               <td>
                 Bulk sibling of <code>praxis_add_insight</code>: store many
@@ -305,7 +361,11 @@ export function McpSetupGuide() {
                 objects; <code>on_conflict</code> is batch-level
                 (<code>auto_resolve</code> | <code>surface</code>). Returns one result per
                 item (<code>ok</code>/<code>id</code>/<code>action</code>/<code>retrievable</code>);
-                a bad item never aborts the rest.
+                a bad item never aborts the rest. Set <code>raw=True</code> for a{" "}
+                <strong>fast trusted bulk insert</strong> that skips dedup +
+                conflict/LLM for the whole batch (keeps redaction) — the fast lane for
+                large trusted loads that would otherwise time out on per-item LLM
+                conflict checks.
               </td>
             </tr>
             <tr>

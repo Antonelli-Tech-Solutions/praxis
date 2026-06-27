@@ -232,6 +232,11 @@ export interface ApiDataProviderAuth {
   getToken?: () => Promise<string | undefined>;
   /** Active org id sent as X-Praxis-Org for server-side tenancy. */
   orgId?: string;
+  /**
+   * Active space id sent as X-Praxis-Space. Selects a sibling working graph
+   * within the org; empty/undefined targets the login's default graph.
+   */
+  spaceId?: string;
 }
 
 export function createApiDataProvider(
@@ -242,7 +247,7 @@ export function createApiDataProvider(
 
   async function authHeaders(): Promise<HeadersInit> {
     const token = auth?.getToken ? await auth.getToken() : undefined;
-    return contractHeaders(token, auth?.orgId);
+    return contractHeaders(token, auth?.orgId, auth?.spaceId);
   }
 
   async function request(
@@ -462,7 +467,7 @@ export async function postIngestJsonl(
   const token = resolved.getToken ? await resolved.getToken() : undefined;
   const response = await fetch(`${root}/ingest/jsonl`, {
     method: "POST",
-    headers: contractHeaders(token, resolved.orgId),
+    headers: contractHeaders(token, resolved.orgId, resolved.spaceId),
     body: JSON.stringify({ files }),
   });
 
@@ -494,7 +499,7 @@ export async function postInsight(
   const token = resolved.getToken ? await resolved.getToken() : undefined;
   const response = await fetch(`${root}/insights`, {
     method: "POST",
-    headers: contractHeaders(token, resolved.orgId),
+    headers: contractHeaders(token, resolved.orgId, resolved.spaceId),
     body: JSON.stringify({ insight: text }),
   });
 
@@ -530,7 +535,7 @@ export async function postRegenerateEvals(
   const token = resolved.getToken ? await resolved.getToken() : undefined;
   const response = await fetch(`${root}/evals/regenerate`, {
     method: "POST",
-    headers: contractHeaders(token, resolved.orgId),
+    headers: contractHeaders(token, resolved.orgId, resolved.spaceId),
     body: JSON.stringify({ preset }),
   });
 
@@ -564,11 +569,11 @@ export interface EvalScopesResponse {
 
 async function resolveToken(
   auth?: string | ApiDataProviderAuth,
-): Promise<{ token?: string; orgId?: string }> {
+): Promise<{ token?: string; orgId?: string; spaceId?: string }> {
   const resolved: ApiDataProviderAuth =
     typeof auth === "string" ? { getToken: async () => auth } : auth ?? {};
   const token = resolved.getToken ? await resolved.getToken() : undefined;
-  return { token, orgId: resolved.orgId };
+  return { token, orgId: resolved.orgId, spaceId: resolved.spaceId };
 }
 
 export async function listEvalScopes(
@@ -576,9 +581,9 @@ export async function listEvalScopes(
   auth?: string | ApiDataProviderAuth,
 ): Promise<EvalScopesResponse> {
   const root = apiBaseUrl.replace(/\/$/, "");
-  const { token, orgId } = await resolveToken(auth);
+  const { token, orgId, spaceId } = await resolveToken(auth);
   const response = await fetch(`${root}/evals/scopes`, {
-    headers: contractHeaders(token, orgId),
+    headers: contractHeaders(token, orgId, spaceId),
   });
   if (!response.ok) {
     const message = responseDetail(await response.text(), response.statusText);
@@ -604,9 +609,9 @@ export async function listCachedEvalCases(
   auth?: string | ApiDataProviderAuth,
 ): Promise<Map<string, number>> {
   const root = apiBaseUrl.replace(/\/$/, "");
-  const { token, orgId } = await resolveToken(auth);
+  const { token, orgId, spaceId } = await resolveToken(auth);
   const response = await fetch(`${root}/evals/cached`, {
-    headers: contractHeaders(token, orgId),
+    headers: contractHeaders(token, orgId, spaceId),
   });
   if (!response.ok) {
     const message = responseDetail(await response.text(), response.statusText);
@@ -653,14 +658,14 @@ export async function regenerateEvalCache(
   auth?: string | ApiDataProviderAuth,
 ): Promise<EvalCacheResult> {
   const root = apiBaseUrl.replace(/\/$/, "");
-  const { token, orgId } = await resolveToken(auth);
+  const { token, orgId, spaceId } = await resolveToken(auth);
   const body: Record<string, unknown> = {};
   if (caseIds) body.caseIds = caseIds;
   if (scopes) body.scopes = scopes;
   if (distill !== undefined) body.distill = distill;
   const response = await fetch(`${root}/evals/regenerate`, {
     method: "POST",
-    headers: contractHeaders(token, orgId),
+    headers: contractHeaders(token, orgId, spaceId),
     body: JSON.stringify(body),
   });
   if (!response.ok) {
@@ -687,14 +692,14 @@ export async function loadEvals(
   auth?: string | ApiDataProviderAuth,
 ): Promise<EvalLoadResult> {
   const root = apiBaseUrl.replace(/\/$/, "");
-  const { token, orgId } = await resolveToken(auth);
+  const { token, orgId, spaceId } = await resolveToken(auth);
   const body: Record<string, unknown> = { mode };
   if (caseIds) body.caseIds = caseIds;
   if (scopes) body.scopes = scopes;
   if (distill !== undefined) body.distill = distill;
   const response = await fetch(`${root}/evals/load`, {
     method: "POST",
-    headers: contractHeaders(token, orgId),
+    headers: contractHeaders(token, orgId, spaceId),
     body: JSON.stringify(body),
   });
   if (!response.ok) {
@@ -718,10 +723,10 @@ async function snapshotRequest(
   body?: Record<string, unknown>,
 ): Promise<unknown> {
   const root = apiBaseUrl.replace(/\/$/, "");
-  const { token, orgId } = await resolveToken(auth);
+  const { token, orgId, spaceId } = await resolveToken(auth);
   const response = await fetch(`${root}${path}`, {
     method,
-    headers: contractHeaders(token, orgId),
+    headers: contractHeaders(token, orgId, spaceId),
     body: body ? JSON.stringify(body) : undefined,
   });
   if (!response.ok) {

@@ -69,11 +69,19 @@ def _dev_org() -> str:
 def _headers() -> dict[str, str]:
     if _auth_disabled():
         # No bearer: the auth-disabled backend ignores it and uses dev-user.
-        return {"X-Praxis-Org": _dev_org()}
-    return {
-        "Authorization": f"Bearer {identity.token()}",
-        "X-Praxis-Org": identity.active_org(),
-    }
+        headers = {"X-Praxis-Org": _dev_org()}
+    else:
+        headers = {
+            "Authorization": f"Bearer {identity.token()}",
+            "X-Praxis-Org": identity.active_org(),
+        }
+    # Only send X-Praxis-Space when a named space is active; an absent/empty header
+    # means the default space (user_id = the login's sub), so the existing one-graph-
+    # per-login behaviour is unchanged for anyone who never selects a space.
+    space = identity.active_space()
+    if space:
+        headers["X-Praxis-Space"] = space
+    return headers
 
 
 def _friendly(exc: httpx.HTTPStatusError) -> str:
@@ -134,6 +142,10 @@ def praxis_get_context(
     top_k: int = 8,
     include_episodic: bool = False,
     as_of: str | None = None,
+    category: str | None = None,
+    categories: list[str] | None = None,
+    scope: str | None = None,
+    meta_filter: dict | None = None,
 ) -> str:
     """Retrieve relevant stored knowledge for the current task.
 
@@ -152,6 +164,15 @@ def praxis_get_context(
     to include them. ``as_of`` (an ISO-8601 timestamp, e.g. ``2024-01-01T00:00:00Z``)
     rewinds retrieval to that instant — facts written later are excluded — for
     point-in-time recall.
+
+    Optional POSITIVE filters narrow the similarity-ranked results to a subset
+    (still ranked by relevance, not exhaustive — use ``praxis_facts_by`` for an
+    exhaustive enumeration): ``category`` (single) and/or ``categories`` (a list)
+    keep only those categories; ``scope`` matches the top-level scope; ``meta_filter``
+    is a ``{key: value}`` object matched against the JSONB ``meta`` (scalar equality
+    OR array-membership) — e.g. category="check" with meta_filter={"scope":"planning"}
+    returns the planning checks most similar to ``query``. Filters apply to live and
+    mounted facts alike.
     """
     if (hint := _not_ready()) is not None:
         return hint
@@ -160,6 +181,14 @@ def praxis_get_context(
         params["include_episodic"] = True
     if as_of is not None:
         params["as_of"] = as_of
+    if category:
+        params["category"] = category
+    if categories:
+        params["categories"] = ",".join(categories)
+    if scope:
+        params["scope"] = scope
+    if meta_filter:
+        params["meta"] = json.dumps(meta_filter)
     try:
         resp = httpx.get(
             f"{identity.api_base()}/context",
@@ -287,6 +316,7 @@ def praxis_add_insight(
     meta: dict | None = None,
     on_conflict: str = "auto_resolve",
     derived_from: list[str] | None = None,
+    raw: bool = False,
 ) -> str:
     """Store a durable insight in the user's knowledge graph.
 
@@ -313,12 +343,17 @@ def praxis_add_insight(
     facts this insight was derived from and the backend links a ``derived_from``
     edge (this fact -> each source) so an invalidated source can later surface
     this fact as suspect.
+
+    ``raw=True`` is the fast lane for a trusted insert: the backend skips dedup and
+    the LLM conflict/claim steps (so ``on_conflict`` no longer applies) while still
+    scrubbing secrets via redaction. Use it for bulk trusted writes that time out on
+    the per-item LLM conflict check; leave it ``False`` for normal reconciled writes.
     """
     if (hint := _not_ready()) is not None:
         return hint
     if on_conflict not in ("auto_resolve", "surface"):
         return "on_conflict must be 'auto_resolve' or 'surface'."
-    body: dict[str, object] = {"insight": insight, "onConflict": on_conflict}
+    body: dict[str, object] = {"insight": insight, "onConflict": on_conflict, "raw": raw}
     if scope is not None:
         body["scope"] = scope
     if category is not None:
@@ -365,6 +400,7 @@ def praxis_add_insight(
 def praxis_add_insights(
     insights: list[dict],
     on_conflict: str = "auto_resolve",
+    raw: bool = False,
 ) -> str:
     """Store many already-distilled insights in ONE call (bulk sibling of praxis_add_insight).
 
@@ -383,6 +419,12 @@ def praxis_add_insights(
     ``"auto_resolve"`` (default) overwrites a conflicting fact; ``"surface"`` keeps
     both and raises a pending contradiction for human review.
 
+    ``raw=True`` is the fast lane for a trusted bulk insert: the backend skips dedup
+    and the LLM conflict/claim steps (so ``on_conflict`` no longer applies) while
+    still scrubbing secrets via redaction. Use it for large trusted batches (e.g. 71
+    items) that time out on the per-item LLM conflict check; leave it ``False`` for
+    normal reconciled writes.
+
     Returns a structured JSON block with one result per insight (in order), each
     carrying ``ok``/``id``/``action``/``retrievable`` (read-your-writes confirmed)
     and, on a per-item failure, an ``error`` — a bad item never aborts the rest.
@@ -393,7 +435,7 @@ def praxis_add_insights(
         return "on_conflict must be 'auto_resolve' or 'surface'."
     if not isinstance(insights, list) or not insights:
         return "insights must be a non-empty list of insight objects."
-    body = {"insights": insights, "onConflict": on_conflict}
+    body = {"insights": insights, "onConflict": on_conflict, "raw": raw}
     try:
         resp = httpx.post(
             f"{identity.api_base()}/insights/batch",
@@ -1350,6 +1392,166 @@ def praxis_join_org(org_id: str, password: str) -> str:
 
 
 @mcp.tool()
+def praxis_delete_org(org_id: str) -> str:
+    """Permanently delete an entire org and ALL of its data — owner-only, destructive.
+
+    This wipes the org for EVERY member: all members' live graphs, cached snapshots,
+    mounts, and API keys are purged, then the org (and its memberships and spaces) is
+    removed. Only an org *owner* may do this. There is no undo. Confirm explicitly
+    with the user before calling — this is far more destructive than ``praxis_clear_graph``
+    (which only clears your own graph). Use ``praxis_select_org`` afterward to switch
+    to another org.
+    """
+    if not identity.is_logged_in():
+        return "Not logged in — call `praxis_login` first."
+    if not org_id.strip():
+        return "Pass a non-empty org_id (see praxis_whoami)."
+    org_id = org_id.strip()
+    try:
+        resp = httpx.delete(
+            f"{identity.api_base()}/orgs/{org_id}",
+            headers={"Authorization": f"Bearer {identity.token()}"},
+            timeout=_WRITE_TIMEOUT,
+        )
+        resp.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code == 404:
+            return f"Unknown org {org_id!r} — you are not a member (see praxis_whoami)."
+        if exc.response.status_code == 403:
+            return f"Only an owner can delete org {org_id!r} — you are not its owner."
+        return _friendly(exc)
+    return f"Deleted org {org_id!r} and all of its data. Select another org with praxis_select_org."
+
+
+@mcp.tool()
+def praxis_create_space(space_id: str, name: str | None = None) -> str:
+    """Create a private working *space* in the active org and select it.
+
+    A space is an independent live knowledge graph owned by your login: it lets one
+    login drive MULTIPLE separate graphs in an org (e.g. different agents on different
+    tasks) instead of the single default graph. ``space_id`` is a short slug you pick
+    (lowercase letters/digits/dash/underscore; ``"default"`` and anything with ``:``
+    are reserved). Spaces are private to the creating login. On success the new space
+    becomes active locally (subsequent get_context / add_insight calls run against it,
+    via the ``X-Praxis-Space`` header). Use ``praxis_select_space`` with ``""`` to
+    return to the default space.
+    """
+    if (hint := _not_ready()) is not None:
+        return hint
+    if not space_id.strip():
+        return "Pass a non-empty space_id (a slug you pick)."
+    try:
+        resp = httpx.post(
+            f"{identity.api_base()}/spaces",
+            json={"spaceId": space_id, "name": name},
+            headers=_headers(),
+            timeout=_WRITE_TIMEOUT,
+        )
+        resp.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code == 409:
+            return f"Space {space_id!r} already exists — select it with praxis_select_space."
+        if exc.response.status_code == 400:
+            return f"Invalid space id {space_id!r}: {exc.response.text}"
+        return _friendly(exc)
+    identity.set_space(space_id)
+    return f"Created space {space_id!r}; it is now the active space."
+
+
+@mcp.tool()
+def praxis_list_space() -> str:
+    """List the private spaces you own in the active org (and which is active).
+
+    Each space is an independent live graph owned by your login (see
+    ``praxis_create_space``). Returns each space's id, name, and creation time, and
+    notes which one is currently active — ``(default)`` when no named space is
+    selected. Switch with ``praxis_select_space``.
+    """
+    if (hint := _not_ready()) is not None:
+        return hint
+    try:
+        resp = httpx.get(
+            f"{identity.api_base()}/spaces",
+            headers=_headers(),
+            timeout=_READ_TIMEOUT,
+        )
+        resp.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        return _friendly(exc)
+    spaces = resp.json().get("spaces", [])
+    active = identity.active_space()
+    active_label = active or "(default)"
+    if not spaces:
+        return f"No named spaces yet. Active space: {active_label}."
+    lines = [f"{len(spaces)} space(s) (active: {active_label}):"]
+    for s in spaces:
+        sid = s.get("space_id") or s.get("spaceId")
+        marker = " *" if sid == active else ""
+        name = s.get("name")
+        label = f" — {name}" if name else ""
+        created = s.get("created_at") or s.get("createdAt")
+        when = f" (created {created})" if created else ""
+        lines.append(f"  {sid}{label}{when}{marker}")
+    return "\n".join(lines)
+
+
+@mcp.tool()
+def praxis_select_space(space_id: str) -> str:
+    """Set the active space for subsequent get_context / add_insight calls.
+
+    Switches the live graph this login drives to the named space (see
+    ``praxis_create_space`` / ``praxis_list_space``). Pass ``""`` or ``"default"`` to
+    clear back to the default space (the login's own single graph). This is local —
+    it just changes the ``X-Praxis-Space`` header sent on later calls.
+    """
+    if not identity.is_logged_in():
+        return "Not logged in — call `praxis_login` first."
+    space = space_id.strip()
+    if space.lower() == "default":
+        space = ""
+    identity.set_space(space)
+    if not space:
+        return "Active space cleared back to the default space."
+    return f"Active space set to {space!r}."
+
+
+@mcp.tool()
+def praxis_delete_space(space_id: str) -> str:
+    """Permanently delete one of your private spaces and its entire working graph.
+
+    This is destructive: it purges the space's live knowledge graph (every fact,
+    edge, claim, snapshot, and mount owned by that space) and removes the space
+    itself. The default graph and your other spaces are untouched. Only the space's
+    owning login can delete it. Confirm with the user before calling — there is no
+    undo (save a snapshot first if unsure). If the deleted space was the active one,
+    this falls back locally to the default space.
+    """
+    if (hint := _not_ready()) is not None:
+        return hint
+    if not space_id.strip():
+        return "Pass a non-empty space_id (see praxis_list_space)."
+    space_id = space_id.strip()
+    try:
+        resp = httpx.delete(
+            f"{identity.api_base()}/spaces/{space_id}",
+            headers=_headers(),
+            timeout=_WRITE_TIMEOUT,
+        )
+        resp.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code == 404:
+            return f"Unknown space {space_id!r} — list your spaces with praxis_list_space."
+        return _friendly(exc)
+    if identity.active_space() == space_id:
+        identity.set_space("")
+        return (
+            f"Deleted space {space_id!r} and its working graph; "
+            "active space fell back to the default space."
+        )
+    return f"Deleted space {space_id!r} and its working graph."
+
+
+@mcp.tool()
 def praxis_whoami() -> str:
     """Report the current login + active org (and the user's orgs)."""
     if _auth_disabled():
@@ -1535,6 +1737,107 @@ def praxis_requirements_for_surface(project: str, screen_id: str) -> str:
         if reqs
         else f"No requirements govern screen {screen_id}.",
         {"project": project, "screenId": screen_id, "requirements": reqs},
+    )
+
+
+@mcp.tool()
+def praxis_checks_for_surface(
+    project: str, screen_id: str, scope: str | None = None
+) -> str:
+    """List ALL coverage checks bound to a wireframe screen (EXHAUSTIVE, not a sample).
+
+    The surface-scoped completeness query for the coverage spine: every active
+    ``check`` fact edged (``renders``) to ``(project, screen_id)`` — the generalization
+    of ``praxis_requirements_for_surface`` to checks. Pass ``scope`` ("planning" |
+    "validation") to narrow to one gate (matches ``meta.scope``). Unlike
+    ``praxis_get_context`` (semantic top-k, which samples), this returns EVERY bound
+    check so a per-part coverage gate never silently drops one. Active-only.
+
+    Returns a human summary plus a structured JSON block with ``checks`` — one fact
+    view per bound check.
+    """
+    if (hint := _not_ready()) is not None:
+        return hint
+    params: dict[str, str] = {"project": project}
+    if scope is not None:
+        params["scope"] = scope
+    try:
+        resp = httpx.get(
+            f"{identity.api_base()}/surfaces/{screen_id}/checks",
+            params=params,
+            headers=_headers(),
+            timeout=_READ_TIMEOUT,
+        )
+        resp.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        return _friendly(exc)
+    payload = resp.json()
+    checks = payload.get("checks", [])
+    return _structured(
+        f"{len(checks)} check(s) bound to screen {screen_id}."
+        if checks
+        else f"No checks bound to screen {screen_id}.",
+        {"project": project, "screenId": screen_id, "scope": scope, "checks": checks},
+    )
+
+
+@mcp.tool()
+def praxis_facts_by(
+    category: str | None = None,
+    source: str | None = None,
+    scope: str | None = None,
+    state: str = "active",
+    meta_filter: dict | None = None,
+) -> str:
+    """Enumerate ALL facts matching structured filters (EXHAUSTIVE — no top-k, no ranking).
+
+    The completeness primitive for "pull everything related to one part and enforce it".
+    ``praxis_get_context`` is a semantic top-k that SAMPLES (it can silently drop a
+    match) — unsafe for a forcing/completeness guarantee; this returns EVERY matching
+    fact in one server-side query. Filters (all optional, AND-combined): ``category``
+    (e.g. "check"), ``source``, ``scope`` (the top-level scope COLUMN — not
+    ``meta.scope``), ``state`` (default "active"; pass "any" to span all states), and
+    ``meta_filter`` — a ``{key: value}`` object matched against the JSONB ``meta``
+    column, each key by scalar equality OR array-membership (so ``applies_to`` may be a
+    single tag or a list). Example: ``category="check"`` with
+    ``meta_filter={"scope":"validation","applies_to":"auth"}``.
+
+    Returns a human summary plus a structured JSON block with ``facts`` — one fact view
+    per match.
+    """
+    if (hint := _not_ready()) is not None:
+        return hint
+    params: dict[str, str] = {"state": state}
+    if category is not None:
+        params["category"] = category
+    if source is not None:
+        params["source"] = source
+    if scope is not None:
+        params["scope"] = scope
+    if meta_filter:
+        params["meta"] = json.dumps(meta_filter)
+    try:
+        resp = httpx.get(
+            f"{identity.api_base()}/facts/by",
+            params=params,
+            headers=_headers(),
+            timeout=_READ_TIMEOUT,
+        )
+        resp.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        return _friendly(exc)
+    payload = resp.json()
+    facts = payload.get("facts", [])
+    return _structured(
+        f"{len(facts)} fact(s) match." if facts else "No facts match the given filters.",
+        {
+            "category": category,
+            "source": source,
+            "scope": scope,
+            "state": state,
+            "metaFilter": meta_filter or {},
+            "facts": facts,
+        },
     )
 
 
