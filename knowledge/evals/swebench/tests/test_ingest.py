@@ -21,6 +21,7 @@ from knowledge.evals.swebench.ingest import (
     LeakageError,
     OrgConflict,
     SpaceConflict,
+    _batches,
     ensure_eval_org,
     ensure_space,
     fix_pr_number,
@@ -101,9 +102,12 @@ class FakeClient:
 
     def post_ingest(self, space: str, body: dict) -> dict:
         self.ingests.append((space, body))
-        self.facts[space] = self.facts.get(space, 0) + 2  # canned 2 facts/doc
-        return {"results": [{"id": "f1", "action": "ingested", "facts": 2,
-                             "merged": 0, "conflicts": 0, "surfaced": 0}], "count": 1}
+        docs = body.get("documents") or []
+        self.facts[space] = self.facts.get(space, 0) + 2 * len(docs)  # canned 2 facts/doc
+        # One result per document, in order — the real handler's contract (it loops docs).
+        return {"results": [{"id": f"f{i}", "action": "ingested", "facts": 2,
+                             "merged": 0, "conflicts": 0, "surfaced": 0}
+                            for i in range(len(docs))], "count": len(docs)}
 
     def get_context(self, space: str, query: str, top_k: int) -> dict:
         return {"context": "", "hits": self.context_hits.get(space, [])}
@@ -181,13 +185,38 @@ def test_window_handles_mixed_timestamp_formats_at_boundary():
     assert nums == [201]
 
 
+# ---------------------------------------------------------------------------
+# Batching (turn ~50 rate-limited per-PR posts into 1–2).
+# ---------------------------------------------------------------------------
+def test_batches_pack_to_cap_preserving_order():
+    docs = [(1, "a" * 100), (2, "b" * 100), (3, "c" * 100)]
+    # 100 + 100 = 200 <= 250; + 100 = 300 > 250 → [1, 2] then [3]. Order preserved.
+    out = [[n for n, _ in b] for b in _batches(docs, max_bytes=250)]
+    assert out == [[1, 2], [3]]
+
+
+def test_batches_oversized_doc_is_yielded_alone():
+    # A single doc bigger than the cap can't be split — it goes alone (server will 413 it),
+    # never silently dropped, and the following doc starts a fresh batch.
+    out = [[n for n, _ in b] for b in _batches([(1, "x" * 300), (2, "y" * 10)], max_bytes=250)]
+    assert out == [[1], [2]]
+
+
+def test_batches_counts_utf8_bytes_not_chars():
+    # A 2-byte-per-char string fills the cap in half the characters.
+    out = [[n for n, _ in b] for b in _batches([(1, "é" * 80), (2, "z" * 80)], max_bytes=200)]
+    assert out == [[1], [2]]  # "é"*80 = 160 bytes; +80 = 240 > 200 → split
+
+
 def test_fix_restating_pr_is_dropped_from_ingest():
     inst = _instances()["sympy__sympy-fake-0001"]
     client = FakeClient()
     result = ingest_window(inst, client, make_fake_fetcher())
     # 103's diff restates the gold empty-matrix guard → dropped; only 101, 102 ingested.
     assert result.pr_numbers == [101, 102]
-    posted = [body["documents"][0]["source"] for _space, body in client.ingests]
+    # Small fixture docs fit one batch → a SINGLE post carrying both, oldest-first.
+    assert len(client.ingests) == 1
+    posted = [d["source"] for _space, body in client.ingests for d in body["documents"]]
     assert posted == ["git/pr:101", "git/pr:102"]
     assert all(body["state"] == "active" for _space, body in client.ingests)
     # Every ingest posted under the instance's space, never another.
@@ -268,11 +297,12 @@ def test_two_instances_ingest_into_distinct_spaces_no_bleed():
     rb = run_ingest(b, client=client, fetch=make_fake_fetcher())
 
     assert ra.space_id != rb.space_id
-    # Each instance only ever posts under its own X-Praxis-Space — no cross bleed.
-    posted_for_a = [s for s, _ in client.ingests if s == ra.space_id]
-    posted_for_b = [s for s, _ in client.ingests if s == rb.space_id]
-    assert len(posted_for_a) == ra.ingested
-    assert len(posted_for_b) == rb.ingested
+    # Each instance only ever posts under its own X-Praxis-Space — no cross bleed. Count
+    # DOCUMENTS (PRs batch into fewer posts now), not posts, against the ingested PR count.
+    docs_for_a = [d for s, body in client.ingests if s == ra.space_id for d in body["documents"]]
+    docs_for_b = [d for s, body in client.ingests if s == rb.space_id for d in body["documents"]]
+    assert len(docs_for_a) == ra.ingested
+    assert len(docs_for_b) == rb.ingested
     # No ingest is posted to a space other than the two instance spaces — all under one org.
     assert {s for s, _ in client.ingests} == {ra.space_id, rb.space_id}
     assert client.orgs == [EVAL_ORG]  # the single fixed eval org, created once

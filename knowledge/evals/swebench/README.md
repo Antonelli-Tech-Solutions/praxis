@@ -78,8 +78,12 @@ resources:
   across instances and almost entirely **LLM/IO-bound on the backend**, so it fans out well
   even past core count. The first instance runs alone (it first-creates the shared eval
   *org*; distinct spaces never race, but a concurrent first org-create could); the rest run
-  under a bounded pool. Keep it modest — one local backend + a shared API quota is the real
-  ceiling, not cores.
+  under a bounded pool. Each instance's PRs are **batched** into 1–2 `/ingest` posts (≤128 KB
+  each) rather than one post per PR, so the per-route **30/min request** limit
+  (`knowledge.serve.rate_limit`) no longer throttles ingestion — and since the client has no
+  429 backoff, that batching is also what keeps a higher `--ingest-workers` from 429-crashing
+  the run. The remaining ceiling is the backend's concurrent-distillation throughput + the
+  shared API tokens/min (not cores), so you can push past 3 until those saturate.
 - **Arms phase** (`--workers`, default 1; `--grade-concurrency`, default 2). The run flattens
   work into `(instance, trial)` jobs and runs `--workers` at once. Each arm borrows an
   **isolated git worktree** from a pool sized to `--workers` (all worktrees share one sympy

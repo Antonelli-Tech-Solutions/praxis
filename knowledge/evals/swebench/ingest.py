@@ -369,33 +369,73 @@ def select_window(instance: Instance, fetch: Fetcher,
     return [int(r["number"]) for r in in_window]
 
 
+# Mirrors the server's POST /ingest body cap (knowledge.serve.app._MAX_BODY_BYTES): the
+# handler 413s when the *summed document-text bytes* exceed this. Batching documents up to
+# this packs the most PRs per request — and since the per-route limit is "30/minute" of
+# REQUESTS, one post of N docs costs the same rate budget as one of 1. Fewer requests is the
+# real ingest-throughput lever (not more workers — see run.py / README).
+_MAX_INGEST_BYTES = 128 * 1024
+
+
+def _batches(docs: list[tuple[int, str]], *, max_bytes: int):
+    """Yield consecutive runs of ``(number, text)`` whose summed UTF-8 text bytes stay within
+    ``max_bytes`` — the metric the server's body cap uses, so matching it maximizes batching
+    without tripping the 413. Order is preserved (within and across batches). A single
+    document larger than ``max_bytes`` is yielded alone (it will 413 — same outcome as the
+    old one-doc-per-call path, never silently dropped)."""
+    batch: list[tuple[int, str]] = []
+    size = 0
+    for n, text in docs:
+        b = len(text.encode("utf-8"))
+        if batch and size + b > max_bytes:
+            yield batch
+            batch, size = [], 0
+        batch.append((n, text))
+        size += b
+    if batch:
+        yield batch
+
+
 def ingest_window(instance: Instance, client: HttpClient, fetch: Fetcher,
                   *, limit: int = DEFAULT_LIST_LIMIT) -> IngestResult:
     """Ingest the selected window oldest-first; drop any fix-restating PR.
 
-    For each in-window PR (oldest-first): build its document, drop it if its diff
-    restates the gold diff, else ``POST /ingest`` (``state="active"``,
-    ``source="git/pr:<n>"``) scoped to the instance's space via ``X-Praxis-Space``.
+    Builds each in-window PR's document oldest-first, dropping any whose diff restates the
+    gold diff, then ``POST /ingest`` (``state="active"``, ``source="git/pr:<n>"``) scoped to
+    the instance's space. PRs are **batched** into as few posts as the server body cap
+    (``_MAX_INGEST_BYTES``) allows: the 30/min limit counts requests, so batching turns ~50
+    rate-limited calls into 1–2. Oldest-first order is preserved within and across batches,
+    so the handler's per-document ``auto_resolve`` still keeps the latest-as-of-cutoff writer.
     """
     space_id = space_id_for(instance)
     candidates = select_window(instance, fetch, limit=limit)
 
-    ingested_numbers: list[int] = []
-    actions: list[str] = []
-    facts_total = 0
+    # Build (number, rendered-text) oldest-first, dropping fix-restating PRs up front so they
+    # never enter a batch (keeps the snapshot from leaking the gold answer).
+    docs: list[tuple[int, str]] = []
     for n in candidates:
         doc = build_pr_document(n, fetch=fetch)
         if _restates_gold(doc.diff, instance.patch):
-            continue  # fix-restating PR — excluded so the snapshot can't leak the answer
+            continue
+        docs.append((n, doc.render()))
+
+    ingested_numbers: list[int] = []
+    actions: list[str] = []
+    facts_total = 0
+    for batch in _batches(docs, max_bytes=_MAX_INGEST_BYTES):
         res = client.post_ingest(space_id, {
-            "documents": [{"text": doc.render(), "source": f"git/pr:{n}"}],
+            "documents": [{"text": text, "source": f"git/pr:{n}"} for n, text in batch],
             "state": "active",
             "onConflict": "auto_resolve",
         })
-        result0 = res["results"][0]
-        actions.append(str(result0.get("action", "")))
-        facts_total += int(result0.get("facts", 0) or 0)
-        ingested_numbers.append(n)
+        # The POST succeeded, so every doc in the batch was ingested; read per-doc facts from
+        # the results array (one entry per document, in order), defensively if it's short.
+        results = res.get("results") or []
+        for i, (n, _text) in enumerate(batch):
+            result = results[i] if i < len(results) else {}
+            actions.append(str(result.get("action", "")))
+            facts_total += int(result.get("facts", 0) or 0)
+            ingested_numbers.append(n)
 
     return IngestResult(
         space_id=space_id,
