@@ -55,7 +55,9 @@ from knowledge.knowledge_graph.knowledge_graph_variants.overlay_graph import (  
 )
 from knowledge.knowledge_graph.knowledge_graph_variants.postgres_vector_graph import (  # noqa: E402
     _READ_CHAR_BUDGET,
+    DEFAULT_LEASE_TTL_SECONDS,
     EPISODIC_CATEGORY,
+    LeaseConflict,
     PostgresVectorGraph,
     default_write_policy,
 )
@@ -1873,6 +1875,10 @@ def create_app(conn: Any | None = None) -> FastAPI:
                 "lastOutcome": item["last_outcome"],
             }
         )
+        # Build-loop lease view, so the selector can reason about who (if anyone)
+        # already holds this ticket. Present whenever the source item carries it.
+        if "claim" in item:
+            view["claim"] = item["claim"]
         return view
 
     @app.get("/derivations/stale")
@@ -2150,20 +2156,137 @@ def create_app(conn: Any | None = None) -> FastAPI:
     @app.get("/requirements/incomplete")
     def incomplete_requirements(
         project: str = "",
+        exclude_leased: bool = False,
         principal: Principal = Depends(current_user),
         org: str = Depends(active_org),
         uid: str = Depends(active_user_id),
     ) -> dict[str, Any]:
         """Active requirements in ``prd-<project>`` not yet verified-complete (derived
-        from verification + staleness: never-built | regressed | stale)."""
+        from verification + staleness: never-built | regressed | stale).
+
+        Each item carries a ``claim`` view (``build_state``, ``claim_owner``,
+        ``claim_heartbeat_at``, ``lease_live``) for the multi-agent build loop. With
+        ``exclude_leased=true`` tickets under a LIVE lease are omitted so a worker
+        only sees claimable ones (stale-leased and unclaimed remain). Default false
+        keeps the prior behavior/response for back-compat."""
         project = str(project or "").strip()
         if not project:
             raise HTTPException(status_code=400, detail="query param 'project' is required")
-        items = live_graph(org, uid).incomplete_requirements(project)
+        items = live_graph(org, uid).incomplete_requirements(
+            project, exclude_leased=exclude_leased
+        )
         return {
             "project": project,
             "incomplete": [_requirement_completeness_view(i) for i in items],
         }
+
+    @app.post("/requirements/{cid}/claim")
+    def claim_requirement(
+        cid: str,
+        body: dict[str, Any] = Body(default={}),
+        principal: Principal = Depends(current_user),
+        org: str = Depends(active_org),
+        uid: str = Depends(active_user_id),
+    ) -> dict[str, Any]:
+        """Atomically lease ticket ``cid`` to ``owner`` for the build loop.
+
+        Body: ``{"owner": str, "lease_ttl_seconds": int = 1800}``. Grants iff the
+        ticket is not held by a different LIVE lease (unclaimed / same owner / stale).
+        ``200 {claim}`` on grant; ``409`` (with current owner + remaining seconds)
+        when a different live owner holds it. The grant is atomic at the DB row level
+        — two concurrent claims yield exactly one ``200`` and one ``409``."""
+        owner = str(body.get("owner") or "").strip()
+        if not owner:
+            raise HTTPException(status_code=400, detail="body must include 'owner'")
+        ttl = body.get("lease_ttl_seconds", DEFAULT_LEASE_TTL_SECONDS)
+        try:
+            ttl = int(ttl)
+        except (TypeError, ValueError):
+            raise HTTPException(
+                status_code=400, detail="'lease_ttl_seconds' must be an integer"
+            )
+        try:
+            claim = live_graph(org, uid).claim_requirement(cid, owner, ttl)
+        except KeyError:
+            raise HTTPException(status_code=404, detail=f"unknown requirement {cid}")
+        except LeaseConflict as exc:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "error": "ticket held by a live lease",
+                    "owner": exc.owner,
+                    "remainingSeconds": exc.remaining,
+                },
+            )
+        return {"id": cid, "claim": claim}
+
+    @app.post("/requirements/{cid}/heartbeat")
+    def heartbeat_requirement(
+        cid: str,
+        body: dict[str, Any] = Body(default={}),
+        principal: Principal = Depends(current_user),
+        org: str = Depends(active_org),
+        uid: str = Depends(active_user_id),
+    ) -> dict[str, Any]:
+        """Renew ``owner``'s live lease on ticket ``cid`` (Body: ``{"owner": str}``).
+
+        ``200 {claim}`` when ``owner`` still holds a live lease (heartbeat bumped);
+        ``409`` once the lease was lost or expired (stop working it); ``404`` if the
+        requirement is unknown."""
+        owner = str(body.get("owner") or "").strip()
+        if not owner:
+            raise HTTPException(status_code=400, detail="body must include 'owner'")
+        try:
+            claim = live_graph(org, uid).heartbeat_requirement(cid, owner)
+        except KeyError:
+            raise HTTPException(status_code=404, detail=f"unknown requirement {cid}")
+        except LeaseConflict as exc:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "error": "lease lost or expired",
+                    "owner": exc.owner,
+                    "remainingSeconds": exc.remaining,
+                },
+            )
+        return {"id": cid, "claim": claim}
+
+    @app.post("/requirements/{cid}/release")
+    def release_requirement(
+        cid: str,
+        body: dict[str, Any] = Body(default={}),
+        principal: Principal = Depends(current_user),
+        org: str = Depends(active_org),
+        uid: str = Depends(active_user_id),
+    ) -> dict[str, Any]:
+        """Clear ``owner``'s lease and set a terminal ``build_state``.
+
+        Body: ``{"owner": str, "state": "finished" | "incomplete"}``. Used when a
+        ticket finishes or an agent yields cleanly: drops the lease keys and records
+        ``build_state`` (MERGED into ``meta``, never clobbering other keys). ``200
+        {claim}`` on success; ``409`` if ``owner`` no longer holds the lease; ``404``
+        if unknown; ``400`` for a bad ``state``. ``finished`` clears the lease only —
+        outcome-derived completeness is unchanged."""
+        owner = str(body.get("owner") or "").strip()
+        if not owner:
+            raise HTTPException(status_code=400, detail="body must include 'owner'")
+        state = str(body.get("state") or "").strip()
+        try:
+            claim = live_graph(org, uid).release_requirement(cid, owner, state)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+        except KeyError:
+            raise HTTPException(status_code=404, detail=f"unknown requirement {cid}")
+        except LeaseConflict as exc:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "error": "not the lease owner",
+                    "owner": exc.owner,
+                    "remainingSeconds": exc.remaining,
+                },
+            )
+        return {"id": cid, "claim": claim}
 
     @app.get("/requirements/completeness")
     def completeness_summary(

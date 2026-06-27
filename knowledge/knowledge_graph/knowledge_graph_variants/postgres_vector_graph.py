@@ -150,6 +150,34 @@ _CLAIM_COPY_COLS = (
     "org_id, user_id, fact_id, seq, subject, attribute, value, functional, created_at"
 )
 
+# Multi-agent build-loop ticket lease (agent factory). A requirement fact carries
+# its build lifecycle + lease entirely on ``meta`` (no new table): ``build_state``
+# is ``incomplete`` -> ``in_progress`` -> ``finished``; a LIVE claim adds
+# ``claim_owner`` (the holding agent/session), ``claim_at`` / ``claim_heartbeat_at``
+# (server-clock epoch seconds) and ``claim_lease_ttl`` (seconds). A claim is a LEASE,
+# not a lock: a lease whose ``claim_heartbeat_at`` is older than ``claim_lease_ttl``
+# is STALE and may be reclaimed by any owner (a dead/stalled agent never dangles).
+DEFAULT_LEASE_TTL_SECONDS = 1800
+_LEASE_META_KEYS = (
+    "claim_owner",
+    "claim_at",
+    "claim_heartbeat_at",
+    "claim_lease_ttl",
+)
+
+
+class LeaseConflict(Exception):
+    """A claim/heartbeat lost to (or was blocked by) a different live lease.
+
+    Carries the current ``owner`` and the ``remaining`` lease seconds so the route
+    can answer ``409`` with enough for the caller to skip to the next ticket.
+    """
+
+    def __init__(self, owner: str | None, remaining: float) -> None:
+        super().__init__(f"ticket held by {owner!r} ({remaining:.0f}s remaining)")
+        self.owner = owner
+        self.remaining = max(0.0, remaining)
+
 
 def default_write_policy(llm: Llm | None = None) -> list[WriteStep]:
     """The baseline pipeline: redact, dedup, extract claims, then detect conflicts.
@@ -1813,7 +1841,10 @@ class PostgresVectorGraph(SearchableGraph):
 
     @staticmethod
     def _completeness_reasons(
-        success_count: int, last_outcome: str | None, is_stale: bool
+        success_count: int,
+        last_outcome: str | None,
+        is_stale: bool,
+        build_state: str | None = None,
     ) -> list[str]:
         """Why an active requirement is NOT verified-complete, derived from signals.
 
@@ -1829,7 +1860,24 @@ class PostgresVectorGraph(SearchableGraph):
         stale). The never-built / regressed branches are exclusive (a requirement with
         zero successes is never-built, not regressed, even if its last outcome failed),
         so the primary reason partitions the incomplete set cleanly for the summary.
+
+        ``build_state`` (the ticket lifecycle enum carried in ``meta``) is AUTHORITATIVE
+        and overrides the count-derived classification when set to a known value:
+          * ``finished``    -> COMPLETE (``[]``), regardless of counts/last_outcome;
+          * ``incomplete``  -> INCOMPLETE, reason ``reopened`` (a deliberately re-opened
+            ticket), regardless of a prior success;
+          * ``in_progress`` -> INCOMPLETE, reason ``in_progress`` (actively being built),
+            so it stays in the incomplete set while claimed.
+        Any other value (absent / null / unknown enum) FALLS BACK to the count-derived
+        never-built / regressed / stale logic so existing tickets carrying no enum are
+        not mass-reclassified.
         """
+        if build_state == "finished":
+            return []
+        if build_state == "incomplete":
+            return ["reopened"]
+        if build_state == "in_progress":
+            return ["in_progress"]
         reasons: list[str] = []
         if success_count == 0:
             reasons.append("never-built")
@@ -1886,8 +1934,12 @@ class PostgresVectorGraph(SearchableGraph):
             fact.success_count = success_count
             fact.failure_count = failure_count
             fact.last_outcome = last_outcome
+            build_state = (fact.meta or {}).get("build_state")
             reasons = self._completeness_reasons(
-                success_count, last_outcome, fact.id in stale_ids
+                success_count,
+                last_outcome,
+                fact.id in stale_ids,
+                build_state=build_state,
             )
             out.append(
                 {
@@ -1901,7 +1953,9 @@ class PostgresVectorGraph(SearchableGraph):
             )
         return out
 
-    def incomplete_requirements(self, project: str) -> list[dict]:
+    def incomplete_requirements(
+        self, project: str, exclude_leased: bool = False
+    ) -> list[dict]:
         """Active requirement facts in ``prd-<project>`` that are NOT verified-complete.
 
         The primary query the agent-factory loop calls to pick "the next unbuilt
@@ -1914,32 +1968,48 @@ class PostgresVectorGraph(SearchableGraph):
         Returns one entry per incomplete requirement, newest first::
 
             {"fact": Fact, "reason": str, "reasons": list[str],
-             "success_count": int, "failure_count": int, "last_outcome": str | None}
+             "success_count": int, "failure_count": int, "last_outcome": str | None,
+             "claim": {"build_state", "claim_owner", "claim_heartbeat_at", "lease_live"}}
 
         ``reason`` is the primary cause; ``reasons`` lists every cause that applies.
         Complete requirements (latest outcome succeeded, not stale) are omitted; so are
         rejected/superseded ones (active-only). See ``_completeness_reasons``.
+
+        ``claim`` exposes the build-loop lease so a selector can skip a ticket another
+        agent already holds (see ``claim_requirement``). With ``exclude_leased`` true,
+        tickets with a LIVE lease are omitted entirely (stale-leased and unclaimed
+        ones remain — they are claimable); default false preserves prior behavior.
         """
-        return [
-            item
-            for item in self._classify_project_requirements(project)
-            if item["reasons"]
-        ]
+        now = self._server_epoch()
+        out: list[dict] = []
+        for item in self._classify_project_requirements(project):
+            if not item["reasons"]:
+                continue
+            claim = self._claim_view(item["fact"].meta or {}, now)
+            if exclude_leased and claim["lease_live"]:
+                continue
+            out.append({**item, "claim": claim})
+        return out
 
     def completeness_summary(self, project: str) -> dict:
         """Done-of-definition counts for ``prd-<project>``'s active requirements.
 
         ``{total_active_requirements, complete, incomplete, breakdown}`` where
         ``breakdown`` counts incomplete requirements by primary reason
-        (``never_built`` / ``stale`` / ``regressed``) and sums to ``incomplete`` (the
-        primary reason partitions the set — see ``_completeness_reasons``). Derived
-        from the same verification + staleness signals as ``incomplete_requirements``.
+        (``never_built`` / ``stale`` / ``regressed``, plus ``reopened`` / ``in_progress``
+        when a ticket's authoritative ``build_state`` overrides the count derivation)
+        and sums to ``incomplete`` (the primary reason partitions the set — see
+        ``_completeness_reasons``). Derived from the same verification + staleness
+        signals (and ``build_state`` override) as ``incomplete_requirements``. The
+        ``build_state``-driven keys appear only when present, so the breakdown stays a
+        three-key dict for plans that carry no enum.
         """
         classified = self._classify_project_requirements(project)
         incomplete = [item for item in classified if item["reasons"]]
         breakdown = {"never_built": 0, "stale": 0, "regressed": 0}
         for item in incomplete:
-            breakdown[item["reason"].replace("-", "_")] += 1
+            key = item["reason"].replace("-", "_")
+            breakdown[key] = breakdown.get(key, 0) + 1
         total = len(classified)
         return {
             "total_active_requirements": total,
@@ -1947,6 +2017,158 @@ class PostgresVectorGraph(SearchableGraph):
             "incomplete": len(incomplete),
             "breakdown": breakdown,
         }
+
+    # --- ticket lease/claim (multi-agent build loop) -----------------------
+    def _server_epoch(self) -> float:
+        """The DB's wall clock as epoch seconds — the single trusted lease clock.
+
+        Lease liveness is decided server-side (never from a client timestamp), so
+        every claim/heartbeat/expiry comparison reads ``now`` from the same source
+        the SQL grant conditions use (``EXTRACT(EPOCH FROM now())``).
+        """
+        row = self._conn.execute("SELECT EXTRACT(EPOCH FROM now())").fetchone()
+        return float(row[0])
+
+    @staticmethod
+    def _claim_view(meta: dict, now: float) -> dict:
+        """The lease-facing projection of a fact's ``meta`` for the selector.
+
+        ``lease_live`` is true iff the ticket is ``in_progress`` with a non-stale
+        heartbeat (``now - claim_heartbeat_at <= claim_lease_ttl``). A stale or
+        absent lease reads as not-live (the ticket is claimable).
+        """
+        meta = meta or {}
+        build_state = meta.get("build_state")
+        owner = meta.get("claim_owner")
+        hb = meta.get("claim_heartbeat_at")
+        ttl = meta.get("claim_lease_ttl")
+        lease_live = (
+            build_state == "in_progress"
+            and owner is not None
+            and hb is not None
+            and ttl is not None
+            and (now - float(hb)) <= float(ttl)
+        )
+        return {
+            "build_state": build_state,
+            "claim_owner": owner,
+            "claim_heartbeat_at": hb,
+            "lease_live": lease_live,
+        }
+
+    def _lease_conflict(self, fact_id: str) -> None:
+        """Raise ``KeyError`` if the fact is gone, else ``LeaseConflict`` (held).
+
+        Best-effort report for the 409 path: re-reads the (current) owner and the
+        remaining lease seconds. Not part of the atomic grant — it only explains a
+        grant/heartbeat that the single conditional UPDATE already declined.
+        """
+        row = self._conn.execute(
+            "SELECT meta->>'claim_owner', "
+            "COALESCE((meta->>'claim_lease_ttl')::float, 0) "
+            "  - (EXTRACT(EPOCH FROM now()) "
+            "     - COALESCE((meta->>'claim_heartbeat_at')::float, 0)) "
+            f"FROM {self._facts_table} "
+            "WHERE org_id = %s AND user_id = %s AND id = %s",
+            (self.org_id, self.user_id, fact_id),
+        ).fetchone()
+        if row is None:
+            raise KeyError(fact_id)
+        raise LeaseConflict(owner=row[0], remaining=float(row[1] or 0.0))
+
+    def claim_requirement(
+        self, fact_id: str, owner: str, lease_ttl_seconds: int = DEFAULT_LEASE_TTL_SECONDS
+    ) -> dict:
+        """Atomically lease a requirement ticket to ``owner`` (FOR the build loop).
+
+        ATOMIC at the row level: a single conditional ``UPDATE ... WHERE`` grants the
+        claim iff the ticket is NOT held by a different LIVE lease — i.e. it is not
+        ``in_progress``, OR ``owner`` already holds it (idempotent renew), OR the
+        existing lease is STALE (heartbeat older than its TTL → auto-reclaim a dead
+        agent). Two concurrent claims for the same ticket yield exactly one grant:
+        the loser re-evaluates the WHERE against the committed row and matches no
+        row. On grant returns the claim view; on conflict raises :class:`LeaseConflict`
+        (held by a live owner) and on an unknown fact ``KeyError``.
+        """
+        row = self._conn.execute(
+            f"UPDATE {self._facts_table} SET meta = meta || jsonb_build_object("
+            "  'build_state', 'in_progress', "
+            "  'claim_owner', %s::text, "
+            "  'claim_at', EXTRACT(EPOCH FROM now()), "
+            "  'claim_heartbeat_at', EXTRACT(EPOCH FROM now()), "
+            "  'claim_lease_ttl', %s::int) "
+            "WHERE org_id = %s AND user_id = %s AND id = %s AND ("
+            "  COALESCE(meta->>'build_state', '') <> 'in_progress' "
+            "  OR meta->>'claim_owner' = %s "
+            "  OR EXTRACT(EPOCH FROM now()) - COALESCE((meta->>'claim_heartbeat_at')::float, 0) "
+            "     > COALESCE((meta->>'claim_lease_ttl')::float, 0)) "
+            "RETURNING meta",
+            (
+                owner,
+                int(lease_ttl_seconds),
+                self.org_id,
+                self.user_id,
+                fact_id,
+                owner,
+            ),
+        ).fetchone()
+        if row is None:
+            self._lease_conflict(fact_id)  # raises KeyError or LeaseConflict
+        meta = row[0] if isinstance(row[0], dict) else json.loads(row[0])
+        return self._claim_view(meta, self._server_epoch())
+
+    def heartbeat_requirement(self, fact_id: str, owner: str) -> dict:
+        """Renew ``owner``'s live lease on a ticket (bump the heartbeat).
+
+        Bumps ``claim_heartbeat_at`` iff ``owner`` still holds a LIVE lease. If the
+        lease was lost (owner changed) or expired, no row matches → the caller is
+        told to stop working it (:class:`LeaseConflict`); an unknown fact is
+        ``KeyError``.
+        """
+        row = self._conn.execute(
+            f"UPDATE {self._facts_table} SET meta = meta || jsonb_build_object("
+            "  'claim_heartbeat_at', EXTRACT(EPOCH FROM now())) "
+            "WHERE org_id = %s AND user_id = %s AND id = %s "
+            "  AND meta->>'claim_owner' = %s "
+            "  AND meta->>'build_state' = 'in_progress' "
+            "  AND EXTRACT(EPOCH FROM now()) - COALESCE((meta->>'claim_heartbeat_at')::float, 0) "
+            "      <= COALESCE((meta->>'claim_lease_ttl')::float, 0) "
+            "RETURNING meta",
+            (self.org_id, self.user_id, fact_id, owner),
+        ).fetchone()
+        if row is None:
+            self._lease_conflict(fact_id)
+        meta = row[0] if isinstance(row[0], dict) else json.loads(row[0])
+        return self._claim_view(meta, self._server_epoch())
+
+    def release_requirement(self, fact_id: str, owner: str, state: str) -> dict:
+        """Clear ``owner``'s lease and record a terminal ``build_state``.
+
+        Sets ``build_state`` to ``finished`` (ticket done) or ``incomplete`` (yielded
+        cleanly) and DROPS the lease keys (``claim_owner``/``claim_at``/
+        ``claim_heartbeat_at``/``claim_lease_ttl``), MERGING into ``meta`` so every
+        other key (``tags``/``surfaces``/``requirement_id``/``pinned_checks``...) is
+        preserved. Only the holding owner may release; a mismatch is
+        :class:`LeaseConflict` and an unknown fact ``KeyError``. ``finished`` clears
+        the lease only — completeness stays derived from outcomes elsewhere.
+        """
+        if state not in ("finished", "incomplete"):
+            raise ValueError("state must be 'finished' or 'incomplete'")
+        # ``meta - 'k1' - 'k2' ...`` removes the lease keys; then merge the new
+        # build_state. Both preserve every unrelated key.
+        strip = " ".join(f"- '{k}'" for k in _LEASE_META_KEYS)
+        row = self._conn.execute(
+            f"UPDATE {self._facts_table} SET meta = (meta {strip}) "
+            "  || jsonb_build_object('build_state', %s::text) "
+            "WHERE org_id = %s AND user_id = %s AND id = %s "
+            "  AND meta->>'claim_owner' = %s "
+            "RETURNING meta",
+            (state, self.org_id, self.user_id, fact_id, owner),
+        ).fetchone()
+        if row is None:
+            self._lease_conflict(fact_id)
+        meta = row[0] if isinstance(row[0], dict) else json.loads(row[0])
+        return self._claim_view(meta, self._server_epoch())
 
     def wipe_cache(self) -> int:
         """Delete every cached fact under this graph's bound ``cache_key``.

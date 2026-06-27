@@ -208,6 +208,36 @@ def test_patch_updates_candidate(client):
     assert res.json()["title"] == "New lesson (edited)"
 
 
+def test_patch_meta_only_succeeds_without_meta_title(client):
+    """A meta-only PATCH must succeed for a fact that has no meta.title.
+
+    Facts created via /insights derive their title from text (meta.title is
+    absent), so a patch touching only meta (e.g. {"meta": {"tags": [...]}})
+    must merge the key and preserve existing meta, not 400 on a missing title.
+    """
+    r = client.post("/insights", json={
+        "insight": "Sessions expire after thirty minutes of inactivity.",
+        "category": "requirement", "meta": {"requirement_id": "R7"}})
+    assert r.status_code == 200, r.text
+    cand = next(c for c in client.get("/candidates").json()
+                if "thirty minutes" in c["content"])
+    assert "title" not in cand.get("meta", {})  # precondition: no meta.title
+
+    res = client.patch(f"/candidates/{cand['id']}", json={"meta": {"tags": ["x"]}})
+    assert res.status_code == 200, res.text
+    merged = res.json().get("meta", {})
+    assert merged.get("tags") == ["x"]                 # new key merged
+    assert merged.get("requirement_id") == "R7"        # existing key preserved
+
+
+def test_patch_clearing_content_still_400s(client):
+    """Clearing content to empty must still fail validation."""
+    cid = _create(client, title="Keep title", content="Real content here.")["id"]
+    res = client.patch(f"/candidates/{cid}", json={"content": "   "})
+    assert res.status_code == 400
+    assert "content" in res.json()["detail"].lower()
+
+
 def test_delete_active_is_refused_with_409(client):
     cid = _create(client)["id"]
     client.post(f"/candidates/{cid}/promote")  # -> active
