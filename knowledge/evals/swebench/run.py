@@ -44,6 +44,7 @@ from knowledge.evals.swebench.analyze import aggregate, evaluate_gate, format_re
 HERE = Path(__file__).resolve().parent
 DEFAULT_OUT = HERE / "RESULTS.data.json"
 DEFAULT_GRADE_CONCURRENCY = 2
+DEFAULT_INGEST_WORKERS = 3
 
 
 class BackendUnreachable(RuntimeError):
@@ -271,11 +272,39 @@ def make_grade_fn(grade_one: Callable[..., object], *, concurrency: int) -> Call
     return grade_fn
 
 
+def _prepare_instances(instances: list, *, prepare_one: Callable, ingest_workers: int) -> list:
+    """Run ``prepare_one(inst)`` for every instance: warm up serially, then fan out.
+
+    The per-instance pre-arm work (ingest its window, compute R_exist, seed its MCP cache)
+    is independent across instances — each owns a private space — so it parallelizes well,
+    and it's LLM/IO-bound (the backend distills each PR), so concurrency cuts wall-clock far
+    more than CPU count would suggest. The FIRST instance runs alone, because it's the call
+    that first-time-creates the shared eval *org*; distinct spaces never race, but a
+    concurrent first org-create could. Once it exists, the rest fan out under a bounded pool
+    sized to ``ingest_workers`` (kept modest — one local backend + a shared API quota is the
+    real ceiling, not cores). The first worker exception propagates so the caller can
+    translate a down-backend connection error into the friendly message.
+    """
+    if not instances:
+        return []
+    results = [prepare_one(instances[0])]  # warmup: creates the eval org before any concurrency
+    rest = instances[1:]
+    if rest and ingest_workers > 1:
+        from concurrent.futures import ThreadPoolExecutor
+
+        with ThreadPoolExecutor(max_workers=ingest_workers) as pool:
+            results.extend(pool.map(prepare_one, rest))
+    else:
+        results.extend(prepare_one(inst) for inst in rest)
+    return results
+
+
 def run_live(*, n_instances: int, trials: int, k_rework: int, manifest_path: Path | None,
              out_path: Path | None, workers: int = 1,
              order: str = "recent", exclude_leaked: bool = True,
              since: str | None = None,
-             grade_concurrency: int = DEFAULT_GRADE_CONCURRENCY) -> int:
+             grade_concurrency: int = DEFAULT_GRADE_CONCURRENCY,
+             ingest_workers: int = DEFAULT_INGEST_WORKERS) -> int:
     """Full pipeline. Raises :class:`BackendUnreachable` (not a traceback) if the backend is down."""
     from knowledge.evals.swebench.experiment import run_experiment
     from knowledge.evals.swebench.grader import grade as grade_instance
@@ -304,21 +333,35 @@ def run_live(*, n_instances: int, trials: int, k_rework: int, manifest_path: Pat
     rexist_map: dict[str, dict] = {}
     mcp_configs: dict[str, str] = {}
     ingest_results: dict[str, object] = {}
+
+    def prepare_one(inst):
+        # All independent pre-arm work for ONE instance (own space): ingest the
+        # pre-base_commit window, compute the pre-treatment R_exist oracle, and seed a
+        # per-instance MCP cache pinning that instance's SPACE for the treatment arm. The
+        # checkout the agent edits is NOT per-instance (shared worktree pool, below); only
+        # the space pin is. Returns a tuple assembled into the dicts after the pool joins,
+        # so no concurrent dict writes.
+        ingest_result = run_ingest(inst, client=client, fetch=fetch)
+        rel = r_exist(inst, client)
+        space_id = space_id_for(inst)
+        mcp = _seed_mcp_cache(space_id, org=EVAL_ORG, base_url=client.base_url)
+        return inst.instance_id, ingest_result, {"r_exist": rel.r_exist, "top_score": rel.top_score}, mcp
+
+    # The FIRST backend call is where a down backend shows up — wrap the whole prepare
+    # phase so the user gets the praxis-up hint, not a stack trace. Ingestion fans out
+    # across instances (LLM/IO-bound, independent spaces); see _prepare_instances.
     try:
-        for inst in instances:
-            ingest_results[inst.instance_id] = run_ingest(inst, client=client, fetch=fetch)
-            rel = r_exist(inst, client)
-            rexist_map[inst.instance_id] = {"r_exist": rel.r_exist, "top_score": rel.top_score}
-            # Per-instance MCP cache pinning the instance's SPACE for the treatment arm.
-            # (The checkout the agent edits is NOT per-instance any more — it's a shared
-            # worktree pool, see below — but the space pin still is, one private graph each.)
-            space_id = space_id_for(inst)
-            mcp_configs[inst.instance_id] = _seed_mcp_cache(
-                space_id, org=EVAL_ORG, base_url=client.base_url)
+        prepared = _prepare_instances(instances, prepare_one=prepare_one,
+                                      ingest_workers=ingest_workers)
     except Exception as exc:  # noqa: BLE001 — translate connection failures to a clear message
         if _is_connection_error(exc) or _is_connection_error(exc.__cause__ or exc):
             raise _friendly_backend_error(client.base_url) from exc
         raise
+
+    for iid, ingest_result, rexist_entry, mcp in prepared:
+        ingest_results[iid] = ingest_result
+        rexist_map[iid] = rexist_entry
+        mcp_configs[iid] = mcp
 
     # One shared sympy clone + a worktree pool sized to the worker count, so concurrent
     # arms each edit an isolated working tree (built AFTER the ingest guard so a down
@@ -389,6 +432,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--grade-concurrency", type=int, default=DEFAULT_GRADE_CONCURRENCY,
                         help=f"max concurrent WSL Docker grades regardless of --workers "
                              f"(default {DEFAULT_GRADE_CONCURRENCY}; drop to 1 if WSL OOMs on 16 GB)")
+    parser.add_argument("--ingest-workers", type=int, default=DEFAULT_INGEST_WORKERS,
+                        help=f"concurrent per-instance ingests in the (LLM/IO-bound) pre-loop "
+                             f"(default {DEFAULT_INGEST_WORKERS}; first instance warms up serially)")
     parser.add_argument("--from-records", type=Path, default=None,
                         help="OFFLINE: aggregate a committed records JSON instead of a live run")
     parser.add_argument("--manifest", type=Path, default=None,
@@ -421,6 +467,7 @@ def main(argv: list[str] | None = None) -> int:
             exclude_leaked=not args.include_leaked,
             since=args.since,
             grade_concurrency=args.grade_concurrency,
+            ingest_workers=args.ingest_workers,
         )
     except BackendUnreachable as exc:
         print(f"error: {exc}", file=sys.stderr)

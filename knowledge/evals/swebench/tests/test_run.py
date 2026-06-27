@@ -19,6 +19,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from knowledge.evals.swebench import run
 
 HERE = Path(__file__).resolve().parent
@@ -184,3 +186,65 @@ def test_make_grade_fn_caps_concurrent_grades():
     hold.set()
     for t in threads:
         t.join()
+
+
+# --- parallel ingest pre-loop: warmup-first + bounded fan-out --------------- #
+
+def test_prepare_instances_covers_all_in_order_when_serial():
+    seen = []
+
+    def prep(inst):
+        seen.append(inst)
+        return (inst, "result")
+
+    out = run._prepare_instances(["a", "b", "c"], prepare_one=prep, ingest_workers=1)
+    assert seen == ["a", "b", "c"]          # serial path runs each once, in order
+    assert [o[0] for o in out] == ["a", "b", "c"]
+
+
+def test_prepare_instances_warms_up_first_then_caps_fanout():
+    import threading
+    import time
+
+    live = {"now": 0, "max": 0}
+    guard = threading.Lock()
+    hold = threading.Event()
+    order = []
+
+    def prep(inst):
+        with guard:
+            order.append(inst)
+            live["now"] += 1
+            live["max"] = max(live["max"], live["now"])
+        if inst != "warmup":  # the warmup returns at once; the rest block to expose overlap
+            hold.wait(2)
+        with guard:
+            live["now"] -= 1
+        return (inst,)
+
+    insts = ["warmup", "a", "b", "c", "d"]
+    box = {}
+
+    def go():
+        box["out"] = run._prepare_instances(insts, prepare_one=prep, ingest_workers=2)
+
+    t = threading.Thread(target=go)
+    t.start()
+    time.sleep(0.25)
+    assert order[0] == "warmup"   # the org-creating instance ran alone, before any fan-out
+    assert live["max"] == 2       # the rest fan out but never exceed ingest_workers
+    hold.set()
+    t.join()
+    assert {o[0] for o in box["out"]} == set(insts)  # every instance prepared
+
+
+def test_prepare_instances_propagates_worker_exception():
+    def prep(inst):
+        if inst == "bad":
+            raise ConnectionError("backend down")
+        return (inst,)
+
+    # 'bad' is in the fanned-out remainder; the first worker exception surfaces to the caller
+    # (which translates connection errors into the friendly praxis-up message).
+    with pytest.raises(ConnectionError):
+        run._prepare_instances(["ok", "bad", "x"], prepare_one=prep, ingest_workers=2)

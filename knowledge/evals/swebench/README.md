@@ -69,15 +69,27 @@ uv run python -m knowledge.evals.swebench.run --instances 9 --trials 3 --order h
   --workers 2 --grade-concurrency 2
 ```
 
-**Parallelism** (`--workers`, `--grade-concurrency`). The live run flattens work into
-`(instance, trial)` jobs and runs `--workers` of them at once (default 1, serial). Two
-guards make `>1` safe: each arm borrows an **isolated git worktree** from a pool sized to
-`--workers` (all worktrees share one sympy clone's object store, so they're cheap), so
-concurrent agents never edit the same files; and `--grade-concurrency` (default 2) caps how
-many WSL Docker grade containers run simultaneously — independent of `--workers` — since
-each grade builds + runs sympy's tests and is the memory-heavy stage. On a 16 GB box,
-`--workers 2 --grade-concurrency 2` roughly halves wall-clock; drop `--grade-concurrency 1`
-if WSL OOMs.
+**Parallelism** (`--ingest-workers`, `--workers`, `--grade-concurrency`). The live run has
+two parallel phases with separate knobs, because they're bottlenecked on different
+resources:
+
+- **Ingest pre-loop** (`--ingest-workers`, default 3). Per-instance ingestion (distill the
+  PR window into the instance's space, compute `R_exist`, seed its MCP cache) is independent
+  across instances and almost entirely **LLM/IO-bound on the backend**, so it fans out well
+  even past core count. The first instance runs alone (it first-creates the shared eval
+  *org*; distinct spaces never race, but a concurrent first org-create could); the rest run
+  under a bounded pool. Keep it modest — one local backend + a shared API quota is the real
+  ceiling, not cores.
+- **Arms phase** (`--workers`, default 1; `--grade-concurrency`, default 2). The run flattens
+  work into `(instance, trial)` jobs and runs `--workers` at once. Each arm borrows an
+  **isolated git worktree** from a pool sized to `--workers` (all worktrees share one sympy
+  clone's object store, so they're cheap), so concurrent agents never edit the same files.
+  The `claude` agent is LLM/network-bound (oversubscribe cores happily), but the **grade** is
+  a WSL Docker container building + running sympy's tests — CPU- and memory-heavy — so
+  `--grade-concurrency` caps concurrent grades *independent of* `--workers`.
+
+On a 16 GB box, `--ingest-workers 3 --workers 4 --grade-concurrency 2` is a reasonable
+shape; drop `--grade-concurrency 1` if WSL OOMs.
 
 **Instance selection** (`--order`, `--include-leaked`, `--since`). By default `select` takes
 the newest supported-version (sympy 1.12–1.14) instances and drops only **verbatim**-leaked
