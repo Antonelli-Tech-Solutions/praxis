@@ -251,6 +251,110 @@ def test_record_outcome_sets_last_outcome(unique_org):
     assert recovered not in _incomplete_ids(graph)
 
 
+# --- build_state override (authoritative over derived completeness) -----------
+
+
+def test_build_state_finished_overrides_failure_to_complete(unique_org):
+    """An authoritatively ``finished`` ticket is COMPLETE and drops out of
+    ``incomplete_requirements`` even with a recorded failure / failed latest outcome
+    that would otherwise mark it regressed."""
+    conn = db.connect()
+    graph = _graph(conn, unique_org, USER)
+    req = _requirement(
+        graph, "Finished despite a failure.", meta={"build_state": "finished"}
+    )
+    graph.record_outcome(req, success=True)
+    graph.record_outcome(req, success=False)  # would be regressed without the override
+
+    assert _incomplete_ids(graph) == []
+    summary = graph.completeness_summary(PROJECT)
+    assert summary["total_active_requirements"] == 1
+    assert summary["complete"] == 1
+    assert summary["incomplete"] == 0
+
+
+def test_build_state_incomplete_reopens_a_succeeded_requirement(unique_org):
+    """A deliberately re-opened ticket (``build_state='incomplete'``) is incomplete
+    with reason ``reopened`` even after a recorded success / succeeded latest
+    outcome that would otherwise be complete."""
+    conn = db.connect()
+    graph = _graph(conn, unique_org, USER)
+    req = _requirement(
+        graph, "Reopened after a success.", meta={"build_state": "incomplete"}
+    )
+    graph.record_outcome(req, success=True)  # would be complete without the override
+
+    entry = next(
+        i for i in graph.incomplete_requirements(PROJECT) if i["fact"].id == req
+    )
+    assert entry["reason"] == "reopened"
+    assert entry["reasons"] == ["reopened"]
+    assert entry["last_outcome"] == "succeeded"  # override wins over the success
+
+
+def test_build_state_in_progress_stays_incomplete(unique_org):
+    """An actively-claimed ticket (``build_state='in_progress'``) stays incomplete
+    with reason ``in_progress`` even after a prior success."""
+    conn = db.connect()
+    graph = _graph(conn, unique_org, USER)
+    req = _requirement(
+        graph, "Being built right now.", meta={"build_state": "in_progress"}
+    )
+    graph.record_outcome(req, success=True)
+
+    entry = next(
+        i for i in graph.incomplete_requirements(PROJECT) if i["fact"].id == req
+    )
+    assert entry["reason"] == "in_progress"
+    assert entry["reasons"] == ["in_progress"]
+
+
+def test_unknown_build_state_falls_back_to_count_derivation(unique_org):
+    """An unknown / absent ``build_state`` does NOT override — it falls back to the
+    exact count-derived classification (here: never-built)."""
+    conn = db.connect()
+    graph = _graph(conn, unique_org, USER)
+    bogus = _requirement(graph, "Carries an unknown enum.", meta={"build_state": "bogus"})
+    plain = _requirement(graph, "Carries no build_state at all.")
+
+    reasons_by_id = {
+        i["fact"].id: i["reason"] for i in graph.incomplete_requirements(PROJECT)
+    }
+    assert reasons_by_id.get(bogus) == "never-built"
+    assert reasons_by_id.get(plain) == "never-built"
+
+
+def test_completeness_summary_counts_reopened_and_in_progress(unique_org):
+    """The summary breakdown counts the ``build_state``-driven reasons (``reopened``,
+    ``in_progress``) alongside the count-derived ones, and the keys appear only when
+    present (still sums to ``incomplete``)."""
+    conn = db.connect()
+    graph = _graph(conn, unique_org, USER)
+    # never-built (count-derived).
+    _requirement(graph, "Unbuilt.")
+    # reopened (override) — recorded success ignored.
+    reopened = _requirement(graph, "Reopened.", meta={"build_state": "incomplete"})
+    graph.record_outcome(reopened, success=True)
+    # in_progress (override).
+    _requirement(graph, "In progress.", meta={"build_state": "in_progress"})
+    # finished (override) -> complete, not counted in the breakdown.
+    finished = _requirement(graph, "Finished.", meta={"build_state": "finished"})
+    graph.record_outcome(finished, success=False)
+
+    summary = graph.completeness_summary(PROJECT)
+    assert summary["total_active_requirements"] == 4
+    assert summary["complete"] == 1
+    assert summary["incomplete"] == 3
+    assert summary["breakdown"] == {
+        "never_built": 1,
+        "stale": 0,
+        "regressed": 0,
+        "reopened": 1,
+        "in_progress": 1,
+    }
+    assert sum(summary["breakdown"].values()) == summary["incomplete"]
+
+
 @pytest.fixture
 def unique_org(request):
     # Unique per test node so reruns and parallel tenants never collide.

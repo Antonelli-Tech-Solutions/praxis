@@ -339,7 +339,17 @@ class FactsCandidates:
         if fact is None:
             raise KeyError(cid)
         meta = dict(fact.meta or {})
-        title = meta.get("title", "")
+        # Default the title from the best EXISTING source, not only meta.title, so
+        # a meta-only patch on a fact whose meta.title is empty/absent (e.g. one
+        # created via /insights, where the title is derived from text) still has a
+        # valid title and is not spuriously rejected.
+        title = (
+            body.get("title")
+            or meta.get("title")
+            or getattr(fact, "title", "")
+            or fact.text
+            or ""
+        ).strip()
         text = fact.text
         source = fact.source
         confidence = None
@@ -364,7 +374,9 @@ class FactsCandidates:
         if isinstance(body.get("meta"), dict):
             meta.update(body["meta"])
         derived_from = [str(s) for s in (body.get("derivedFrom") or []) if s]
-        if not str(title).strip() or not str(text).strip():
+        # Only the resulting CONTENT must be non-empty; a meta-only patch must not
+        # be blocked on a fact that already has valid content.
+        if not str(text).strip():
             raise ValueError("title and content are required")
         meta["title"] = title
         self.graph.update_fact(
