@@ -521,6 +521,113 @@
     </div>
   </section>
 
+  <!-- ============================================================
+       SLIDE — THE AGENT FACTORY (Spec → Plan/Build/Validate, Praxis-backed)
+       ============================================================ -->
+  <section class="slide"
+           data-name="Matthew Daw" data-role="ML &amp; Knowledge Pipeline Lead"
+           data-github="https://github.com/MatthewDaw">
+    <div class="kicker">Closing the loop · the agent factory</div>
+    <h2 class="slidehead">Every stage of the build loop runs on PRAXIS</h2>
+
+    <div class="grow">
+      <div class="diagram">
+        <svg viewBox="28 88 1022 448" preserveAspectRatio="xMidYMid meet" role="img"
+             style="max-height:82vh;"
+             aria-label="Spec drives a Plan, Build, Validate pipeline; beneath each stage a Praxis-backed how-to-plan, how-to-build, how-to-validate playbook feeds it; every node is backed by Praxis.">
+          <defs>
+            <marker id="af-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 z" fill="#5b6470"/>
+            </marker>
+            <marker id="af-arrow-blue" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 z" fill="#2E75B6"/>
+            </marker>
+            <marker id="af-arrow-gold" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 z" fill="#c98a2e"/>
+            </marker>
+          </defs>
+
+          <!-- ===================== PRAXIS LAYER DIVIDER ===================== -->
+          <line x1="40" y1="312" x2="1180" y2="312" stroke="#c98a2e" stroke-width="3" stroke-dasharray="8 7"/>
+          <rect x="40" y="297" width="430" height="31" rx="6" fill="#ffffff"/>
+          <text x="48" y="320" font-size="20" fill="#c98a2e" font-weight="800">ᴾ = backed by PRAXIS · durable knowledge</text>
+
+          <!-- ===================== SPEC ===================== -->
+          <rect class="stage-fill" x="40" y="112" width="172" height="124" rx="12" stroke="#1F4E79" stroke-width="3"/>
+          <rect x="40" y="112" width="172" height="42" rx="12" fill="#1F4E79"/>
+          <rect x="40" y="134" width="172" height="20" fill="#1F4E79"/>
+          <text x="126" y="142" text-anchor="middle" font-size="24" fill="#ffffff" font-weight="800">Spec</text>
+          <text x="126" y="192" text-anchor="middle" font-size="17" class="stage-sub">the requirement</text>
+          <text x="126" y="214" text-anchor="middle" font-size="17" class="stage-sub">to build</text>
+
+          <!-- Spec → Plan (top) -->
+          <line x1="212" y1="170" x2="310" y2="184" stroke="#5b6470" stroke-width="3" marker-end="url(#af-arrow)"/>
+          <!-- Spec → playbook row (gold curve into How to Plan) -->
+          <path d="M126,236 C126,330 150,420 290,420" fill="none" stroke="#c98a2e" stroke-width="3" marker-end="url(#af-arrow-gold)"/>
+
+          <!-- ===================== TOP PIPELINE: PLAN → BUILD → VALIDATE ===================== -->
+          <!-- PLAN -->
+          <rect class="stage-fill" x="318" y="112" width="216" height="140" rx="12" stroke="#2E75B6" stroke-width="3"/>
+          <rect x="318" y="112" width="216" height="42" rx="12" fill="#2E75B6"/>
+          <rect x="318" y="134" width="216" height="20" fill="#2E75B6"/>
+          <text x="426" y="143" text-anchor="middle" font-size="26" fill="#ffffff" font-weight="800">Plan</text>
+          <text x="426" y="200" text-anchor="middle" font-size="16" class="stage-label">decompose into tickets</text>
+          <circle cx="528" cy="112" r="17" fill="#c98a2e"/><text x="528" y="119" text-anchor="middle" font-size="19" fill="#fff" font-weight="800">P</text>
+
+          <!-- Plan → Build -->
+          <line x1="534" y1="184" x2="578" y2="184" stroke="#5b6470" stroke-width="3" marker-end="url(#af-arrow)"/>
+
+          <!-- BUILD -->
+          <rect class="stage-fill" x="582" y="112" width="196" height="140" rx="12" stroke="#5B9BD5" stroke-width="3"/>
+          <rect x="582" y="112" width="196" height="42" rx="12" fill="#5B9BD5"/>
+          <rect x="582" y="134" width="196" height="20" fill="#5B9BD5"/>
+          <text x="680" y="143" text-anchor="middle" font-size="26" fill="#ffffff" font-weight="800">Build</text>
+          <text x="680" y="200" text-anchor="middle" font-size="16" class="stage-label">implement each ticket</text>
+
+          <!-- Build → Validate -->
+          <line x1="778" y1="184" x2="822" y2="184" stroke="#5b6470" stroke-width="3" marker-end="url(#af-arrow)"/>
+
+          <!-- VALIDATE -->
+          <rect class="stage-fill" x="826" y="112" width="208" height="140" rx="12" stroke="#4f7d5a" stroke-width="3"/>
+          <rect x="826" y="112" width="208" height="42" rx="12" fill="#4f7d5a"/>
+          <rect x="826" y="134" width="208" height="20" fill="#4f7d5a"/>
+          <text x="930" y="143" text-anchor="middle" font-size="26" fill="#ffffff" font-weight="800">Validate</text>
+          <text x="930" y="200" text-anchor="middle" font-size="16" class="stage-label">run the checks</text>
+
+          <!-- ===================== PLAYBOOK → STAGE (up arrows) ===================== -->
+          <line x1="426" y1="360" x2="426" y2="254" stroke="#2E75B6" stroke-width="3" marker-end="url(#af-arrow-blue)"/>
+          <line x1="680" y1="360" x2="680" y2="254" stroke="#2E75B6" stroke-width="3" marker-end="url(#af-arrow-blue)"/>
+          <line x1="930" y1="360" x2="930" y2="254" stroke="#2E75B6" stroke-width="3" marker-end="url(#af-arrow-blue)"/>
+
+          <!-- ===================== PLAYBOOK ROW (how-to layer) ===================== -->
+          <rect class="stage-fill" x="300" y="360" width="740" height="130" rx="12" stroke="#c98a2e" stroke-width="3"/>
+          <line x1="546" y1="360" x2="546" y2="490" stroke="#c98a2e" stroke-width="2.5"/>
+          <line x1="793" y1="360" x2="793" y2="490" stroke="#c98a2e" stroke-width="2.5"/>
+
+          <text x="423" y="412" text-anchor="middle" font-size="19" class="stage-sub">How to</text>
+          <text x="423" y="448" text-anchor="middle" font-size="27" class="sub-text" font-weight="800">Plan</text>
+          <circle cx="520" cy="376" r="16" fill="#c98a2e"/><text x="520" y="382" text-anchor="middle" font-size="17" fill="#fff" font-weight="800">P</text>
+
+          <text x="670" y="412" text-anchor="middle" font-size="19" class="stage-sub">How to</text>
+          <text x="670" y="448" text-anchor="middle" font-size="27" class="sub-text" font-weight="800">Build</text>
+          <circle cx="767" cy="376" r="16" fill="#c98a2e"/><text x="767" y="382" text-anchor="middle" font-size="17" fill="#fff" font-weight="800">P</text>
+
+          <text x="917" y="412" text-anchor="middle" font-size="19" class="stage-sub">How to</text>
+          <text x="917" y="448" text-anchor="middle" font-size="27" class="sub-text" font-weight="800">Validate</text>
+          <circle cx="1014" cy="376" r="16" fill="#c98a2e"/><text x="1014" y="382" text-anchor="middle" font-size="17" fill="#fff" font-weight="800">P</text>
+
+          <text x="670" y="520" text-anchor="middle" font-size="18" class="conn-label">Praxis-backed playbook — guides each stage</text>
+        </svg>
+      </div>
+
+      <div class="legend">
+        <div class="item"><span class="sw" style="border-top-color:#5b6470;"></span>pipeline flow (Plan → Build → Validate)</div>
+        <div class="item"><span class="sw" style="border-top-color:#2E75B6;"></span>playbook guides each stage</div>
+        <div class="item"><span class="sw" style="border-top-color:#c98a2e;border-top-style:dashed;"></span>spec feeds the playbook · ᴾ = backed by Praxis</div>
+      </div>
+    </div>
+  </section>
+
 </div>
 
 <div class="help" id="help">→ / Space next · ← back · Home first · &nbsp;F&nbsp; hide this</div>
