@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PRAXIS — The Problem (reveal)</title>
+<style>
+  /* ============================================================
+     PRAXIS — "What is the problem?" build slide
+     - Standalone for now; chrome matches PRAXIS_Architecture_Slides.html
+       so it can be merged into the main deck later.
+     - Click / → / Space reveals the next bubble (left → right).
+       ← steps back. Home resets, End reveals all.
+     ============================================================ */
+  :root{
+    --ink:#11151c; --muted:#5b6470; --faint:#8a929c;
+    --h1:#1F4E79; --h2:#2E75B6; --h3:#5B9BD5;
+    --accent:#c98a2e; --good:#4f7d5a; --eval:#b03832; --gate:#3c3a66;
+    --bg:#0e1116; --slide-bg:#ffffff; --line:#d9dde3; --soft:#eef3f9;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;height:100%;}
+  body{
+    background:var(--bg); color:var(--ink);
+    font-family:"Segoe UI",Arial,"Helvetica Neue",sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+
+  .deck{height:100vh;width:100vw;overflow:hidden;position:relative;}
+  .slide{
+    position:absolute;inset:0;display:flex;flex-direction:column;
+    padding:54px 72px 88px;background:var(--slide-bg);
+  }
+
+  .kicker{font-size:.8rem;letter-spacing:.22em;text-transform:uppercase;
+    color:var(--accent);font-weight:700;margin-bottom:14px;text-align:center;}
+  .problem-q{font-size:2.5rem;line-height:1.18;color:var(--h1);margin:0 auto;
+    font-weight:800;text-align:center;max-width:40ch;letter-spacing:-.01em;}
+
+  .grow{flex:1 1 auto;display:flex;align-items:center;justify-content:center;min-height:0;}
+
+  /* ---- Bubbles + brain meme -------------------------------------- */
+  .bubbles{display:flex;align-items:flex-start;justify-content:center;gap:46px;width:100%;}
+  .col{display:flex;flex-direction:column;align-items:center;gap:20px;
+    opacity:0;transform:scale(.5) translateY(26px);
+    transition:opacity .42s ease, transform .55s cubic-bezier(.2,.9,.3,1.35);}
+  .col.show{opacity:1;transform:scale(1) translateY(0);}
+  .bubble{
+    width:200px;height:200px;border-radius:50%;flex:0 0 auto;
+    display:flex;align-items:center;justify-content:center;text-align:center;
+    padding:16px;color:#fff;font-weight:800;font-size:1.5rem;line-height:1.15;
+    box-shadow:0 14px 30px rgba(17,21,28,.18);
+  }
+  .bubble.b1{background:var(--h3);}
+  .bubble.b2{background:var(--h2);}
+  .bubble.b3{background:var(--h1);}
+  .bubble.b4{background:var(--good);font-size:1.4rem;}
+  .brain{width:200px;height:auto;border-radius:12px;display:block;
+    box-shadow:0 10px 22px rgba(17,21,28,.22);}
+
+  /* ---- Per-slide footer ------------------------------------------- */
+  .foot{position:absolute;left:72px;right:72px;bottom:26px;display:flex;
+    justify-content:space-between;align-items:center;
+    border-top:1px solid var(--line);padding-top:10px;font-size:.9rem;color:var(--muted);}
+  .foot .who b{color:var(--h1);}
+  .foot .mail{color:var(--muted);text-decoration:none;}
+  .foot .mail:hover{text-decoration:underline;}
+  .foot .brand{font-weight:800;letter-spacing:.08em;color:var(--h2);}
+
+  .hud{position:fixed;top:18px;right:24px;z-index:50;font-size:.85rem;color:#aeb6c0;
+    background:rgba(255,255,255,.06);padding:5px 12px;border-radius:20px;backdrop-filter:blur(4px);}
+  .progress{position:fixed;left:0;top:0;height:4px;background:var(--accent);z-index:50;transition:width .3s;}
+  .help{position:fixed;bottom:14px;left:50%;transform:translateX(-50%);z-index:50;
+    font-size:.78rem;color:#7c8590;background:rgba(255,255,255,.05);padding:5px 14px;border-radius:16px;}
+  .help.hidden{display:none;}
+</style>
+</head>
+<body>
+<div class="progress" id="progress"></div>
+<div class="hud" id="hud">0 / 4</div>
+
+<div class="deck" id="deck">
+
+  <section class="slide"
+           data-name="Dominic Antonelli" data-role="Architecture, Eval &amp; Integration Lead"
+           data-github="https://github.com/dantonel">
+    <div class="kicker">The Problem</div>
+    <h1 class="problem-q">How do we give the agent the context it needs when it needs it?</h1>
+
+    <div class="grow">
+      <div class="bubbles">
+        <div class="col">
+          <div class="bubble b1">Prompt</div>
+          <img class="brain" src="assets/brain/brain1.png" alt="expanding brain meme — stage 1">
+        </div>
+        <div class="col">
+          <div class="bubble b2">Claude.md</div>
+          <img class="brain" src="assets/brain/brain2.png" alt="expanding brain meme — stage 2">
+        </div>
+        <div class="col">
+          <div class="bubble b3">Skills</div>
+          <img class="brain" src="assets/brain/brain3.png" alt="expanding brain meme — stage 3">
+        </div>
+        <div class="col">
+          <div class="bubble b4">Knowledge Graphs</div>
+          <img class="brain" src="assets/brain/brain4.png" alt="expanding brain meme — stage 4">
+        </div>
+      </div>
+    </div>
+  </section>
+
+</div>
+
+<div class="help" id="help">→ / Space / click reveal · ← back · Home reset</div>
+
+<script>
+  const cols = Array.from(document.querySelectorAll('.col'));
+  const hud = document.getElementById('hud');
+  const progress = document.getElementById('progress');
+  const help = document.getElementById('help');
+  let f = 0;                       // number of bubbles revealed (0..bubbles.length)
+
+  function injectFooter(s){
+    if (s.querySelector('.foot')) return;
+    const el = document.createElement('div');
+    el.className = 'foot';
+    el.innerHTML =
+      '<span class="who"><b>'+ s.dataset.name +'</b> &nbsp;·&nbsp; '+
+      '<span class="role">'+ s.dataset.role +'</span> &nbsp;·&nbsp; '+
+      '<a class="mail" href="'+ s.dataset.github +'" target="_blank" rel="noopener">'+
+        s.dataset.github.replace(/^https?:\/\//,'') +'</a></span>'+
+      '<span class="brand">PRAXIS</span>';
+    s.appendChild(el);
+  }
+  document.querySelectorAll('.slide').forEach(injectFooter);
+
+  function render(){
+    cols.forEach((c,k)=>c.classList.toggle('show', k < f));
+    hud.textContent = f + ' / ' + cols.length;
+    progress.style.width = (f / cols.length * 100) + '%';
+  }
+  function next(){ if (f < cols.length) { f++; render(); } }
+  function prev(){ if (f > 0) { f--; render(); } }
+
+  document.addEventListener('keydown', e=>{
+    if(e.key==='ArrowRight'||e.key===' '||e.key==='PageDown'){ e.preventDefault(); next(); }
+    else if(e.key==='ArrowLeft'||e.key==='PageUp'){ e.preventDefault(); prev(); }
+    else if(e.key==='Home'){ f=0; render(); }
+    else if(e.key==='End'){ f=cols.length; render(); }
+    else if(e.key.toLowerCase()==='f'){ help.classList.toggle('hidden'); }
+  });
+  document.getElementById('deck').addEventListener('click', e=>{
+    if(e.target.closest('a')) return;
+    next();
+  });
+
+  render();
+  setTimeout(()=>help.classList.add('hidden'), 4500);
+</script>
+</body>
+</html>
