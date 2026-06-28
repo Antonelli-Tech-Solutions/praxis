@@ -82,6 +82,13 @@
   .cols{display:grid;grid-template-columns:1.1fr .9fr;gap:48px;align-items:start;}
   .panel{background:var(--soft);border-radius:12px;padding:26px 28px;font-size:1.1rem;line-height:1.5;}
   .panel h3{margin:0 0 10px;color:var(--gate);font-size:1.15rem;}
+  .screenshot-frame{padding:10px;background:#f8fafc;border:1px solid var(--line);border-radius:10px;}
+  .screenshot-frame img{display:block;width:100%;height:auto;border-radius:6px;border:1px solid #d8dee8;}
+  .screenshot-caption{margin:8px 2px 0;color:var(--muted);font-size:.86rem;line-height:1.35;}
+  .demo-strip{display:grid;grid-template-columns:1fr;gap:12px;}
+  .demo-strip .screenshot-frame{padding:8px;}
+  .demo-strip .screenshot-frame img{height:170px;object-fit:cover;object-position:top;}
+  .demo-strip .screenshot-caption{font-size:.8rem;}
   .flow{font-size:1.05rem;color:var(--gate);font-weight:600;line-height:1.9;}
   .flow .arrow{color:var(--accent);font-weight:800;padding:0 6px;}
   .metric{font-size:3.2rem;font-weight:800;color:var(--eval);line-height:1;}
@@ -215,13 +222,20 @@
     <div class="kicker">Pillar 2 · The Human Gate</div>
     <h2 class="slidehead">Knowledge only ships if a human approves it</h2>
     <div class="grow">
-      <div class="body">
-        <ul>
-          <li><span class="hl">Promotion lifecycle:</span> <code>proposed → suggested → active → decayed</code>.</li>
-          <li>Each candidate shows its <span class="hl">confidence score</span> and links to the exact transcript line (provenance).</li>
-          <li>One click promotes a credible lesson; contradictions are surfaced for human resolution.</li>
-          <li class="ph">[[ Speaker note: this is the trust layer — prevents "negative compounding". ]]</li>
-        </ul>
+      <div class="cols">
+        <div class="body">
+          <ul>
+            <li><span class="hl">Promotion lifecycle:</span> <code>proposed → suggested → active → decayed</code>.</li>
+            <li>Each candidate shows its <span class="hl">confidence score</span> and links to the exact transcript line (provenance).</li>
+            <li>One click promotes a credible lesson; contradictions are surfaced for human resolution.</li>
+            <li class="ph">[[ Speaker note: this is the trust layer — prevents "negative compounding". ]]</li>
+          </ul>
+        </div>
+        <div class="screenshot-frame">
+          <img src="screenshots/slide-01-human-gate-lifecycle.png"
+               alt="PRAXIS dashboard showing candidate list, confidence score, provenance, and detail panel">
+          <p class="screenshot-caption">Dashboard gate: ranked candidates, confidence, provenance, and detail review in one surface.</p>
+        </div>
       </div>
     </div>
   </section>
@@ -236,8 +250,10 @@
     <h2 class="slidehead">[[ Demo: distillation fills the dashboard ]]</h2>
     <div class="grow">
       <div class="cols">
-        <div class="panel" style="min-height:300px;display:flex;align-items:center;justify-content:center;color:#9aa3ad;font-style:italic;">
-          [[ Drop screenshot / live demo embed here ]]
+        <div class="screenshot-frame">
+          <img src="screenshots/slide-02-review-dashboard-filled.png"
+               alt="PRAXIS review dashboard filled with scored candidate cards and provenance lines">
+          <p class="screenshot-caption">Distilled lessons appear as review cards with state, score, and transcript provenance.</p>
         </div>
         <div class="body">
           <p>Walk the room through:</p>
@@ -261,14 +277,28 @@
     <div class="kicker">Why The Gate Matters</div>
     <h2 class="slidehead">Transparent, measurable knowledge promotion</h2>
     <div class="grow">
-      <div class="body">
-        <p>The central risk is <span class="hl">negative compounding</span> — one wrong, over-generalized
-          lesson degrades every future session.</p>
-        <ul>
-          <li>Human gate + provenance + thresholds + decay all exist to keep the well clean.</li>
-          <li>Credibility metrics make promotion <span class="hl">visible and auditable</span>.</li>
-          <li class="ph">[[ Hand-off line to Speaker 3: "…and here's how we prove it works." ]]</li>
-        </ul>
+      <div class="cols">
+        <div class="body">
+          <p>The central risk is <span class="hl">negative compounding</span> — one wrong, over-generalized
+            lesson degrades every future session.</p>
+          <ul>
+            <li>Human gate + provenance + thresholds + decay all exist to keep the well clean.</li>
+            <li>Credibility metrics make promotion <span class="hl">visible and auditable</span>.</li>
+            <li class="ph">[[ Hand-off line to Speaker 3: "…and here's how we prove it works." ]]</li>
+          </ul>
+        </div>
+        <div class="demo-strip">
+          <div class="screenshot-frame">
+            <img src="screenshots/slide-03-promote-confirmation-crop.png"
+                 alt="PRAXIS dashboard confirmation before approving a proposed lesson">
+            <p class="screenshot-caption">Approval is explicit before a candidate becomes active.</p>
+          </div>
+          <div class="screenshot-frame">
+            <img src="screenshots/slide-03-contradiction-resolution-crop.png"
+                 alt="PRAXIS contradiction review showing two conflicting past-session lessons and keep buttons">
+            <p class="screenshot-caption">Contradictory lessons are resolved by a human, with provenance visible on both sides.</p>
+          </div>
+        </div>
       </div>
     </div>
   </section>
@@ -357,10 +387,11 @@
     if (s.querySelector('.foot')) return;
     const f = document.createElement('div');
     f.className = 'foot';
+    const contact = s.dataset.github || s.dataset.mail || '';
     f.innerHTML =
       '<span class="who"><b>'+ s.dataset.name +'</b> &nbsp;·&nbsp; '+
       '<span class="role">'+ s.dataset.role +'</span> &nbsp;·&nbsp; '+
-      '<span class="mail">'+ s.dataset.github +'</span></span>'+
+      '<span class="mail">'+ contact +'</span></span>'+
       '<span class="brand">PRAXIS</span>';
     s.appendChild(f);
   }

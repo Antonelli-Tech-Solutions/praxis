@@ -40,6 +40,9 @@ knowledge/**/*.vtt
 .worktrees
 scratch_graph.json
 
+# Generated Monica demo video capture outputs
+docs/monica/videos/experiment-video-capture-*/BL_proxy/
+
 # SWE-rebench eval pilot grader artifacts (written to cwd on a live run)
 logs/run_evaluation/
 preds_*.json
