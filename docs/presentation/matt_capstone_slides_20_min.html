@@ -133,21 +133,192 @@
   .slide.problem .kicker{text-align:center;}
   .problem-q{font-size:2.5rem;line-height:1.18;color:var(--h1);margin:0 auto;
     font-weight:800;text-align:center;max-width:40ch;letter-spacing:-.01em;}
-  .bubbles{display:flex;align-items:flex-start;justify-content:center;gap:46px;width:100%;}
-  .col{display:flex;flex-direction:column;align-items:center;gap:20px;
-    opacity:0;transform:scale(.5) translateY(26px);
-    transition:opacity .42s ease, transform .55s cubic-bezier(.2,.9,.3,1.35);}
-  .col.show{opacity:1;transform:scale(1) translateY(0);}
-  .bubble{width:200px;height:200px;border-radius:50%;flex:0 0 auto;
-    display:flex;align-items:center;justify-content:center;text-align:center;
-    padding:16px;color:#fff;font-weight:800;font-size:1.5rem;line-height:1.15;
+  .stack{display:flex;flex-direction:column;align-items:center;gap:18px;width:100%;}
+  .brow{display:flex;align-items:center;justify-content:center;gap:28px;
+    width:min(900px,88%);
+    opacity:0;transform:translateY(24px);
+    transition:opacity .42s ease, transform .5s cubic-bezier(.2,.9,.3,1.2);}
+  .brow.show{opacity:1;transform:translateY(0);}
+  .widebox{flex:1 1 auto;padding:22px 30px;border-radius:14px;
+    color:#fff;font-weight:800;font-size:1.55rem;line-height:1.15;text-align:center;
     box-shadow:0 14px 30px rgba(17,21,28,.18);}
-  .bubble.b1{background:var(--h3);}
-  .bubble.b2{background:var(--h2);}
-  .bubble.b3{background:var(--h1);}
-  .bubble.b4{background:var(--good);font-size:1.4rem;}
-  .brain{width:200px;height:auto;border-radius:12px;display:block;
+  .widebox.w1{background:var(--h3);}
+  .widebox.w2{background:var(--h2);}
+  .widebox.w3{background:var(--h1);}
+  .widebox.w4{background:var(--good);}
+  .brain{flex:0 0 auto;width:120px;height:auto;border-radius:10px;display:block;
     box-shadow:0 10px 22px rgba(17,21,28,.22);}
+
+  /* ---- Ford craft→process slide ---- */
+  .ford-row{display:flex;align-items:center;justify-content:center;gap:36px;width:100%;}
+  .ford-card{margin:0;flex:0 1 460px;display:flex;flex-direction:column;
+    border:1px solid var(--line);border-radius:14px;overflow:hidden;background:#fafcff;
+    box-shadow:0 14px 30px rgba(17,21,28,.16);
+    opacity:0;transform:translateY(24px);
+    transition:opacity .45s ease, transform .5s cubic-bezier(.2,.9,.3,1.2);}
+  .ford-card.show{opacity:1;transform:translateY(0);}
+  .ford-card img{width:100%;height:300px;object-fit:cover;display:block;filter:grayscale(.12);}
+  .ford-card figcaption{padding:14px 18px;}
+  .ford-card figcaption b{display:block;font-size:1.2rem;color:var(--h1);}
+  .ford-card figcaption span{display:block;font-size:.95rem;color:var(--muted);margin-top:3px;}
+  .ford-arrow{font-size:3rem;color:var(--accent);font-weight:800;flex:0 0 auto;
+    opacity:0;transform:scale(.6);
+    transition:opacity .4s ease, transform .45s cubic-bezier(.2,.9,.3,1.4);}
+  .ford-arrow.show{opacity:1;transform:scale(1);}
+  .ford-takeaway{text-align:center;max-width:none;margin:30px auto 0;
+    font-size:2.3rem;line-height:1.1;color:var(--h2);font-weight:800;
+    opacity:0;transform:translateY(16px);
+    transition:opacity .4s ease, transform .45s cubic-bezier(.2,.9,.3,1.2);}
+  .ford-takeaway.show{opacity:1;transform:translateY(0);}
+
+  /* ---- Claude toolbox slide ---- */
+  .toolbox-row{display:flex;align-items:center;justify-content:center;gap:40px;width:100%;}
+  .tool-card{margin:0;display:flex;flex-direction:column;align-items:center;gap:12px;
+    opacity:0;transform:translateY(24px);
+    transition:opacity .45s ease, transform .5s cubic-bezier(.2,.9,.3,1.2);}
+  .tool-card.show{opacity:1;transform:translateY(0);}
+  .claude-logo{width:300px;height:auto;display:block;
+    filter:drop-shadow(0 14px 30px rgba(17,21,28,.20));}
+  .tool-cabinet{width:440px;max-width:46vw;height:auto;border-radius:14px;display:block;
+    box-shadow:0 14px 30px rgba(17,21,28,.20);}
+  .tool-card figcaption span{font-size:1rem;color:var(--muted);}
+
+  /* ---- Using Claude = describe + list tools slide ---- */
+  .useclaude-row{display:grid;grid-template-columns:1fr 1fr;gap:48px;align-items:center;
+    width:100%;max-width:1120px;margin:0 auto;}
+  .useclaude-img{margin:0;display:flex;justify-content:center;}
+  .useclaude-img img{width:100%;max-width:440px;height:auto;border-radius:16px;
+    box-shadow:0 16px 34px rgba(17,21,28,.20);display:block;}
+
+  .prompt-card{background:#fafcff;border:1px solid var(--line);border-radius:14px;
+    box-shadow:0 14px 30px rgba(17,21,28,.14);overflow:hidden;}
+  .prompt-head{display:flex;align-items:center;gap:12px;background:var(--h1);
+    padding:16px 24px;
+    opacity:0;transform:translateY(10px);
+    transition:opacity .4s ease, transform .45s cubic-bezier(.2,.9,.3,1.2);}
+  .prompt-head.show{opacity:1;transform:translateY(0);}
+  .prompt-dot{width:12px;height:12px;border-radius:50%;background:var(--accent);flex:0 0 auto;}
+  .prompt-title{color:#fff;font-size:1.45rem;font-weight:800;font-family:"Consolas","Courier New",monospace;}
+  .prompt-list{list-style:none;margin:0;padding:14px 26px 20px;}
+  .prompt-list li{font-size:1.15rem;color:var(--ink);padding:11px 0;line-height:1.35;
+    border-bottom:1px solid var(--line);display:flex;align-items:baseline;gap:14px;
+    opacity:0;transform:translateY(10px);
+    transition:opacity .4s ease, transform .45s cubic-bezier(.2,.9,.3,1.2);}
+  .prompt-list li.show{opacity:1;transform:translateY(0);}
+  .prompt-list li:last-child{border-bottom:none;}
+  .prompt-key{flex:0 0 110px;font-size:.78rem;letter-spacing:.06em;text-transform:uppercase;
+    font-weight:800;color:var(--h2);}
+  .prompt-list b{color:var(--h1);}
+
+  /* ---- Hot dog / not hot dog slide ---- */
+  .hotdog-row{display:flex;align-items:stretch;justify-content:center;gap:40px;width:100%;}
+  .hotdog-card{margin:0;flex:0 1 380px;display:flex;flex-direction:column;
+    border:1px solid var(--line);border-radius:14px;overflow:hidden;background:#fafcff;
+    box-shadow:0 14px 30px rgba(17,21,28,.16);
+    opacity:0;transform:translateY(24px);
+    transition:opacity .45s ease, transform .5s cubic-bezier(.2,.9,.3,1.2);}
+  .hotdog-card.show{opacity:1;transform:translateY(0);}
+  .hotdog-card img{width:100%;height:360px;object-fit:contain;display:block;background:#11151c;}
+  .hotdog-card figcaption{padding:14px 18px;}
+  .hotdog-card figcaption b{display:block;font-size:1.2rem;color:var(--h1);}
+  .hotdog-card figcaption span{display:block;font-size:.95rem;color:var(--muted);margin-top:3px;}
+
+  /* ---- More data = more capabilities slide ---- */
+  .imagenet-wrap{display:flex;align-items:center;justify-content:center;width:100%;
+    opacity:0;transform:translateY(24px);
+    transition:opacity .45s ease, transform .5s cubic-bezier(.2,.9,.3,1.2);}
+  .imagenet-wrap.show{opacity:1;transform:translateY(0);}
+  .imagenet-wrap img{max-width:760px;max-height:60vh;width:auto;height:auto;
+    border-radius:12px;box-shadow:0 14px 30px rgba(17,21,28,.18);display:block;}
+
+  /* ---- Equations 1–5 slide ---- */
+  .eq-layout{display:grid;grid-template-columns:420px 1fr;gap:40px;align-items:stretch;
+    width:100%;margin:0 auto;}
+  .eq-legend{border-collapse:collapse;width:100%;font-size:1.18rem;align-self:center;
+    border:1px solid var(--line);border-radius:12px;overflow:hidden;background:#fafcff;
+    box-shadow:0 10px 24px rgba(17,21,28,.12);}
+  .eq-legend th{background:var(--h1);color:#fff;text-align:left;padding:13px 18px;font-size:1rem;}
+  .eq-legend td{padding:13px 18px;border-top:1px solid var(--line);color:var(--ink);vertical-align:top;}
+  .eq-legend td:first-child{white-space:nowrap;color:var(--h1);width:1%;}
+  .eq-legend tr:nth-child(even) td{background:#f1f6fc;}
+
+  .eq-list{display:flex;flex-direction:column;gap:18px;width:100%;justify-content:center;}
+  .eq-item{display:flex;flex-direction:column;gap:8px;
+    border:1px solid var(--line);border-left:7px solid var(--h2);border-radius:12px;
+    padding:18px 30px;background:#fafcff;box-shadow:0 10px 24px rgba(17,21,28,.12);
+    opacity:0;transform:translateY(18px);
+    transition:opacity .4s ease, transform .45s cubic-bezier(.2,.9,.3,1.2);}
+  .eq-item.show{opacity:1;transform:translateY(0);}
+  .eq-label{font-size:1.05rem;font-weight:700;color:var(--h1);}
+  .eq-math{font-size:1.5rem;color:var(--ink);overflow:visible;}
+  .eq-math .MathJax{margin:0 !important;}
+  .eq-math mjx-container{overflow:visible !important;margin:0 !important;text-align:left !important;}
+
+  /* ---- AI engineering = prompt engineering slide ---- */
+  .ai-pe{display:flex;flex-direction:column;align-items:center;gap:8px;max-width:1000px;}
+  .ai-pe-eq{display:flex;align-items:center;justify-content:center;gap:26px;flex-wrap:wrap;
+    margin-top:6px;}
+  .ai-pe-term{font-size:3.1rem;font-weight:800;color:var(--h1);line-height:1.05;}
+  .ai-pe-hl{color:var(--accent);}
+  .ai-pe-op{font-size:3.1rem;font-weight:800;color:var(--muted);}
+  .ai-pe-sub{font-size:1.3rem;color:var(--muted);text-align:center;max-width:62ch;
+    margin:14px 0 0;line-height:1.45;}
+  .ai-pe-sub.fragment{opacity:0;transform:translateY(12px);
+    transition:opacity .4s ease, transform .45s cubic-bezier(.2,.9,.3,1.2);}
+  .ai-pe-sub.fragment.show{opacity:1;transform:translateY(0);}
+  .ai-pe-flow{display:flex;flex-direction:column;align-items:center;gap:14px;margin-top:30px;}
+  .ai-pe-chips{display:flex;flex-wrap:wrap;justify-content:center;gap:12px;max-width:760px;
+    opacity:0;transform:translateY(16px);
+    transition:opacity .4s ease, transform .45s cubic-bezier(.2,.9,.3,1.2);}
+  .ai-pe-chips.show{opacity:1;transform:translateY(0);}
+  .chip{font-size:1.15rem;font-weight:700;color:var(--h2);background:#eef3f9;
+    border:1.5px solid var(--h3);border-radius:999px;padding:9px 20px;}
+  .ai-pe-arrow{font-size:2.4rem;color:var(--accent);font-weight:800;
+    opacity:0;transform:scale(.6);
+    transition:opacity .4s ease, transform .45s cubic-bezier(.2,.9,.3,1.4);}
+  .ai-pe-arrow.show{opacity:1;transform:scale(1);}
+  .ai-pe-target{font-size:1.5rem;font-weight:800;color:#fff;background:var(--h1);
+    border-radius:12px;padding:16px 34px;box-shadow:0 12px 28px rgba(31,78,121,.28);
+    opacity:0;transform:translateY(16px);
+    transition:opacity .4s ease, transform .45s cubic-bezier(.2,.9,.3,1.2);}
+  .ai-pe-target.show{opacity:1;transform:translateY(0);}
+
+  /* ---- Slide 8: workflow as a function (input → output) ---- */
+  .fn-flow{display:flex;align-items:center;justify-content:center;gap:26px;width:100%;
+    max-width:1140px;margin:0 auto;}
+  .fn-tag{font-size:.78rem;letter-spacing:.14em;text-transform:uppercase;font-weight:800;
+    color:var(--accent);margin-bottom:10px;text-align:center;}
+  .fn-input,.fn-output{flex:0 1 auto;}
+  .fn-pill{font-size:1.45rem;font-weight:800;font-family:"Consolas","Courier New",monospace;
+    color:#fff;background:var(--h1);border-radius:12px;padding:20px 26px;text-align:center;
+    box-shadow:0 12px 28px rgba(31,78,121,.28);max-width:260px;line-height:1.25;}
+  .fn-op{font-size:2.6rem;color:var(--muted);font-weight:800;flex:0 0 auto;}
+  .fn-machine{flex:0 0 auto;}
+  .fn-machine .fn-tag{color:var(--h2);font-size:1.05rem;letter-spacing:.04em;
+    font-family:"Consolas","Courier New",monospace;text-transform:none;
+    background:#eef3f9;border:2px dashed var(--h3);border-radius:14px;padding:26px 30px;margin:0;}
+  .fn-wand{display:block;font-size:2rem;margin-top:10px;line-height:1;}
+  .fn-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:9px;
+    border:1px solid var(--line);border-left:6px solid var(--accent);border-radius:12px;
+    background:#fafcff;padding:16px 22px;box-shadow:0 12px 28px rgba(17,21,28,.14);min-width:430px;}
+  .fn-list li{font-size:1.1rem;color:var(--ink);line-height:1.3;
+    display:flex;align-items:baseline;gap:14px;}
+  .fn-list b{color:var(--h1);}
+  .chat-box{min-width:430px;max-width:480px;background:#fff;border:1.5px solid var(--h3);
+    border-radius:16px;box-shadow:0 12px 28px rgba(17,21,28,.16);overflow:hidden;}
+  .chat-text{font-size:1.15rem;color:var(--ink);line-height:1.45;padding:20px 22px 16px;}
+  .chat-text b{color:var(--h1);}
+  .chat-bar{display:flex;align-items:center;justify-content:space-between;
+    padding:12px 18px;border-top:1px solid var(--line);background:#fafcff;}
+  .chat-model{font-size:.95rem;font-weight:700;color:var(--muted);}
+  .chat-send{font-size:.95rem;font-weight:800;color:#fff;background:var(--accent);
+    border-radius:999px;padding:8px 18px;}
+  .fn-step{display:flex;align-items:center;gap:26px;}
+  .fn-input.fragment,.fn-step.fragment{
+    opacity:0;transform:translateY(16px);
+    transition:opacity .42s ease, transform .48s cubic-bezier(.2,.9,.3,1.2);}
+  .fn-input.fragment.show,.fn-step.fragment.show{
+    opacity:1;transform:translateY(0);}
 
   /* ---- Content slides (body / two-column / panel) — from demo template ---- */
   .body{font-size:1.25rem;line-height:1.55;color:var(--ink);max-width:62ch;}
@@ -165,6 +336,13 @@
   .shot-img{max-width:100%;max-height:calc(100vh - 250px);width:auto;height:auto;
     border-radius:8px;border:1px solid var(--line);box-shadow:0 8px 34px rgba(0,0,0,.14);}
 </style>
+<script>
+  window.MathJax = {
+    tex: { inlineMath: [['\\(','\\)']], displayMath: [['\\[','\\]']] },
+    svg: { fontCache: 'global' }
+  };
+</script>
+<script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js" async></script>
 </head>
 <body>
 <div class="progress" id="progress"></div>
@@ -195,32 +373,339 @@
   </section>
 
   <!-- ============================================================
+       SLIDE — HOT DOG / NOT HOT DOG (ML origin gag)
+       ============================================================ -->
+  <section class="slide"
+           data-name="Matthew Daw" data-role="ML &amp; Knowledge Pipeline Lead"
+           data-github="https://github.com/MatthewDaw">
+    <div class="grow">
+      <div class="hotdog-row">
+        <figure class="hotdog-card fragment">
+          <img src="assets/hotdog/nothotdog_app.jpg" alt="Not Hotdog app result screen">
+        </figure>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================
+       SLIDE — MORE DATA = MORE CAPABILITIES (ImageNet grid)
+       ============================================================ -->
+  <section class="slide"
+           data-name="Matthew Daw" data-role="ML &amp; Knowledge Pipeline Lead"
+           data-github="https://github.com/MatthewDaw">
+    <div class="kicker">A Brief History of ML</div>
+    <h2 class="slidehead">More data points → more capabilities</h2>
+    <p class="sub">Two labels became a thousand. The same idea, scaled up on far more labeled examples,
+      went from <b>hot dog / not hot dog</b> to recognizing leopards, scooters, mushrooms, and more.</p>
+
+    <div class="grow">
+      <div class="imagenet-wrap fragment">
+        <img src="assets/imagenet/classifier_grid.jpg" alt="Image classifier predicting many object categories">
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================
+       SLIDE — HOW MODELS LEARN CAPABILITIES (Equations 1–5)
+       ============================================================ -->
+  <section class="slide"
+           data-name="Matthew Daw" data-role="ML &amp; Knowledge Pipeline Lead"
+           data-github="https://github.com/MatthewDaw">
+    <div class="kicker">Describing Capability Accumulation Rigorously</div>
+    <h2 class="slidehead">What “more data → more capabilities” means, formally</h2>
+
+    <div class="grow">
+      <div class="eq-layout">
+        <table class="eq-legend">
+          <thead><tr><th>Symbol</th><th>Meaning</th></tr></thead>
+          <tbody>
+            <tr><td>\( q \)</td><td>the input you're running now (the “query”)</td></tr>
+            <tr><td>\( y \)</td><td>the model's output</td></tr>
+            <tr><td>\( W \)</td><td>weight matrix — the model's memory</td></tr>
+            <tr><td>\( x_i \)</td><td>training example \(i\)</td></tr>
+            <tr><td>\( \sigma_i \)</td><td>error signal for example \(i\)</td></tr>
+            <tr><td>\( x_i^{\top} q \)</td><td>how similar the new input is to example \(i\)</td></tr>
+          </tbody>
+        </table>
+
+        <div class="eq-list">
+          <div class="eq-item fragment">
+            <div class="eq-label">Eq 1 — a single-layer network</div>
+            <div class="eq-math">\[ y = W q \]</div>
+          </div>
+          <div class="eq-item fragment">
+            <div class="eq-label">Eq 2 — a learning update step</div>
+            <div class="eq-math">\[ W \;\leftarrow\; W + \sigma_i\, x_i^{\top} \]</div>
+          </div>
+          <div class="eq-item fragment">
+            <div class="eq-label">Eq 3 — training accumulates those lessons</div>
+            <div class="eq-math">\[ W_T \;=\; W_0 + \sum_{i=1}^{T} \sigma_i\, x_i^{\top} \]</div>
+          </div>
+          <div class="eq-item fragment">
+            <div class="eq-label">Eq 4 — inference is a similarity-weighted replay</div>
+            <div class="eq-math">\[ W_T\, q \;=\; W_0\, q \;+\; \sum_{i=1}^{T} \sigma_i \,\bigl(x_i^{\top} q\bigr) \]</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================
+       SLIDE — CLAUDE CODE IS A TOOLBOX
+       ============================================================ -->
+  <section class="slide"
+           data-name="Matthew Daw" data-role="ML &amp; Knowledge Pipeline Lead"
+           data-github="https://github.com/MatthewDaw">
+    <div class="kicker">The Tool</div>
+    <h2 class="slidehead">Claude Code is a toolbox</h2>
+    <p class="sub">It hands the agent a cabinet of capabilities — read, search, edit, run, browse, and more.
+      Powerful, but the agent still has to know <b>which tool to reach for, and when</b>.</p>
+
+    <div class="grow">
+      <div class="toolbox-row">
+        <figure class="tool-card fragment">
+          <img class="claude-logo" src="assets/claude/claude_logo.webp" alt="Claude logo">
+        </figure>
+        <div class="ford-arrow fragment">≈</div>
+        <figure class="tool-card fragment">
+          <img class="tool-cabinet" src="assets/claude/tool_cabinet.jpg" alt="A cabinet full of tools">
+          <figcaption><span>A full cabinet of tools</span></figcaption>
+        </figure>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================
+       SLIDE — USING CLAUDE = DESCRIBE + LIST TOOLS
+       ============================================================ -->
+  <section class="slide"
+           data-name="Matthew Daw" data-role="ML &amp; Knowledge Pipeline Lead"
+           data-github="https://github.com/MatthewDaw">
+    <div class="kicker">How You Use It</div>
+    <h2 class="slidehead">Describe what you want — and which tools to use</h2>
+
+    <div class="grow">
+      <div class="useclaude-row">
+        <figure class="useclaude-img">
+          <img src="assets/claude/workbench.jpg" alt="A workbench with a vise and an array of tools">
+        </figure>
+
+        <div class="prompt-card">
+          <div class="prompt-head fragment">
+            <span class="prompt-dot"></span>
+            <span class="prompt-title">make me a login page</span>
+          </div>
+          <ul class="prompt-list">
+            <li class="fragment"><span class="prompt-key">Quality control</span> <b>don't use em dashes</b></li>
+            <li class="fragment"><span class="prompt-key">Auth</span> use <b>Auth0</b></li>
+            <li class="fragment"><span class="prompt-key">Security</span> add <b>multi-factor authentication</b></li>
+            <li class="fragment"><span class="prompt-key">Styling</span> use <b>Tailwind CSS</b></li>
+            <li class="fragment"><span class="prompt-key">Validation</span> client + server side with <b>Zod</b></li>
+            <li class="fragment"><span class="prompt-key">Tests</span> add <b>Playwright</b> e2e for the login flow</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================
+       SLIDE — FROM CRAFT TO ENGINEERED PROCESS (Ford)
+       ============================================================ -->
+  <section class="slide"
+           data-name="Matthew Daw" data-role="ML &amp; Knowledge Pipeline Lead"
+           data-github="https://github.com/MatthewDaw">
+    <div class="kicker">A Familiar Pattern</div>
+    <h2 class="slidehead">Industrialization is just finding the things that are repeatedly done, and building tools to automate those things</h2>
+
+    <div class="grow">
+      <div class="ford-row">
+        <figure class="ford-card fragment">
+          <img src="assets/ford/cars_by_hand.jpg" alt="Workers assembling early automobiles by hand">
+          <figcaption><b>Built by hand</b><span>One at a time · skill-bound · slow</span></figcaption>
+        </figure>
+        <div class="ford-arrow fragment">→</div>
+        <figure class="ford-card fragment">
+          <img src="assets/ford/ford_line_1913.jpg" alt="Ford moving assembly line, 1913">
+          <figcaption><b>Engineered process</b><span>The assembly line · repeatable · at scale</span></figcaption>
+        </figure>
+      </div>
+      <p class="ford-takeaway fragment">Industrializing coding workflows is just finding the things you repeatedly do,
+        and building automated workflows for those things</p>
+    </div>
+  </section>
+
+  <!-- ============================================================
+       SLIDE — AUTOMATING WORKFLOWS = PROMPT ENGINEERING
+       ============================================================ -->
+  <section class="slide"
+           data-name="Matthew Daw" data-role="ML &amp; Knowledge Pipeline Lead"
+           data-github="https://github.com/MatthewDaw">
+    <div class="kicker">The Punchline</div>
+    <h2 class="slidehead">Automating workflows is just prompt engineering</h2>
+
+    <div class="grow">
+      <div class="fn-flow">
+        <div class="fn-input fragment">
+          <div class="fn-tag">input</div>
+          <div class="fn-pill">"make me a login page"</div>
+        </div>
+
+        <div class="fn-step fragment">
+          <div class="fn-op">→</div>
+          <div class="fn-machine">
+            <div class="fn-tag">function<span class="fn-wand">🪄</span></div>
+          </div>
+        </div>
+
+        <div class="fn-step fragment">
+          <div class="fn-op">→</div>
+          <div class="fn-output">
+            <div class="fn-tag">output → a prompt for Claude</div>
+            <div class="chat-box">
+              <div class="chat-text">Make me a login page. Don't use em dashes. Use <b>Auth0</b> for authentication
+                and add <b>multi-factor authentication</b>. Style it with <b>Tailwind&nbsp;CSS</b>.
+                Validate inputs <b>client + server side with Zod</b>, and add <b>Playwright</b>
+                end-to-end tests for the login flow.</div>
+              <div class="chat-bar">
+                <span class="chat-model">Claude</span>
+                <span class="chat-send">Send ↑</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================
        SLIDE — THE PROBLEM (bubbles + expanding-brain reveal)
        ============================================================ -->
   <section class="slide problem"
            data-name="Dominic Antonelli" data-role="Architecture, Eval &amp; Integration Lead"
            data-github="https://github.com/dantonel">
     <div class="kicker">The Problem</div>
-    <h1 class="problem-q">How do we give the agent the context it needs when it needs it?</h1>
+    <h1 class="problem-q">Levels of context engineering</h1>
 
     <div class="grow">
-      <div class="bubbles">
-        <div class="col fragment">
-          <div class="bubble b1">Prompt</div>
-          <img class="brain" src="assets/brain/brain1.png" alt="expanding brain meme — stage 1">
+      <div class="stack">
+        <div class="brow fragment">
+          <div class="widebox w1">Prompt</div>
         </div>
-        <div class="col fragment">
-          <div class="bubble b2">Claude.md</div>
-          <img class="brain" src="assets/brain/brain2.png" alt="expanding brain meme — stage 2">
+        <div class="brow fragment">
+          <div class="widebox w2">Claude.md</div>
         </div>
-        <div class="col fragment">
-          <div class="bubble b3">Skills</div>
-          <img class="brain" src="assets/brain/brain3.png" alt="expanding brain meme — stage 3">
+        <div class="brow fragment">
+          <div class="widebox w3">Skills</div>
         </div>
-        <div class="col fragment">
-          <div class="bubble b4">Knowledge Graphs</div>
-          <img class="brain" src="assets/brain/brain4.png" alt="expanding brain meme — stage 4">
+        <div class="brow fragment">
+          <div class="widebox w4">???</div>
         </div>
+      </div>
+    </div>
+  </section>
+  <!-- ============================================================
+       SLIDE — THE AGENT FACTORY (Spec → Plan/Build/Validate, Praxis-backed)
+       ============================================================ -->
+  <section class="slide"
+           data-name="Matthew Daw" data-role="ML &amp; Knowledge Pipeline Lead"
+           data-github="https://github.com/MatthewDaw">
+    <div class="kicker">Closing the loop · the agent factory</div>
+    <h2 class="slidehead">Every stage of the build loop runs on PRAXIS</h2>
+
+    <div class="grow">
+      <div class="diagram">
+        <svg viewBox="28 88 1022 448" preserveAspectRatio="xMidYMid meet" role="img"
+             style="max-height:82vh;"
+             aria-label="Spec drives a Plan, Build, Validate pipeline; beneath each stage a Praxis-backed how-to-plan, how-to-build, how-to-validate playbook feeds it; every node is backed by Praxis.">
+          <defs>
+            <marker id="af-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 z" fill="#5b6470"/>
+            </marker>
+            <marker id="af-arrow-blue" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 z" fill="#2E75B6"/>
+            </marker>
+            <marker id="af-arrow-gold" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 z" fill="#c98a2e"/>
+            </marker>
+          </defs>
+
+          <!-- ===================== PRAXIS LAYER DIVIDER ===================== -->
+          <line x1="40" y1="312" x2="1180" y2="312" stroke="#c98a2e" stroke-width="3" stroke-dasharray="8 7"/>
+          <rect x="40" y="297" width="430" height="31" rx="6" fill="#ffffff"/>
+          <text x="48" y="320" font-size="20" fill="#c98a2e" font-weight="800">ᴾ = backed by PRAXIS · durable knowledge</text>
+
+          <!-- ===================== SPEC ===================== -->
+          <rect class="stage-fill" x="40" y="112" width="172" height="124" rx="12" stroke="#1F4E79" stroke-width="3"/>
+          <rect x="40" y="112" width="172" height="42" rx="12" fill="#1F4E79"/>
+          <rect x="40" y="134" width="172" height="20" fill="#1F4E79"/>
+          <text x="126" y="142" text-anchor="middle" font-size="24" fill="#ffffff" font-weight="800">Spec</text>
+          <text x="126" y="192" text-anchor="middle" font-size="17" class="stage-sub">the requirement</text>
+          <text x="126" y="214" text-anchor="middle" font-size="17" class="stage-sub">to build</text>
+
+          <!-- Spec → Plan (top) -->
+          <line x1="212" y1="170" x2="310" y2="184" stroke="#5b6470" stroke-width="3" marker-end="url(#af-arrow)"/>
+          <!-- Spec → playbook row (gold curve into How to Plan) -->
+          <path d="M126,236 C126,330 150,420 290,420" fill="none" stroke="#c98a2e" stroke-width="3" marker-end="url(#af-arrow-gold)"/>
+
+          <!-- ===================== TOP PIPELINE: PLAN → BUILD → VALIDATE ===================== -->
+          <!-- PLAN -->
+          <rect class="stage-fill" x="318" y="112" width="216" height="140" rx="12" stroke="#2E75B6" stroke-width="3"/>
+          <rect x="318" y="112" width="216" height="42" rx="12" fill="#2E75B6"/>
+          <rect x="318" y="134" width="216" height="20" fill="#2E75B6"/>
+          <text x="426" y="143" text-anchor="middle" font-size="26" fill="#ffffff" font-weight="800">Plan</text>
+          <text x="426" y="200" text-anchor="middle" font-size="16" class="stage-label">decompose into tickets</text>
+          <circle cx="528" cy="112" r="17" fill="#c98a2e"/><text x="528" y="119" text-anchor="middle" font-size="19" fill="#fff" font-weight="800">P</text>
+
+          <!-- Plan → Build -->
+          <line x1="534" y1="184" x2="578" y2="184" stroke="#5b6470" stroke-width="3" marker-end="url(#af-arrow)"/>
+
+          <!-- BUILD -->
+          <rect class="stage-fill" x="582" y="112" width="196" height="140" rx="12" stroke="#5B9BD5" stroke-width="3"/>
+          <rect x="582" y="112" width="196" height="42" rx="12" fill="#5B9BD5"/>
+          <rect x="582" y="134" width="196" height="20" fill="#5B9BD5"/>
+          <text x="680" y="143" text-anchor="middle" font-size="26" fill="#ffffff" font-weight="800">Build</text>
+          <text x="680" y="200" text-anchor="middle" font-size="16" class="stage-label">implement each ticket</text>
+
+          <!-- Build → Validate -->
+          <line x1="778" y1="184" x2="822" y2="184" stroke="#5b6470" stroke-width="3" marker-end="url(#af-arrow)"/>
+
+          <!-- VALIDATE -->
+          <rect class="stage-fill" x="826" y="112" width="208" height="140" rx="12" stroke="#4f7d5a" stroke-width="3"/>
+          <rect x="826" y="112" width="208" height="42" rx="12" fill="#4f7d5a"/>
+          <rect x="826" y="134" width="208" height="20" fill="#4f7d5a"/>
+          <text x="930" y="143" text-anchor="middle" font-size="26" fill="#ffffff" font-weight="800">Validate</text>
+          <text x="930" y="200" text-anchor="middle" font-size="16" class="stage-label">run the checks</text>
+
+          <!-- ===================== PLAYBOOK → STAGE (up arrows) ===================== -->
+          <line x1="426" y1="360" x2="426" y2="254" stroke="#2E75B6" stroke-width="3" marker-end="url(#af-arrow-blue)"/>
+          <line x1="680" y1="360" x2="680" y2="254" stroke="#2E75B6" stroke-width="3" marker-end="url(#af-arrow-blue)"/>
+          <line x1="930" y1="360" x2="930" y2="254" stroke="#2E75B6" stroke-width="3" marker-end="url(#af-arrow-blue)"/>
+
+          <!-- ===================== PLAYBOOK ROW (how-to layer) ===================== -->
+          <rect class="stage-fill" x="300" y="360" width="740" height="130" rx="12" stroke="#c98a2e" stroke-width="3"/>
+          <line x1="546" y1="360" x2="546" y2="490" stroke="#c98a2e" stroke-width="2.5"/>
+          <line x1="793" y1="360" x2="793" y2="490" stroke="#c98a2e" stroke-width="2.5"/>
+
+          <text x="423" y="412" text-anchor="middle" font-size="19" class="stage-sub">How to</text>
+          <text x="423" y="448" text-anchor="middle" font-size="27" class="sub-text" font-weight="800">Plan</text>
+          <circle cx="520" cy="376" r="16" fill="#c98a2e"/><text x="520" y="382" text-anchor="middle" font-size="17" fill="#fff" font-weight="800">P</text>
+
+          <text x="670" y="412" text-anchor="middle" font-size="19" class="stage-sub">How to</text>
+          <text x="670" y="448" text-anchor="middle" font-size="27" class="sub-text" font-weight="800">Build</text>
+          <circle cx="767" cy="376" r="16" fill="#c98a2e"/><text x="767" y="382" text-anchor="middle" font-size="17" fill="#fff" font-weight="800">P</text>
+
+          <text x="917" y="412" text-anchor="middle" font-size="19" class="stage-sub">How to</text>
+          <text x="917" y="448" text-anchor="middle" font-size="27" class="sub-text" font-weight="800">Validate</text>
+          <circle cx="1014" cy="376" r="16" fill="#c98a2e"/><text x="1014" y="382" text-anchor="middle" font-size="17" fill="#fff" font-weight="800">P</text>
+
+          <text x="670" y="520" text-anchor="middle" font-size="18" class="conn-label">Praxis-backed playbook — guides each stage</text>
+        </svg>
+      </div>
+
+      <div class="legend">
+        <div class="item"><span class="sw" style="border-top-color:#5b6470;"></span>pipeline flow (Plan → Build → Validate)</div>
+        <div class="item"><span class="sw" style="border-top-color:#2E75B6;"></span>playbook guides each stage</div>
+        <div class="item"><span class="sw" style="border-top-color:#c98a2e;border-top-style:dashed;"></span>spec feeds the playbook · ᴾ = backed by Praxis</div>
       </div>
     </div>
   </section>
@@ -590,112 +1075,66 @@
     </div>
   </section>
 
+
   <!-- ============================================================
-       SLIDE — THE AGENT FACTORY (Spec → Plan/Build/Validate, Praxis-backed)
+       SLIDE — PLANNING VALIDATION CONTROL (general-pool graph)
        ============================================================ -->
-  <section class="slide"
+  <section class="slide shot"
            data-name="Matthew Daw" data-role="ML &amp; Knowledge Pipeline Lead"
            data-github="https://github.com/MatthewDaw">
-    <div class="kicker">Closing the loop · the agent factory</div>
-    <h2 class="slidehead">Every stage of the build loop runs on PRAXIS</h2>
-
+    <div class="kicker">PRAXIS</div>
+    <h2 class="slidehead">Planning Validation Control</h2>
     <div class="grow">
-      <div class="diagram">
-        <svg viewBox="28 88 1022 448" preserveAspectRatio="xMidYMid meet" role="img"
-             style="max-height:82vh;"
-             aria-label="Spec drives a Plan, Build, Validate pipeline; beneath each stage a Praxis-backed how-to-plan, how-to-build, how-to-validate playbook feeds it; every node is backed by Praxis.">
-          <defs>
-            <marker id="af-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-              <path d="M0,0 L10,5 L0,10 z" fill="#5b6470"/>
-            </marker>
-            <marker id="af-arrow-blue" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-              <path d="M0,0 L10,5 L0,10 z" fill="#2E75B6"/>
-            </marker>
-            <marker id="af-arrow-gold" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-              <path d="M0,0 L10,5 L0,10 z" fill="#c98a2e"/>
-            </marker>
-          </defs>
-
-          <!-- ===================== PRAXIS LAYER DIVIDER ===================== -->
-          <line x1="40" y1="312" x2="1180" y2="312" stroke="#c98a2e" stroke-width="3" stroke-dasharray="8 7"/>
-          <rect x="40" y="297" width="430" height="31" rx="6" fill="#ffffff"/>
-          <text x="48" y="320" font-size="20" fill="#c98a2e" font-weight="800">ᴾ = backed by PRAXIS · durable knowledge</text>
-
-          <!-- ===================== SPEC ===================== -->
-          <rect class="stage-fill" x="40" y="112" width="172" height="124" rx="12" stroke="#1F4E79" stroke-width="3"/>
-          <rect x="40" y="112" width="172" height="42" rx="12" fill="#1F4E79"/>
-          <rect x="40" y="134" width="172" height="20" fill="#1F4E79"/>
-          <text x="126" y="142" text-anchor="middle" font-size="24" fill="#ffffff" font-weight="800">Spec</text>
-          <text x="126" y="192" text-anchor="middle" font-size="17" class="stage-sub">the requirement</text>
-          <text x="126" y="214" text-anchor="middle" font-size="17" class="stage-sub">to build</text>
-
-          <!-- Spec → Plan (top) -->
-          <line x1="212" y1="170" x2="310" y2="184" stroke="#5b6470" stroke-width="3" marker-end="url(#af-arrow)"/>
-          <!-- Spec → playbook row (gold curve into How to Plan) -->
-          <path d="M126,236 C126,330 150,420 290,420" fill="none" stroke="#c98a2e" stroke-width="3" marker-end="url(#af-arrow-gold)"/>
-
-          <!-- ===================== TOP PIPELINE: PLAN → BUILD → VALIDATE ===================== -->
-          <!-- PLAN -->
-          <rect class="stage-fill" x="318" y="112" width="216" height="140" rx="12" stroke="#2E75B6" stroke-width="3"/>
-          <rect x="318" y="112" width="216" height="42" rx="12" fill="#2E75B6"/>
-          <rect x="318" y="134" width="216" height="20" fill="#2E75B6"/>
-          <text x="426" y="143" text-anchor="middle" font-size="26" fill="#ffffff" font-weight="800">Plan</text>
-          <text x="426" y="200" text-anchor="middle" font-size="16" class="stage-label">decompose into tickets</text>
-          <circle cx="528" cy="112" r="17" fill="#c98a2e"/><text x="528" y="119" text-anchor="middle" font-size="19" fill="#fff" font-weight="800">P</text>
-
-          <!-- Plan → Build -->
-          <line x1="534" y1="184" x2="578" y2="184" stroke="#5b6470" stroke-width="3" marker-end="url(#af-arrow)"/>
-
-          <!-- BUILD -->
-          <rect class="stage-fill" x="582" y="112" width="196" height="140" rx="12" stroke="#5B9BD5" stroke-width="3"/>
-          <rect x="582" y="112" width="196" height="42" rx="12" fill="#5B9BD5"/>
-          <rect x="582" y="134" width="196" height="20" fill="#5B9BD5"/>
-          <text x="680" y="143" text-anchor="middle" font-size="26" fill="#ffffff" font-weight="800">Build</text>
-          <text x="680" y="200" text-anchor="middle" font-size="16" class="stage-label">implement each ticket</text>
-
-          <!-- Build → Validate -->
-          <line x1="778" y1="184" x2="822" y2="184" stroke="#5b6470" stroke-width="3" marker-end="url(#af-arrow)"/>
-
-          <!-- VALIDATE -->
-          <rect class="stage-fill" x="826" y="112" width="208" height="140" rx="12" stroke="#4f7d5a" stroke-width="3"/>
-          <rect x="826" y="112" width="208" height="42" rx="12" fill="#4f7d5a"/>
-          <rect x="826" y="134" width="208" height="20" fill="#4f7d5a"/>
-          <text x="930" y="143" text-anchor="middle" font-size="26" fill="#ffffff" font-weight="800">Validate</text>
-          <text x="930" y="200" text-anchor="middle" font-size="16" class="stage-label">run the checks</text>
-
-          <!-- ===================== PLAYBOOK → STAGE (up arrows) ===================== -->
-          <line x1="426" y1="360" x2="426" y2="254" stroke="#2E75B6" stroke-width="3" marker-end="url(#af-arrow-blue)"/>
-          <line x1="680" y1="360" x2="680" y2="254" stroke="#2E75B6" stroke-width="3" marker-end="url(#af-arrow-blue)"/>
-          <line x1="930" y1="360" x2="930" y2="254" stroke="#2E75B6" stroke-width="3" marker-end="url(#af-arrow-blue)"/>
-
-          <!-- ===================== PLAYBOOK ROW (how-to layer) ===================== -->
-          <rect class="stage-fill" x="300" y="360" width="740" height="130" rx="12" stroke="#c98a2e" stroke-width="3"/>
-          <line x1="546" y1="360" x2="546" y2="490" stroke="#c98a2e" stroke-width="2.5"/>
-          <line x1="793" y1="360" x2="793" y2="490" stroke="#c98a2e" stroke-width="2.5"/>
-
-          <text x="423" y="412" text-anchor="middle" font-size="19" class="stage-sub">How to</text>
-          <text x="423" y="448" text-anchor="middle" font-size="27" class="sub-text" font-weight="800">Plan</text>
-          <circle cx="520" cy="376" r="16" fill="#c98a2e"/><text x="520" y="382" text-anchor="middle" font-size="17" fill="#fff" font-weight="800">P</text>
-
-          <text x="670" y="412" text-anchor="middle" font-size="19" class="stage-sub">How to</text>
-          <text x="670" y="448" text-anchor="middle" font-size="27" class="sub-text" font-weight="800">Build</text>
-          <circle cx="767" cy="376" r="16" fill="#c98a2e"/><text x="767" y="382" text-anchor="middle" font-size="17" fill="#fff" font-weight="800">P</text>
-
-          <text x="917" y="412" text-anchor="middle" font-size="19" class="stage-sub">How to</text>
-          <text x="917" y="448" text-anchor="middle" font-size="27" class="sub-text" font-weight="800">Validate</text>
-          <circle cx="1014" cy="376" r="16" fill="#c98a2e"/><text x="1014" y="382" text-anchor="middle" font-size="17" fill="#fff" font-weight="800">P</text>
-
-          <text x="670" y="520" text-anchor="middle" font-size="18" class="conn-label">Praxis-backed playbook — guides each stage</text>
-        </svg>
-      </div>
-
-      <div class="legend">
-        <div class="item"><span class="sw" style="border-top-color:#5b6470;"></span>pipeline flow (Plan → Build → Validate)</div>
-        <div class="item"><span class="sw" style="border-top-color:#2E75B6;"></span>playbook guides each stage</div>
-        <div class="item"><span class="sw" style="border-top-color:#c98a2e;border-top-style:dashed;"></span>spec feeds the playbook · ᴾ = backed by Praxis</div>
-      </div>
+      <img class="shot-img" src="assets/praxis/planning_validation.png"
+           alt="PRAXIS dashboard — general-pool planning conventions graph used as planning validation control">
     </div>
   </section>
+
+
+  <!-- ============================================================
+       SLIDE — PRAXIS TICKETS (dashboard screenshot)
+       ============================================================ -->
+  <section class="slide shot"
+           data-name="Matthew Daw" data-role="ML &amp; Knowledge Pipeline Lead"
+           data-github="https://github.com/MatthewDaw">
+    <div class="kicker">PRAXIS</div>
+    <h2 class="slidehead">Praxis Tickets</h2>
+    <div class="grow">
+      <img class="shot-img" src="assets/praxis/praxis_tickets.png"
+           alt="PRAXIS dashboard — team-app requirement graph: lifecycle funnel, scope tree, and fact detail">
+    </div>
+  </section>
+
+
+  <!-- ============================================================
+       SLIDE — CODE VALIDATION CONTROL (prd-team-app-eval graph)
+       ============================================================ -->
+  <section class="slide shot"
+           data-name="Matthew Daw" data-role="ML &amp; Knowledge Pipeline Lead"
+           data-github="https://github.com/MatthewDaw">
+    <div class="kicker">PRAXIS</div>
+    <h2 class="slidehead">Code Validation Control</h2>
+    <div class="grow">
+      <img class="shot-img" src="assets/praxis/code_validation.png"
+           alt="PRAXIS dashboard — prd-team-app-eval build/validation graph: 61 active requirement facts">
+    </div>
+  </section>
+
+
+  <!-- ============================================================
+       SLIDE — THE SHIPPED APP (Coach Console / team-app)
+       ============================================================ -->
+  <section class="slide shot"
+           data-name="Matthew Daw" data-role="ML &amp; Knowledge Pipeline Lead"
+           data-github="https://github.com/MatthewDaw">
+    <div class="kicker">The Result</div>
+    <h2 class="slidehead">Coach Console — the app the factory built</h2>
+    <div class="grow">
+      <img class="shot-img" src="assets/praxis/coach_console.png"
+           alt="Coach Console participation dashboard — the deployed team-app built end-to-end by the agent factory">
+    </div>
+  </section>
+
 
 </div>
 
@@ -745,6 +1184,8 @@
   document.addEventListener('keydown', e=>{
     if(e.key==='ArrowRight'||e.key===' '||e.key==='PageDown'){ e.preventDefault(); next(); }
     else if(e.key==='ArrowLeft'||e.key==='PageUp'){ e.preventDefault(); prev(); }
+    else if(e.key==='ArrowDown'){ e.preventDefault(); show(i+1); }
+    else if(e.key==='ArrowUp'){ e.preventDefault(); show(i-1); }
     else if(e.key==='Home'){ show(0); }
     else if(e.key==='End'){ show(slides.length-1, true); }
     else if(e.key.toLowerCase()==='f'){ help.classList.toggle('hidden'); }
